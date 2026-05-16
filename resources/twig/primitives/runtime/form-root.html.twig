@@ -1,0 +1,14 @@
+{#
+ # platform.form-root — metadata-only primitive shell. FormComponent
+ # renders its own <form> tag directly (so the content slot + status
+ # target + submit button can live in one natural subtree) and emits
+ # the data-ui-part="form" marker in place. This template is a safe
+ # fallback for the unlikely case ui_part('form', ...) is called
+ # directly: it renders an empty <form action="#"> with the canonical
+ # primitive markers and nothing else.
+ #}
+<form
+    ui="{{ _primitive.ui }}"
+    data-ui-primitive="{{ _primitive.name }}"
+    action="#"
+></form>

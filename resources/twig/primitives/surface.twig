@@ -1,0 +1,15 @@
+{# @platform-ui/surface — content container with panel styling #}
+{% macro open(options = {}) %}
+    {%- set variant = options.variant|default(null) -%}
+    {%- set padding = options.padding|default(null) -%}
+    {%- set radius = options.radius|default(null) -%}
+<div ui="surface"
+    {%- if variant %} sx-surface="{{ variant }}"{% endif -%}
+    {%- if padding %} sx-padding="{{ padding }}"{% endif -%}
+    {%- if radius %} sx-radius="{{ radius }}"{% endif -%}
+>
+{% endmacro %}
+
+{% macro close() %}
+</div>
+{% endmacro %}

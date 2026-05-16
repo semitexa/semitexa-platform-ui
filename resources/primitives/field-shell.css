@@ -1,0 +1,23 @@
+@layer platform-ui.primitives {
+    [ui="field-shell"] {
+        display: block;
+    }
+
+    [ui="field-shell"][ui-size="sm"] [ui="label"] { font-size: 0.75rem; }
+    [ui="field-shell"][ui-size="lg"] [ui="label"] { font-size: 0.9375rem; }
+    [ui="field-shell"][ui-size="sm"] [ui="input"] { padding: 0.375rem 0.625rem; font-size: 0.875rem; }
+    [ui="field-shell"][ui-size="lg"] [ui="input"] { padding: 0.625rem 0.875rem; font-size: 1rem; }
+
+    [ui="field-shell"][ui-state="invalid"] [ui="label"] { color: var(--ui-state-danger); }
+    [ui="field-shell"][ui-state="invalid"] [ui="input"] { border-color: var(--ui-state-danger); }
+
+    [ui="field-shell"] [ui="error-text"] {
+        display: block;
+        font-size: 0.75rem;
+        color: var(--ui-state-danger);
+        margin-top: 0.25rem;
+        line-height: 1.4;
+    }
+
+    [ui="field-shell"]:not([ui-state="invalid"]) [ui="error-text"] { display: none; }
+}

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>platform-ui grammar demo</title>
+    <link rel="stylesheet" href="grammar-demo.css">
+</head>
+<body sx-padding="6">
+    <div sx-layout="stack" sx-gap="6">
+
+        <header sx-layout="cluster" sx-justify="between" sx-align="center">
+            <h1 ui-text="title">platform-ui grammar demo</h1>
+            <span ui-text="muted">M2 — sx/ui attribute grammar</span>
+        </header>
+
+        <section sx-surface="panel" sx-padding="4" sx-radius="lg" sx-layout="stack" sx-gap="3">
+            <h2 ui-text="title">Surfaces</h2>
+            <div sx-layout="cluster" sx-gap="3">
+                <div sx-surface="flat" sx-padding="3" sx-radius="md">sx-surface="flat"</div>
+                <div sx-surface="panel" sx-padding="3" sx-radius="md">sx-surface="panel"</div>
+                <div sx-surface="raised" sx-padding="3" sx-radius="md">sx-surface="raised"</div>
+            </div>
+        </section>
+
+        <section sx-surface="panel" sx-padding="4" sx-radius="lg" sx-layout="stack" sx-gap="3">
+            <h2 ui-text="title">Tones</h2>
+            <div sx-layout="cluster" sx-gap="4">
+                <span sx-tone="neutral">neutral</span>
+                <span sx-tone="brand">brand</span>
+                <span sx-tone="success">success</span>
+                <span sx-tone="warning">warning</span>
+                <span sx-tone="danger">danger</span>
+            </div>
+        </section>
+
+        <section sx-surface="panel" sx-padding="4" sx-radius="lg" sx-layout="stack" sx-gap="3">
+            <h2 ui-text="title">Text roles</h2>
+            <p ui-text="body">Body copy — normal reading weight on <code>ui-text="body"</code>.</p>
+            <p ui-text="muted">Muted copy — secondary information.</p>
+            <p ui-text="label">LABEL-LIKE — small, strong, for form labels.</p>
+        </section>
+
+        <section sx-surface="panel" sx-padding="4" sx-radius="lg" sx-layout="stack" sx-gap="3">
+            <h2 ui-text="title">Radius scale</h2>
+            <div sx-layout="cluster" sx-gap="3">
+                <div sx-surface="raised" sx-padding="3" sx-radius="none">none</div>
+                <div sx-surface="raised" sx-padding="3" sx-radius="sm">sm</div>
+                <div sx-surface="raised" sx-padding="3" sx-radius="md">md</div>
+                <div sx-surface="raised" sx-padding="3" sx-radius="lg">lg</div>
+                <div sx-surface="raised" sx-padding="3" sx-radius="pill">pill</div>
+            </div>
+        </section>
+
+        <section sx-surface="panel" sx-padding="4" sx-radius="lg" sx-layout="stack" sx-gap="3">
+            <h2 ui-text="title">Grid layout</h2>
+            <div sx-layout="grid" sx-gap="3">
+                <div sx-surface="raised" sx-padding="3" sx-radius="md">1</div>
+                <div sx-surface="raised" sx-padding="3" sx-radius="md">2</div>
+                <div sx-surface="raised" sx-padding="3" sx-radius="md">3</div>
+                <div sx-surface="raised" sx-padding="3" sx-radius="md">4</div>
+            </div>
+        </section>
+
+    </div>
+</body>
+</html>

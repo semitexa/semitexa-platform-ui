@@ -1,0 +1,17 @@
+{# @platform-ui/button — render a styled button or link-button #}
+{% macro render(label, options = {}) %}
+    {%- set variant = options.variant|default(null) -%}
+    {%- set tone = options.tone|default(null) -%}
+    {%- set size = options.size|default(null) -%}
+    {%- set type = options.type|default('button') -%}
+    {%- set href = options.href|default(null) -%}
+    {%- set disabled = options.disabled|default(false) -%}
+    {%- set tag = href ? 'a' : 'button' -%}
+<{{ tag }} ui="button"
+    {%- if href %} href="{{ href }}"{% else %} type="{{ type }}"{% endif -%}
+    {%- if variant %} ui-variant="{{ variant }}"{% endif -%}
+    {%- if tone %} ui-tone="{{ tone }}"{% endif -%}
+    {%- if size %} ui-size="{{ size }}"{% endif -%}
+    {%- if disabled and not href %} disabled{% endif -%}
+>{{ label }}</{{ tag }}>
+{% endmacro %}

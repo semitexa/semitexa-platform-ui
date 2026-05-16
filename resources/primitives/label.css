@@ -1,0 +1,13 @@
+@layer platform-ui.primitives {
+    [ui="label"] {
+        display: block;
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: var(--ui-text-primary);
+        margin-bottom: 0.25rem;
+        line-height: 1.4;
+    }
+
+    [ui="label"][ui-size="sm"] { font-size: 0.75rem; }
+    [ui="label"][ui-size="lg"] { font-size: 0.9375rem; }
+}

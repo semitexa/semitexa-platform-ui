@@ -1,0 +1,78 @@
+/* Cascade layer order — enforces specificity hierarchy across the package. */
+@layer platform-ui.reset, platform-ui.tokens, platform-ui.grammar, platform-ui.primitives;
+
+
+@layer platform-ui.reset {
+    *,
+    *::before,
+    *::after {
+        box-sizing: border-box;
+    }
+
+    html {
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
+        tab-size: 4;
+    }
+
+    body {
+        margin: 0;
+        min-height: 100svh;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+    }
+
+    h1, h2, h3, h4, h5, h6, p, figure, blockquote, dl, dd {
+        margin: 0;
+    }
+
+    img, picture, video, canvas, svg {
+        display: block;
+        max-width: 100%;
+    }
+
+    input, button, textarea, select {
+        font: inherit;
+        color: inherit;
+    }
+
+    button {
+        cursor: pointer;
+        background: none;
+        border: none;
+        padding: 0;
+    }
+
+    :where([hidden]) {
+        display: none !important;
+    }
+
+    :where(:focus-visible) {
+        outline: 2px solid var(--ui-focus-ring, currentColor);
+        outline-offset: 2px;
+    }
+}
+
+
+@layer platform-ui.reset {
+    :root {
+        --ui-font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        --ui-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+        font-family: var(--ui-font-sans);
+        font-size: 16px;
+        color: var(--ui-text-primary, inherit);
+        background: var(--ui-surface-page, transparent);
+    }
+
+    code, kbd, samp, pre {
+        font-family: var(--ui-font-mono);
+        font-size: 0.9375em;
+    }
+
+    a {
+        color: var(--ui-accent-brand, currentColor);
+        text-decoration-skip-ink: auto;
+    }
+}

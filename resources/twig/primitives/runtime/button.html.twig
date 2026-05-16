@@ -1,0 +1,10 @@
+{%- set tag = (href|default(null)) ? 'a' : 'button' -%}
+{%- set _type = type|default('button') -%}
+<{{ tag }} ui="{{ _primitive.ui }}" data-ui-primitive="{{ _primitive.name }}"
+{%- if href|default(null) %} href="{{ href }}"
+{%- else %} type="{{ _type }}"{% endif -%}
+{%- if variant|default(null) %} ui-variant="{{ variant }}"{% endif -%}
+{%- if tone|default(null) %} ui-tone="{{ tone }}"{% endif -%}
+{%- if size|default(null) %} ui-size="{{ size }}"{% endif -%}
+{%- if disabled|default(false) and not (href|default(null)) %} disabled{% endif -%}
+>{{ text|default(label|default('')) }}</{{ tag }}>

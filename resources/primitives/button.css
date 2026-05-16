@@ -1,0 +1,58 @@
+@layer platform-ui.primitives {
+    [ui="button"] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        border: 1px solid transparent;
+        border-radius: var(--ui-radius-md, 0.5rem);
+        font: inherit;
+        font-weight: 500;
+        cursor: pointer;
+        transition:
+            background-color var(--ui-motion-duration-fast, 120ms),
+            border-color     var(--ui-motion-duration-fast, 120ms),
+            color            var(--ui-motion-duration-fast, 120ms),
+            filter           var(--ui-motion-duration-fast, 120ms);
+        white-space: nowrap;
+        user-select: none;
+        text-decoration: none;
+    }
+
+    [ui="button"][ui-size="sm"] { font-size: 0.8125rem; padding: 0.375rem 0.625rem; }
+    [ui="button"]:where(:not([ui-size]), [ui-size="md"]) { font-size: 0.9375rem; padding: 0.5rem 0.875rem; }
+    [ui="button"][ui-size="lg"] { font-size: 1rem; padding: 0.625rem 1.125rem; }
+
+    [ui="button"]:where(:not([ui-variant]), [ui-variant="solid"]) {
+        background: var(--ui-accent-brand);
+        color: var(--ui-text-on-accent);
+    }
+    [ui="button"][ui-variant="solid"][ui-tone="neutral"] { background: var(--ui-text-primary); color: var(--ui-surface-page); }
+    [ui="button"][ui-variant="solid"][ui-tone="success"] { background: var(--ui-state-success); color: var(--ui-surface-page); }
+    [ui="button"][ui-variant="solid"][ui-tone="warning"] { background: var(--ui-state-warning); color: var(--ui-text-primary); }
+    [ui="button"][ui-variant="solid"][ui-tone="danger"] { background: var(--ui-state-danger); color: var(--ui-surface-page); }
+
+    [ui="button"][ui-variant="soft"] {
+        background: var(--ui-surface-panel);
+        color: var(--ui-text-primary);
+        border-color: var(--ui-border-subtle);
+    }
+    [ui="button"][ui-variant="soft"][ui-tone="brand"] { color: var(--ui-accent-brand); }
+    [ui="button"][ui-variant="soft"][ui-tone="success"] { color: var(--ui-state-success); }
+    [ui="button"][ui-variant="soft"][ui-tone="warning"] { color: var(--ui-state-warning); }
+    [ui="button"][ui-variant="soft"][ui-tone="danger"] { color: var(--ui-state-danger); }
+
+    [ui="button"][ui-variant="ghost"] {
+        background: transparent;
+        color: var(--ui-text-primary);
+    }
+    [ui="button"][ui-variant="ghost"][ui-tone="brand"] { color: var(--ui-accent-brand); }
+    [ui="button"][ui-variant="ghost"][ui-tone="success"] { color: var(--ui-state-success); }
+    [ui="button"][ui-variant="ghost"][ui-tone="warning"] { color: var(--ui-state-warning); }
+    [ui="button"][ui-variant="ghost"][ui-tone="danger"] { color: var(--ui-state-danger); }
+    [ui="button"][ui-variant="ghost"]:hover:not(:disabled) { background: var(--ui-surface-panel); }
+
+    [ui="button"]:hover:not(:disabled) { filter: brightness(0.95); }
+    [ui="button"]:active:not(:disabled) { transform: translateY(0.5px); }
+    [ui="button"]:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+}

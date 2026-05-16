@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>platform-ui primitives demo</title>
+    <link rel="stylesheet" href="primitives-demo.css">
+</head>
+<body sx-padding="6">
+    <div sx-layout="stack" sx-gap="6">
+
+        <header sx-layout="cluster" sx-justify="between" sx-align="center">
+            <h1 ui-text="title">platform-ui primitives</h1>
+            <span ui="badge" ui-variant="soft" ui-tone="brand">M3</span>
+        </header>
+
+        <div ui="surface" sx-padding="4">
+            <h2 ui-text="title">Buttons</h2>
+            <div sx-layout="stack" sx-gap="3" sx-padding="4">
+
+                <div sx-layout="cluster" sx-gap="3" sx-align="center">
+                    <span ui-text="label" style="min-width: 8rem">solid</span>
+                    <button ui="button">Default brand</button>
+                    <button ui="button" ui-tone="neutral">Neutral</button>
+                    <button ui="button" ui-tone="success">Success</button>
+                    <button ui="button" ui-tone="warning">Warning</button>
+                    <button ui="button" ui-tone="danger">Danger</button>
+                </div>
+
+                <div sx-layout="cluster" sx-gap="3" sx-align="center">
+                    <span ui-text="label" style="min-width: 8rem">soft</span>
+                    <button ui="button" ui-variant="soft">Brand</button>
+                    <button ui="button" ui-variant="soft" ui-tone="success">Success</button>
+                    <button ui="button" ui-variant="soft" ui-tone="warning">Warning</button>
+                    <button ui="button" ui-variant="soft" ui-tone="danger">Danger</button>
+                </div>
+
+                <div sx-layout="cluster" sx-gap="3" sx-align="center">
+                    <span ui-text="label" style="min-width: 8rem">ghost</span>
+                    <button ui="button" ui-variant="ghost">Cancel</button>
+                    <button ui="button" ui-variant="ghost" ui-tone="brand">Brand</button>
+                    <button ui="button" ui-variant="ghost" ui-tone="danger">Delete</button>
+                </div>
+
+                <div sx-layout="cluster" sx-gap="3" sx-align="center">
+                    <span ui-text="label" style="min-width: 8rem">sizes</span>
+                    <button ui="button" ui-size="sm">Small</button>
+                    <button ui="button" ui-size="md">Medium</button>
+                    <button ui="button" ui-size="lg">Large</button>
+                    <button ui="button" disabled>Disabled</button>
+                </div>
+
+            </div>
+        </div>
+
+        <div ui="surface" sx-padding="4">
+            <h2 ui-text="title">Form field</h2>
+            <div sx-layout="stack" sx-gap="4" sx-padding="4">
+
+                <div ui="field-shell">
+                    <label ui="label" for="email">Email</label>
+                    <input ui="input" id="email" type="email" placeholder="you@example.com">
+                </div>
+
+                <div ui="field-shell" ui-state="invalid">
+                    <label ui="label" for="email2">Email (invalid)</label>
+                    <input ui="input" id="email2" type="email" value="not-an-email" ui-state="invalid">
+                    <span ui="error-text">Enter a valid email address.</span>
+                </div>
+
+                <div ui="field-shell" ui-size="sm">
+                    <label ui="label">Small field</label>
+                    <input ui="input" placeholder="compact">
+                </div>
+
+                <div ui="field-shell" ui-size="lg">
+                    <label ui="label">Large field</label>
+                    <input ui="input" placeholder="roomy">
+                </div>
+
+            </div>
+        </div>
+
+        <div ui="surface" sx-padding="4">
+            <h2 ui-text="title">Badges</h2>
+            <div sx-layout="stack" sx-gap="3" sx-padding="4">
+                <div sx-layout="cluster" sx-gap="3" sx-align="center">
+                    <span ui-text="label" style="min-width: 8rem">solid</span>
+                    <span ui="badge">brand</span>
+                    <span ui="badge" ui-tone="neutral">neutral</span>
+                    <span ui="badge" ui-tone="success">success</span>
+                    <span ui="badge" ui-tone="warning">warning</span>
+                    <span ui="badge" ui-tone="danger">danger</span>
+                </div>
+                <div sx-layout="cluster" sx-gap="3" sx-align="center">
+                    <span ui-text="label" style="min-width: 8rem">soft</span>
+                    <span ui="badge" ui-variant="soft">brand</span>
+                    <span ui="badge" ui-variant="soft" ui-tone="neutral">neutral</span>
+                    <span ui="badge" ui-variant="soft" ui-tone="success">success</span>
+                    <span ui="badge" ui-variant="soft" ui-tone="warning">warning</span>
+                    <span ui="badge" ui-variant="soft" ui-tone="danger">danger</span>
+                </div>
+            </div>
+        </div>
+
+        <div ui="surface" sx-padding="4">
+            <h2 ui-text="title">Composed form</h2>
+            <div sx-layout="stack" sx-gap="4" sx-padding="4">
+                <div sx-layout="grid" sx-gap="4">
+                    <div ui="field-shell">
+                        <label ui="label" for="fname">First name</label>
+                        <input ui="input" id="fname" placeholder="Ada">
+                    </div>
+                    <div ui="field-shell">
+                        <label ui="label" for="lname">Last name</label>
+                        <input ui="input" id="lname" placeholder="Lovelace">
+                    </div>
+                </div>
+                <div ui="field-shell">
+                    <label ui="label" for="note">Note</label>
+                    <input ui="input" id="note" placeholder="Optional">
+                </div>
+                <div sx-layout="cluster" sx-gap="3" sx-justify="end">
+                    <button ui="button" ui-variant="ghost">Cancel</button>
+                    <button ui="button" ui-tone="brand">Save</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</body>
+</html>

@@ -1,0 +1,2 @@
+/* Cascade layer order — enforces specificity hierarchy across the package. */
+@layer platform-ui.reset, platform-ui.tokens, platform-ui.grammar, platform-ui.primitives;

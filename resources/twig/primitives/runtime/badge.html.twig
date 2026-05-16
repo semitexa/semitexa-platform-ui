@@ -1,0 +1,4 @@
+<span ui="{{ _primitive.ui }}" data-ui-primitive="{{ _primitive.name }}"
+{%- if variant|default(null) %} ui-variant="{{ variant }}"{% endif -%}
+{%- if tone|default(null) %} ui-tone="{{ tone }}"{% endif -%}
+>{{ text|default('') }}</span>

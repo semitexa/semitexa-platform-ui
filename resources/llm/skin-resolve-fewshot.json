@@ -1,0 +1,101 @@
+[
+    {
+        "prompt": "море і захід сонця",
+        "output": {
+            "seed": "#1e4d6b",
+            "algorithm": "balanced",
+            "knobs": {},
+            "accent_hint": "#ff8c42",
+            "mood": "energetic",
+            "rationale": "Deep ocean teal with warm sunset accent. Complementary hues near 220 and 35."
+        }
+    },
+    {
+        "prompt": "строгий корпоративний банк",
+        "output": {
+            "seed": "#2a3e5a",
+            "algorithm": "balanced",
+            "knobs": { "radius_scale": "compact" },
+            "accent_hint": null,
+            "mood": "corporate",
+            "rationale": "Dark navy, tight radii for dense enterprise feel."
+        }
+    },
+    {
+        "prompt": "м'який ранковий туман",
+        "output": {
+            "seed": "#4f6b84",
+            "algorithm": "balanced",
+            "knobs": { "radius_scale": "rounded", "motion_speed": "slow" },
+            "accent_hint": null,
+            "mood": "calm",
+            "rationale": "Muted blue-grey, softer edges, unhurried motion."
+        }
+    },
+    {
+        "prompt": "premium boutique hotel, frosted glass",
+        "output": {
+            "seed": "#2a4858",
+            "algorithm": "glass",
+            "knobs": { "blur_amount": "medium", "surface_transparency": "medium" },
+            "accent_hint": "#d4a574",
+            "mood": "calm",
+            "rationale": "Deep slate with warm amber accent; glass character for luxury."
+        }
+    },
+    {
+        "prompt": "airy apple-style dashboard, modern saas",
+        "output": {
+            "seed": "#4b78c9",
+            "algorithm": "glass",
+            "knobs": { "blur_amount": "subtle", "shadow_softness": "wide" },
+            "accent_hint": null,
+            "mood": "minimal",
+            "rationale": "Crisp translucent panels, softly spreading shadows."
+        }
+    },
+    {
+        "prompt": "punk zine, bold black-and-red manifesto",
+        "output": {
+            "seed": "#c41818",
+            "algorithm": "brutalist",
+            "knobs": { "shadow_offset": "pronounced", "shadow_color_mode": "brand", "contrast_boost": "high" },
+            "accent_hint": null,
+            "mood": "energetic",
+            "rationale": "Saturated red with brand-colored hard shadows; punk zine feel."
+        }
+    },
+    {
+        "prompt": "editorial magazine spread, bold",
+        "output": {
+            "seed": "#1a1a1a",
+            "algorithm": "brutalist",
+            "knobs": { "shadow_offset": "sharp", "shadow_color_mode": "neutral" },
+            "accent_hint": null,
+            "mood": "minimal",
+            "rationale": "Near-black with crisp sharp offset shadows; editorial strength."
+        }
+    },
+    {
+        "prompt": "accessibility-first admin panel",
+        "output": {
+            "seed": "#1f3a5f",
+            "algorithm": "balanced",
+            "knobs": { "shadow_intensity": "minimal" },
+            "accent_hint": null,
+            "mood": "accessible",
+            "rationale": "Strong dark blue with high contrast; minimal shadows to aid focus."
+        }
+    },
+    {
+        "prompt": "playful startup brand",
+        "output": {
+            "seed": "#8a4fb8",
+            "algorithm": "balanced",
+            "knobs": { "radius_scale": "rounded", "shadow_intensity": "pronounced" },
+            "accent_hint": "#ffb703",
+            "mood": "playful",
+            "rationale": "Lively purple with warm yellow accent; rounded and playful."
+        }
+    }
+]

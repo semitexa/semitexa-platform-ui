@@ -1,0 +1,617 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Semitexa\PlatformUi\Application\Service\Twig;
+
+use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
+use Semitexa\PlatformUi\Application\Service\Component\UiPartPropResolver;
+use Semitexa\PlatformUi\Application\Service\Event\UiEventManifestBuilder;
+use Semitexa\PlatformUi\Application\Service\Event\UiInstanceIdGenerator;
+use Semitexa\PlatformUi\Application\Service\Event\UiSseChannelToken;
+use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleParser;
+use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistry;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistry;
+use Semitexa\PlatformUi\Application\Service\Validation\UiFormSubmitConfigParser;
+use Semitexa\PlatformUi\Application\Service\Validation\UiFormSubmitDefinitionExtractor;
+use Semitexa\PlatformUi\Domain\Exception\UiFormSubmitActionException;
+use Semitexa\PlatformUi\Application\Service\Primitive\PrimitiveRenderer;
+use Semitexa\PlatformUi\Domain\Exception\UiComponentRegistryException;
+use Semitexa\Ssr\Application\Service\Extension\TwigExtensionRegistry;
+use Semitexa\Ssr\Attribute\AsTwigExtension;
+use Twig\Markup;
+
+#[AsTwigExtension]
+final class PlatformUiTwigExtension
+{
+    public function registerFunctions(): void
+    {
+        TwigExtensionRegistry::registerFunction(
+            'primitive',
+            static function (string $name, array $props = []): Markup {
+                $renderer = new PrimitiveRenderer();
+                return new Markup($renderer->render($name, $props), 'UTF-8');
+            },
+            ['is_safe' => ['html']],
+        );
+
+        /**
+         * ui_part_props(partName, overrides = [])
+         *
+         * Resolves the final prop map for one declared part of the
+         * component currently being rendered. The current component
+         * comes from the Twig context's `_component` key, which SSR's
+         * ComponentRenderer populates automatically. Caller component
+         * props are extracted from the context by stripping framework
+         * keys (anything starting with `_`).
+         *
+         * Returns an array (NOT a Markup) — callers feed it straight
+         * into `primitive(partName, ui_part_props('partName'))`.
+         */
+        TwigExtensionRegistry::registerFunction(
+            'ui_part_props',
+            static function (array $context, string $partName, array $overrides = []): array {
+                $component = $context['_component'] ?? null;
+                if (!is_array($component) || !isset($component['name']) || !is_string($component['name'])) {
+                    throw new UiComponentRegistryException(
+                        'ui_part_props() called outside a Platform UI component render context.',
+                    );
+                }
+
+                $metadata = UiComponentRegistry::get($component['name']);
+                if ($metadata === null) {
+                    throw new UiComponentRegistryException(sprintf(
+                        'Component "%s" is not registered in UiComponentRegistry — declare #[UiPart] / #[UiSlot] on it or use the primitive() helper directly.',
+                        $component['name'],
+                    ));
+                }
+
+                $componentProps = [];
+                foreach ($context as $key => $value) {
+                    if (is_string($key) && $key !== '' && $key[0] !== '_') {
+                        $componentProps[$key] = $value;
+                    }
+                }
+
+                return (new UiPartPropResolver())->resolve(
+                    $metadata,
+                    $partName,
+                    $componentProps,
+                    $overrides,
+                );
+            },
+            ['needs_context' => true],
+        );
+
+        /**
+         * ui_part(partName, overrides = [])
+         *
+         * One-shot render of a declared component part. Equivalent to:
+         *
+         *     {{ primitive(<part-primitive>, ui_part_props(partName, overrides)) }}
+         *
+         * plus the all-important `data-ui-part="<partName>"` marker injected
+         * onto the rendered primitive's root tag, so the frontend runtime
+         * resolves parts by UiPart name instead of conflating with the
+         * primitive's `ui` alias.
+         *
+         * Returns a Markup. The current component identity comes from the
+         * Twig context's `_component` key, the part metadata comes from
+         * UiComponentRegistry, and the primitive name comes from
+         * UiPartMetadata::$primitiveName (cached at registration).
+         */
+        TwigExtensionRegistry::registerFunction(
+            'ui_part',
+            static function (array $context, string $partName, array $overrides = []): Markup {
+                $component = $context['_component'] ?? null;
+                if (!is_array($component) || !isset($component['name']) || !is_string($component['name'])) {
+                    throw new UiComponentRegistryException(
+                        'ui_part() called outside a Platform UI component render context.',
+                    );
+                }
+
+                $metadata = UiComponentRegistry::get($component['name']);
+                if ($metadata === null) {
+                    throw new UiComponentRegistryException(sprintf(
+                        'Component "%s" is not registered in UiComponentRegistry.',
+                        $component['name'],
+                    ));
+                }
+
+                $part = $metadata->part($partName);
+                if ($part === null) {
+                    throw new UiComponentRegistryException(sprintf(
+                        'Component "%s" has no part named "%s".',
+                        $metadata->name,
+                        $partName,
+                    ));
+                }
+
+                $componentProps = [];
+                foreach ($context as $key => $value) {
+                    if (is_string($key) && $key !== '' && $key[0] !== '_') {
+                        $componentProps[$key] = $value;
+                    }
+                }
+
+                $resolved = (new UiPartPropResolver())->resolve(
+                    $metadata,
+                    $partName,
+                    $componentProps,
+                    $overrides,
+                );
+
+                $renderer = new PrimitiveRenderer();
+                $html = $renderer->render($part->primitiveName, $resolved);
+
+                $markerAttr = sprintf(
+                    'data-ui-part="%s"',
+                    htmlspecialchars($partName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                );
+
+                // Inject the marker right after the opening tag's element
+                // name on the rendered primitive's root. Tight regex anchored
+                // at the first `<tagname` so embedded `<` inside attribute
+                // values cannot match.
+                $count = 0;
+                $injected = preg_replace(
+                    '/^(\s*<[a-zA-Z][a-zA-Z0-9-]*)(?=\s|>|\/>)/',
+                    '$1 ' . str_replace('\\', '\\\\', str_replace('$', '\\$', $markerAttr)),
+                    $html,
+                    1,
+                    $count,
+                );
+                if ($injected === null || $count !== 1) {
+                    throw new UiComponentRegistryException(sprintf(
+                        'ui_part("%s"): failed to inject data-ui-part marker into rendered "%s" primitive output.',
+                        $partName,
+                        $part->primitiveName,
+                    ));
+                }
+
+                return new Markup($injected, 'UTF-8');
+            },
+            ['needs_context' => true, 'is_safe' => ['html']],
+        );
+
+        /**
+         * ui_component_events(componentName)
+         *
+         * Read-only introspection helper. Returns the declared
+         * #[UiOn] event metadata as a list of plain arrays — safe to
+         * iterate in templates for documentation/debug panels. This is
+         * NOT a runtime hook; the data does not become DOM event wiring.
+         *
+         * Each entry shape:
+         *   {
+         *     part:    string,
+         *     event:   string,
+         *     updates: ?string,   // dot-path or null
+         *     method:  string,    // PHP method name
+         *     runtime: 'metadata-only',
+         *   }
+         */
+        /**
+         * ui_component_instance()
+         *
+         * Returns a fresh per-render Platform UI instance id (e.g.
+         * "uci_<16hex>"). Stamp it once at the top of a component template,
+         * pass it to `ui_event_manifest()`, and emit it on the root as
+         * `data-ui-component-instance-id="…"` so future runtime can pair
+         * the manifest script with its DOM root.
+         */
+        TwigExtensionRegistry::registerFunction(
+            'ui_component_instance',
+            static fn (): string => (new UiInstanceIdGenerator())->next(),
+        );
+
+        /**
+         * ui_component_instance_for(override)
+         *
+         * Resolves a Platform UI component instance id with an
+         * optional caller-supplied override. Behaviour:
+         *
+         *   - $override === null  → generate a fresh `uci_<16hex>` id
+         *                          (same as ui_component_instance()).
+         *   - $override is a safe string matching
+         *     UiInstanceIdGenerator::SAFE_ID_PATTERN
+         *                          → return it verbatim. The instance
+         *                          id is then both server-rendered
+         *                          onto the component root AND signed
+         *                          into the event manifest's ctx so
+         *                          downstream submit pipelines can
+         *                          project per-field patches back at
+         *                          the same id.
+         *   - anything else        → throw UiComponentRegistryException
+         *                          so the caller sees the validation
+         *                          failure as a render-time Twig
+         *                          error (clear surface for developer
+         *                          mistakes).
+         *
+         * Stable ids are useful when an enclosing component (today:
+         * FormComponent's submit cfg.f.i) needs to address the inner
+         * component instance before its render runs. Tests and the
+         * playground form-submit demo use this seam.
+         */
+        TwigExtensionRegistry::registerFunction(
+            'ui_component_instance_for',
+            static function (mixed $override = null): string {
+                if ($override === null) {
+                    return (new UiInstanceIdGenerator())->next();
+                }
+                if (!UiInstanceIdGenerator::isSafe($override)) {
+                    throw new UiComponentRegistryException(
+                        'ui_component_instance_for() override must match the safe instance-id shape (' . UiInstanceIdGenerator::SAFE_ID_PATTERN . ').',
+                    );
+                }
+                /** @var string $override */
+                return $override;
+            },
+        );
+
+        /**
+         * ui_event_manifest(instanceId, ttlSeconds = null)
+         *
+         * Builds the signed UI event manifest for the component currently
+         * being rendered and serialises it as a `<script type="application/json"
+         * data-ui-event-manifest="<instanceId>">…</script>` block. The
+         * block carries no executable JavaScript — it's pure data. The
+         * future runtime is expected to find and parse it.
+         *
+         * Emits an empty `<script>` (no events) when the component has
+         * no #[UiOn] declarations, so the future runtime can rely on the
+         * tag's presence as a "component is event-aware" marker.
+         *
+         * Returns a Markup so Twig does not double-escape the JSON.
+         */
+        TwigExtensionRegistry::registerFunction(
+            'ui_event_manifest',
+            static function (
+                array $context,
+                string $instanceId,
+                ?int $ttlSeconds = null,
+                array $eventConfig = [],
+            ): Markup {
+                if ($instanceId === '') {
+                    throw new UiComponentRegistryException(
+                        'ui_event_manifest() called without an instance id.',
+                    );
+                }
+
+                $component = $context['_component'] ?? null;
+                if (!is_array($component) || !isset($component['name']) || !is_string($component['name'])) {
+                    throw new UiComponentRegistryException(
+                        'ui_event_manifest() called outside a Platform UI component render context.',
+                    );
+                }
+
+                $metadata = UiComponentRegistry::get($component['name']);
+                if ($metadata === null) {
+                    throw new UiComponentRegistryException(sprintf(
+                        'Component "%s" is not registered in UiComponentRegistry.',
+                        $component['name'],
+                    ));
+                }
+
+                $manifest = (new UiEventManifestBuilder())->build(
+                    metadata: $metadata,
+                    instanceId: $instanceId,
+                    ttlSeconds: $ttlSeconds,
+                    eventConfig: $eventConfig,
+                );
+
+                $json = json_encode(
+                    $manifest->toJsonShape(),
+                    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
+                );
+
+                // `</script>` inside JSON would break the parser; encode the
+                // closing-tag sequence defensively.
+                $json = str_replace('</', '<\\/', $json);
+
+                $instanceAttr = htmlspecialchars($instanceId, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                $componentAttr = htmlspecialchars($manifest->componentName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+                $html = sprintf(
+                    '<script type="application/json" data-ui-event-manifest="%s" data-ui-component="%s">%s</script>',
+                    $instanceAttr,
+                    $componentAttr,
+                    $json,
+                );
+
+                return new Markup($html, 'UTF-8');
+            },
+            ['needs_context' => true, 'is_safe' => ['html']],
+        );
+
+        /**
+         * ui_field_rules(rawRules)
+         *
+         * Validates a developer-authored rule spec list and returns
+         * the compact JSON wire shape ready to be embedded in
+         * `ui_event_manifest()`'s eventConfig argument. Throws
+         * UiFieldValidationRuleException (which surfaces as a clear
+         * Twig error in dev) when the spec is malformed — unknown
+         * rule name, non-scalar param, wrong param count, closures,
+         * service names, etc.
+         *
+         * Used by FieldComponent's template:
+         *
+         *   {%- set _r = ui_field_rules(rules|default([])) -%}
+         *   {%- set _cfg = _r is empty ? {} : {'input.change': {r: _r}} -%}
+         *   {{ ui_event_manifest(_ui_instance, null, _cfg) }}
+         *
+         * Returns a plain PHP array so Twig serialises it correctly
+         * downstream.
+         */
+        TwigExtensionRegistry::registerFunction(
+            'ui_field_rules',
+            static function (array $rawRules): array {
+                if ($rawRules === []) {
+                    return [];
+                }
+                // Resolve the ACTIVE rule registry — set at boot time
+                // by BootPlatformUiRegistryListener with the
+                // container-bound winner of UiFieldRuleRegistryInterface.
+                // Tests override via UiFieldRuleRegistry::setActive(...).
+                // Lazy-defaults to a fresh DefaultUiFieldRuleRegistry
+                // when bootstrap was bypassed (standalone unit tests).
+                $registry = UiFieldRuleRegistry::getActive();
+                return (new UiFieldRuleParser($registry))->parseAllToWire($rawRules);
+            },
+        );
+
+        /**
+         * ui_form_submit_fields(rawFields)
+         *
+         * Renders the developer-facing `fields: [...]` prop on
+         * FormComponent down to the compact wire shape that gets
+         * signed into the submit ctx's `cfg.f` claim. Mirrors
+         * `ui_field_rules()` but emits the wider definition shape
+         * (name + rules + label + required) UiFormSubmitConfig
+         * carries.
+         *
+         * Returns a plain array. Empty input → empty array; callers
+         * skip the manifest cfg entirely in that case.
+         */
+        TwigExtensionRegistry::registerFunction(
+            'ui_form_submit_fields',
+            static function (array $rawFields): array {
+                if ($rawFields === []) {
+                    return [];
+                }
+                $registry = UiFieldRuleRegistry::getActive();
+                $parser   = new \Semitexa\PlatformUi\Application\Service\Validation\UiFormSubmitConfigParser(
+                    new UiFieldRuleParser($registry),
+                );
+                return $parser->parse($rawFields)->toWireShape();
+            },
+        );
+
+        /**
+         * ui_form_field_submit_marker(def)
+         *
+         * Emit the inert metadata marker FieldComponent stamps into
+         * its rendered output so an enclosing FormComponent with
+         * `autoFields: true` can extract the field's submit definition
+         * at render time. Shape mirrors cfg.f wire shape (single-letter
+         * keys, no class / service names, no raw values).
+         *
+         * The marker is a `<script type="application/json">` block —
+         * inert in the browser — and is stripped from the form's
+         * final output by the extractor so it never reaches the DOM.
+         * Emits the empty string when the supplied definition fails
+         * the safe-name / safe-id guard (anonymous / unsafe-named
+         * fields contribute nothing).
+         *
+         * Returns Markup so Twig's `autoescape: html` does not
+         * double-escape the JSON.
+         */
+        TwigExtensionRegistry::registerFunction(
+            'ui_form_field_submit_marker',
+            static function (array $def): Markup {
+                $name = $def['n'] ?? null;
+                if (!is_string($name) || preg_match('/\A[A-Za-z_][A-Za-z0-9_-]*\z/', $name) !== 1) {
+                    return new Markup('', 'UTF-8');
+                }
+                $instanceId = $def['i'] ?? null;
+                if (!is_string($instanceId) || !UiInstanceIdGenerator::isSafe($instanceId)) {
+                    return new Markup('', 'UTF-8');
+                }
+                $rules = $def['r'] ?? [];
+                if (!is_array($rules)) {
+                    $rules = [];
+                }
+                $payload = ['n' => $name, 'i' => $instanceId, 'r' => $rules];
+                $rawLabel = $def['l'] ?? null;
+                if (is_string($rawLabel) && $rawLabel !== '') {
+                    $payload['l'] = $rawLabel;
+                }
+                if (!empty($def['q'])) {
+                    $payload['q'] = true;
+                }
+                try {
+                    $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+                } catch (\JsonException) {
+                    return new Markup('', 'UTF-8');
+                }
+                // Escape any `</` sequence so the JSON payload cannot
+                // prematurely close the surrounding <script>.
+                $json = str_replace('</', '<\\/', $json);
+                return new Markup(
+                    '<script type="application/json" data-ui-field-submit-definition>' . $json . '</script>',
+                    'UTF-8',
+                );
+            },
+            ['is_safe' => ['html']],
+        );
+
+        /**
+         * ui_form_resolve_submit_fields(slotHtml, autoFields, manualFields = null)
+         *
+         * Resolve the final cfg.f wire shape FormComponent's template
+         * signs into the submit ctx.
+         *
+         * Behaviour matrix:
+         *   - autoFields=true,  manualFields empty/null  → extract
+         *     definitions from the marker tags inside the captured
+         *     slot HTML, validate through
+         *     UiFormSubmitConfigParser::parseSignedWire (duplicate
+         *     names / duplicate instance ids / shape checks).
+         *   - autoFields=true,  manualFields non-empty   → throw — the
+         *     caller asked for both auto and manual which is
+         *     ambiguous; fail loud at render time.
+         *   - autoFields=false, manualFields empty/null  → return an
+         *     empty list (preserves "no signed fields" behaviour).
+         *   - autoFields=false, manualFields non-empty   → parse the
+         *     manual `fields` prop the existing way.
+         *
+         * @param mixed $manualFields
+         */
+        TwigExtensionRegistry::registerFunction(
+            'ui_form_resolve_submit_fields',
+            static function (string $slotHtml, bool $autoFields, $manualFields = null): array {
+                $manualList = is_array($manualFields) ? $manualFields : [];
+                $manualNonEmpty = $manualList !== [];
+
+                if ($autoFields) {
+                    if ($manualNonEmpty) {
+                        throw new UiComponentRegistryException(
+                            'FormComponent: autoFields=true is mutually exclusive with the `fields` prop — provide one or the other, not both.',
+                        );
+                    }
+                    $registry = UiFieldRuleRegistry::getActive();
+                    $extractor = new UiFormSubmitDefinitionExtractor(
+                        new UiFormSubmitConfigParser(new UiFieldRuleParser($registry)),
+                    );
+                    return $extractor->extract($slotHtml)['config']->toWireShape();
+                }
+
+                if (!$manualNonEmpty) {
+                    return [];
+                }
+                $registry = UiFieldRuleRegistry::getActive();
+                $parser = new UiFormSubmitConfigParser(new UiFieldRuleParser($registry));
+                return $parser->parse($manualList)->toWireShape();
+            },
+        );
+
+        /**
+         * ui_form_resolve_submit_action(name)
+         *
+         * Validate and return the action name FormComponent's
+         * template signs into `cfg.a`. The name comes from the
+         * developer-facing `submitAction` prop on FormComponent:
+         *
+         *   {{ component('platform.form', {autoFields: true, submitAction: 'platform.demo.accept'}, ...) }}
+         *
+         * Behaviour:
+         *   - null / empty string → returns null; cfg.a is omitted and
+         *     no action is invoked at dispatch time.
+         *   - non-string / unsafe shape → throws UiFormSubmitActionException
+         *     at render time so developers see the failure in dev.
+         *   - safe-shape string unknown to the active registry →
+         *     throws the same typed exception with the list of known
+         *     action names.
+         *   - safe-shape known action → returns the name verbatim,
+         *     ready to embed under `cfg.a` in the signed event
+         *     manifest.
+         *
+         * The registry resolves the name through a fixed match — it
+         * NEVER reflects a class FQCN out of the name. The Twig layer
+         * therefore never sees an FQCN / service id even if a
+         * customer registry mis-implements its `resolve()`.
+         *
+         * @param mixed $name
+         */
+        TwigExtensionRegistry::registerFunction(
+            'ui_form_resolve_submit_action',
+            static function (mixed $name = null): ?string {
+                if ($name === null || $name === '') {
+                    return null;
+                }
+                if (!is_string($name)) {
+                    throw new UiFormSubmitActionException(
+                        'FormComponent `submitAction` prop must be a string action name.',
+                    );
+                }
+                if (preg_match('/\A[A-Za-z_][A-Za-z0-9_.-]{0,127}\z/', $name) !== 1) {
+                    throw new UiFormSubmitActionException(
+                        'FormComponent `submitAction` must match [A-Za-z_][A-Za-z0-9_.-]{0,127}.',
+                        $name,
+                    );
+                }
+                // Resolve from the active registry — throws
+                // UiFormSubmitActionException on unknown name, which
+                // Twig surfaces as a clear render-time error.
+                UiFormSubmitActionRegistry::getActive()->resolve($name);
+                return $name;
+            },
+        );
+
+        /**
+         * ui_form_strip_submit_markers(html)
+         *
+         * Return $html with every
+         * `<script data-ui-field-submit-definition>…</script>` marker
+         * removed. Idempotent — cheap to call on HTML with none.
+         * FormComponent's template calls this on its captured slot
+         * HTML so markers are consumed exactly once and the final DOM
+         * stays clean.
+         */
+        TwigExtensionRegistry::registerFunction(
+            'ui_form_strip_submit_markers',
+            static function (string $html): string {
+                return (new UiFormSubmitDefinitionExtractor())->stripMarkers($html);
+            },
+        );
+
+        /**
+         * ui_sse_channel(ttlSeconds = null)
+         *
+         * Mints a fresh SSE channel token for the current render. Use
+         * once per page; render the returned `{channel, token, url}`
+         * into the template so JavaScript can call
+         * `SemitexaUi.sse.attach({url})`. The token is opaque (signed
+         * via SignedContext); the server-side stream handler verifies
+         * it before opening the stream.
+         *
+         * Returns an array (NOT a Markup) — callers either echo
+         * specific keys or pass it to `json_encode|raw` if they want
+         * the full bundle inline.
+         */
+        TwigExtensionRegistry::registerFunction(
+            'ui_sse_channel',
+            static function (?int $ttlSeconds = null): array {
+                $channelId = UiSseChannelToken::generateChannelId();
+                $token     = UiSseChannelToken::sign($channelId, $ttlSeconds);
+                return [
+                    'channel' => $channelId,
+                    'token'   => $token,
+                    'url'     => '/__ui/stream?token=' . rawurlencode($token),
+                ];
+            },
+        );
+
+        TwigExtensionRegistry::registerFunction(
+            'ui_component_events',
+            static function (string $componentName): array {
+                $metadata = UiComponentRegistry::get($componentName);
+                if ($metadata === null) {
+                    return [];
+                }
+                $rows = [];
+                foreach ($metadata->events as $event) {
+                    $rows[] = [
+                        'part' => $event->partName,
+                        'event' => $event->eventName,
+                        'updates' => $event->updatesPath !== null ? (string) $event->updatesPath : null,
+                        'method' => $event->methodName,
+                        'runtime' => 'metadata-only',
+                    ];
+                }
+                return $rows;
+            },
+        );
+    }
+}

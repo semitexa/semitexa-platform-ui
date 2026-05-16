@@ -1,0 +1,9 @@
+{# @platform-ui/label — form label #}
+{% macro render(text, options = {}) %}
+    {%- set for = options.for|default(null) -%}
+    {%- set size = options.size|default(null) -%}
+<label ui="label"
+    {%- if for %} for="{{ for }}"{% endif -%}
+    {%- if size %} ui-size="{{ size }}"{% endif -%}
+>{{ text }}</label>
+{% endmacro %}

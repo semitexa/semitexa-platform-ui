@@ -1,0 +1,140 @@
+{#
+ # platform.field — composition layout only.
+ #
+ # The input primitive is rendered via `ui_part('input', inputProps)`,
+ # which:
+ #   1. resolves part props through UiPartPropResolver
+ #      (defaults → provider → bind → caller overrides);
+ #   2. delegates to PrimitiveRenderer using the primitive's canonical
+ #      name (cached in UiPartMetadata::$primitiveName);
+ #   3. injects `data-ui-part="input"` on the rendered root tag so the
+ #      frontend runtime resolves the part by UiPart name (not by the
+ #      primitive's `ui` alias).
+ #
+ # The component root carries a per-render `data-ui-component-instance-id`
+ # so the inline `<script data-ui-event-manifest>` produced by
+ # `ui_event_manifest()` can be paired with this DOM root by the frontend
+ # runtime.
+ #
+ # Caller component props:
+ #   label, name, id, type, value, placeholder, size,
+ #   required, disabled, state, help, error, inputProps,
+ #   showServerAckTarget (opt-in: renders a <span data-ui-patch-target="server-ack">
+ #     that the input.change handler updates via a setText response patch),
+ #   showValidationTarget (opt-in: renders a <span
+ #     data-ui-patch-target="validation-message"> with a stable id so
+ #     server-side validation patches can update its text. The input's
+ #     aria-describedby is extended to point at this id so screen
+ #     readers announce the validation message alongside help/error).
+ # Slots: prefix, suffix
+ #}
+{%- set _id = id|default(name|default(null)) -%}
+{%- set _has_error = error|default(null) is not null and error != '' -%}
+{%- set _has_help = help|default(null) is not null and help != '' -%}
+{%- set _prefix = slot('prefix') -%}
+{%- set _suffix = slot('suffix') -%}
+{%- set _prefix_str = _prefix|default('')|trim -%}
+{%- set _suffix_str = _suffix|default('')|trim -%}
+{%- set _has_prefix = _prefix_str != '' -%}
+{%- set _has_suffix = _suffix_str != '' -%}
+{#-
+  Optional `instanceId` prop. When the caller passes one (e.g. the
+  FormComponent submit demo threading the same stable id into both the
+  signed cfg.f.i and the FieldComponent root), the field renders that
+  id consistently:
+    - on the root `data-ui-component-instance-id` attribute;
+    - inside the signed event manifest's `i` claim, so input.change
+      ctx and submit-targeted patches both pin to the same instance.
+  When unset, the helper generates a fresh `uci_<16hex>`. An
+  override that fails the safe-id check throws at render time so the
+  developer sees the error immediately instead of at dispatch.
+-#}
+{%- set _ui_instance = ui_component_instance_for(instanceId|default(null)) -%}
+{#- Safe field-name marker so the form aggregate walker can key the per-
+    field snapshot without leaning on input.name (which the input
+    primitive renders but is harder to grab through DOM containment when
+    composed primitives change). The regex matches the same identifier
+    shape `UiPatchValidator` accepts for part / target names — keeps
+    the surface tight and lets the frontend reject anything stranger. -#}
+{%- set _safe_field_name = (name|default('') matches '/\\A[A-Za-z_][A-Za-z0-9_-]*\\z/') ? name : null -%}
+<div data-ui-component="platform.field" data-ui-component-instance-id="{{ _ui_instance }}"{% if _safe_field_name %} data-ui-field-name="{{ _safe_field_name }}"{% endif %} ui-component="field" sx-layout="stack" sx-gap="1">
+    {% if label|default(null) %}
+        <label{% if _id %} for="{{ _id }}"{% endif %} ui-text="label">{{ label }}{% if required|default(false) %} <span aria-hidden="true" style="color:var(--ui-state-danger);">*</span>{% endif %}</label>
+    {% endif %}
+
+    {% if _has_prefix or _has_suffix %}
+        <div sx-layout="cluster" sx-gap="2" sx-align="center">
+            {% if _has_prefix %}<span ui-text="muted">{{ _prefix|raw }}</span>{% endif %}
+            <span style="flex:1;display:block;">{{ ui_part('input', inputProps|default({})) }}</span>
+            {% if _has_suffix %}<span>{{ _suffix|raw }}</span>{% endif %}
+        </div>
+    {% else %}
+        {{ ui_part('input', inputProps|default({})) }}
+    {% endif %}
+
+    {% if _has_error %}
+        <span{% if _id %} id="{{ _id }}-error"{% endif %} ui-text="label" style="color:var(--ui-state-danger);font-weight:500;">{{ error }}</span>
+    {% elseif _has_help %}
+        <span{% if _id %} id="{{ _id }}-help"{% endif %} ui-text="muted" style="font-size:0.8125rem;">{{ help }}</span>
+    {% endif %}
+
+    {% if showServerAckTarget|default(false) %}
+        <span data-ui-patch-target="server-ack" ui-text="muted" style="font-size:0.8125rem;min-height:1.2em;display:block;" aria-live="polite"></span>
+    {% endif %}
+
+    {% if showValidationTarget|default(false) %}
+        <span data-ui-patch-target="validation-message"{% if _id %} id="{{ _id }}-validation"{% endif %} ui-text="muted" style="font-size:0.8125rem;min-height:1.2em;display:block;" aria-live="polite"></span>
+    {% endif %}
+
+    {#-
+      Signed event config bundle.
+
+        - `r`  → validation rule wire spec (computed by ui_field_rules()
+                 then embedded into the signed manifest's ctx `cfg.r`
+                 claim). The signature locks the rule list — the
+                 handler reads it back through
+                 UiInteractionEvent::rules(). payload.rules / payload.r
+                 / payload.cfg are rejected by UiPayloadFieldGuard so
+                 clients can't override.
+        - `fn` → safe field name. Stamped into `cfg.fn` so the
+                 dispatch handler knows which slot in the
+                 client-submitted form snapshot belongs to *this*
+                 field. The handler merges the current `$event->value()`
+                 into `$event->formValues[fn]` so self-referencing
+                 cross-field rules (and the frontend forgetting to
+                 include the current field) both behave predictably.
+                 Only emitted when the `name` prop matches the safe
+                 identifier shape.
+    -#}
+    {%- set _ui_field_rules_wire = ui_field_rules(rules|default([])) -%}
+    {%- set _ui_cfg_input_change = {} -%}
+    {%- if _ui_field_rules_wire is not empty -%}
+        {%- set _ui_cfg_input_change = _ui_cfg_input_change|merge({'r': _ui_field_rules_wire}) -%}
+    {%- endif -%}
+    {%- if _safe_field_name -%}
+        {%- set _ui_cfg_input_change = _ui_cfg_input_change|merge({'fn': _safe_field_name}) -%}
+    {%- endif -%}
+    {%- set _ui_event_config = _ui_cfg_input_change is empty ? {} : {'input.change': _ui_cfg_input_change} -%}
+    {#-
+      Inert submit-definition marker for the enclosing FormComponent's
+      autoFields path. SSR slot semantics are eager — by the time the
+      form template runs, this field has already rendered. We stamp a
+      JSON marker (no executable JS — application/json is inert) into
+      the field's own root so the form's render-time extractor can
+      derive cfg.f from the markers in the captured slot HTML. The
+      form strips the markers after extraction so they never reach the
+      browser. Only safe-named fields emit a marker; anonymous /
+      unsafe-named fields contribute nothing — matching the existing
+      data-ui-field-name filter.
+    -#}
+    {%- if _safe_field_name -%}
+        {{ ui_form_field_submit_marker({
+            'n': _safe_field_name,
+            'i': _ui_instance,
+            'r': _ui_field_rules_wire,
+            'l': label|default(null),
+            'q': required|default(false),
+        }) }}
+    {%- endif -%}
+    {{ ui_event_manifest(_ui_instance, null, _ui_event_config) }}
+</div>

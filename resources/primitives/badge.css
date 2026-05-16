@@ -1,0 +1,32 @@
+@layer platform-ui.primitives {
+    [ui="badge"] {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        font-size: 0.75rem;
+        font-weight: 500;
+        padding: 0.125rem 0.5rem;
+        border-radius: var(--ui-radius-pill, 9999px);
+        line-height: 1.4;
+        white-space: nowrap;
+    }
+
+    [ui="badge"]:where(:not([ui-variant]), [ui-variant="solid"]) {
+        background: var(--ui-accent-brand);
+        color: var(--ui-text-on-accent);
+    }
+    [ui="badge"][ui-variant="solid"][ui-tone="neutral"] { background: var(--ui-text-muted); color: var(--ui-surface-page); }
+    [ui="badge"][ui-variant="solid"][ui-tone="success"] { background: var(--ui-state-success); color: var(--ui-surface-page); }
+    [ui="badge"][ui-variant="solid"][ui-tone="warning"] { background: var(--ui-state-warning); color: var(--ui-text-primary); }
+    [ui="badge"][ui-variant="solid"][ui-tone="danger"] { background: var(--ui-state-danger); color: var(--ui-surface-page); }
+
+    [ui="badge"][ui-variant="soft"] {
+        background: var(--ui-surface-panel);
+        color: var(--ui-accent-brand);
+        border: 1px solid var(--ui-border-subtle);
+    }
+    [ui="badge"][ui-variant="soft"][ui-tone="neutral"] { color: var(--ui-text-muted); }
+    [ui="badge"][ui-variant="soft"][ui-tone="success"] { color: var(--ui-state-success); }
+    [ui="badge"][ui-variant="soft"][ui-tone="warning"] { color: var(--ui-state-warning); }
+    [ui="badge"][ui-variant="soft"][ui-tone="danger"] { color: var(--ui-state-danger); }
+}

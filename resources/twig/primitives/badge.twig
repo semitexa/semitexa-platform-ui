@@ -1,0 +1,9 @@
+{# @platform-ui/badge — compact status/category indicator #}
+{% macro render(text, options = {}) %}
+    {%- set variant = options.variant|default(null) -%}
+    {%- set tone = options.tone|default(null) -%}
+<span ui="badge"
+    {%- if variant %} ui-variant="{{ variant }}"{% endif -%}
+    {%- if tone %} ui-tone="{{ tone }}"{% endif -%}
+>{{ text }}</span>
+{% endmacro %}

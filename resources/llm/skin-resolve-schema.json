@@ -1,0 +1,35 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "semitexa://platform-ui/skin-resolve/v1",
+    "title": "ResolvedSkinParams",
+    "description": "Output contract for the platform-ui.skin.resolve-prompt LLM skill — converts natural language into deterministic OKLCH seed parameters.",
+    "type": "object",
+    "required": ["seed", "algorithm", "mood", "rationale"],
+    "additionalProperties": false,
+    "properties": {
+        "seed": {
+            "type": "string",
+            "pattern": "^#[0-9a-f]{6}$",
+            "description": "Primary hex color; OKLCH lightness 0.35–0.55, chroma ≤ 0.25, contrast vs white ≥ 4.5:1"
+        },
+        "algorithm": {
+            "type": "string",
+            "enum": ["balanced"]
+        },
+        "accent_hint": {
+            "oneOf": [
+                { "type": "null" },
+                { "type": "string", "pattern": "^#[0-9a-f]{6}$" }
+            ],
+            "description": "Optional secondary hue for two-concept prompts. Must differ from seed by ≥ 30° in OKLCH hue."
+        },
+        "mood": {
+            "type": "string",
+            "enum": ["calm", "energetic", "corporate", "playful", "accessible", "minimal"]
+        },
+        "rationale": {
+            "type": "string",
+            "maxLength": 200
+        }
+    }
+}

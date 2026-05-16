@@ -1,0 +1,164 @@
+{#
+ # platform.form — composition shell + minimal authoritative submit
+ # pipeline.
+ #
+ # Renders a stable component-root <div> that carries:
+ #
+ #   - `data-ui-component="platform.form"` so DOM scanners and tests
+ #     identify the form composition container.
+ #   - `data-ui-component-instance-id="uci_<hex>"` — the canonical
+ #     Platform UI per-render id. The frontend runtime uses the same
+ #     id when it targets the form-status patch target, so the
+ #     existing applier resolves the root without any new selector.
+ #   - `data-ui-form-aggregate="1"` — the marker the client-local
+ #     aggregation walker keys off.
+ #
+ # Inside the component root the template renders an INNER `<form>`
+ # element directly (no `ui_part('form', ...)` indirection — the
+ # FormRootPrimitive exists for metadata only). The inner <form>:
+ #
+ #   - carries `data-ui-part="form"` so the runtime's existing event
+ #     delegation can identify the submit-handler target;
+ #   - hosts the caller's content slot, the form-status patch target,
+ #     and the submit button — all in one natural subtree so a native
+ #     submit click bubbles correctly;
+ #   - has `action="#"` to avoid any browser-default fallback if
+ #     scripting is disabled (the runtime always calls
+ #     preventDefault for the managed submit event when JS is on);
+ #   - has `novalidate` so the browser's built-in form validation
+ #     never short-circuits the server-authoritative pipeline.
+ #
+ # Submit metadata signing:
+ #
+ #   - The `fields` prop is normalised through
+ #     UiFormSubmitConfigParser (which delegates to the active
+ #     UiFieldRuleParser → registry) at render time. Bad field names
+ #     and unknown / malformed rules fail HERE, in the template, so
+ #     misconfigurations surface during dev rather than at dispatch.
+ #   - The resulting wire shape lands in the signed submit ctx as
+ #     `cfg.f`. A tampered cfg.f breaks the HMAC. `payload.form.rules`
+ #     / `payload.form.cfg` are rejected by UiPayloadFieldGuard.
+ #
+ # Caller component props (all optional unless noted):
+ #   title                  — short heading.
+ #   description            — muted paragraph beneath the title.
+ #   showStatus             — render the form-status target (default true).
+ #   statusInitialMessage   — text inside form-status before any
+ #                            interaction (default "No fields validated yet.").
+ #   showSubmit             — render the submit button (default false).
+ #   submitText             — label for the submit button (default "Submit").
+ #   ariaLabel              — accessible name when the visual title is absent.
+ #   fields                 — manual list of submit field definitions
+ #                            (server-owned). When provided, signed
+ #                            into cfg.f. Mutually exclusive with
+ #                            `autoFields: true`.
+ #   autoFields             — when true, FormComponent derives cfg.f
+ #                            from the FieldComponents rendered inside
+ #                            the content slot via the
+ #                            UiFormSubmitDefinitionCollector frame
+ #                            opened around the slot render. Manual
+ #                            `fields` MUST be omitted in this mode
+ #                            (a conflict throws at render time so
+ #                            ambiguity surfaces during dev).
+ #   submitAction           — optional name of a server-registered
+ #                            UiFormSubmitActionInterface. Validated
+ #                            at render time against the active
+ #                            UiFormSubmitActionRegistry and signed
+ #                            into cfg.a; FormComponent::onSubmit
+ #                            invokes it after authoritative
+ #                            validation succeeds. Unknown / unsafe
+ #                            names throw at render time.
+ # Slots: content.
+ #
+ # Auto-derivation render order:
+ #
+ #   1. Capture the rendered slot HTML into `_ui_content_html`. SSR
+ #      slot semantics are eager: every FieldComponent inside the slot
+ #      has already rendered (including its inert
+ #      `<script data-ui-field-submit-definition>` marker) by the time
+ #      the form template runs.
+ #   2. Resolve cfg.f through ui_form_resolve_submit_fields(),
+ #      passing the captured HTML, the autoFields flag, and the
+ #      manual `fields` prop. With autoFields=true the helper
+ #      extracts every marker, round-trips them through
+ #      UiFormSubmitConfigParser::parseSignedWire (duplicate name /
+ #      duplicate instance id / shape checks), and returns the wire
+ #      shape; with autoFields=false the manual `fields` is parsed
+ #      the existing way; supplying both throws loudly.
+ #   3. Strip the markers from the captured HTML so they are consumed
+ #      exactly once — nested forms see no leftover markers from an
+ #      inner form, and the final DOM stays clean.
+ #}
+{%- set _ui_instance = ui_component_instance() -%}
+{%- set _ui_auto_fields = autoFields|default(false) -%}
+{%- set _ui_manual_fields = fields|default(null) -%}
+{%- set _ui_submit_action = ui_form_resolve_submit_action(submitAction|default(null)) -%}
+{%- set _ui_content_html %}{{ slot('content')|raw }}{% endset -%}
+{%- set _ui_submit_fields_wire = ui_form_resolve_submit_fields(_ui_content_html, _ui_auto_fields, _ui_manual_fields) -%}
+{%- set _ui_content_html = ui_form_strip_submit_markers(_ui_content_html) -%}
+{%- set _ui_submit_cfg = {} -%}
+{%- if _ui_submit_fields_wire is not empty -%}
+    {%- set _ui_submit_cfg = _ui_submit_cfg|merge({'f': _ui_submit_fields_wire}) -%}
+{%- endif -%}
+{%- if _ui_submit_action -%}
+    {%- set _ui_submit_cfg = _ui_submit_cfg|merge({'a': _ui_submit_action}) -%}
+{%- endif -%}
+{%- set _ui_event_config = _ui_submit_cfg is empty ? {} : {'form.submit': _ui_submit_cfg} -%}
+<div
+    data-ui-component="platform.form"
+    data-ui-component-instance-id="{{ _ui_instance }}"
+    data-ui-form-aggregate="1"
+    ui-component="form"
+    sx-layout="stack"
+    sx-gap="4"
+    role="group"
+    {%- if ariaLabel|default(null) %} aria-label="{{ ariaLabel }}"{% endif %}
+>
+    {% if title|default(null) %}
+        <h2 ui-text="title" style="font-size:1.25rem;margin:0;">{{ title }}</h2>
+    {% endif %}
+    {% if description|default(null) %}
+        <p ui-text="muted" style="margin:0;max-width:42rem;">{{ description }}</p>
+    {% endif %}
+
+    <form
+        data-ui-part="form"
+        action="#"
+        novalidate
+        sx-layout="stack"
+        sx-gap="4"
+    >
+        <div data-ui-form-fields sx-layout="stack" sx-gap="3">
+            {{ _ui_content_html|raw }}
+        </div>
+
+        {% if showStatus ?? true %}
+            <div
+                data-ui-patch-target="form-status"
+                aria-live="polite"
+                role="status"
+                ui-text="muted"
+                style="min-height:1.4em;display:block;font-size:0.875rem;"
+            >{{ statusInitialMessage|default('No fields validated yet.') }}</div>
+        {% endif %}
+
+        {% if showSubmit ?? false %}
+            <div sx-layout="cluster" sx-gap="3" sx-justify="end" data-ui-form-submit-row>
+                {{ primitive('button', {
+                    text: submitText|default('Submit'),
+                    type: 'submit',
+                    tone: 'brand',
+                    variant: 'solid'
+                }) }}
+            </div>
+        {% endif %}
+    </form>
+
+    {#-
+      Event manifest. Emitted regardless so the SSR layer's runtime
+      can pair the manifest script with this root by instance id,
+      even when no fields cfg is signed (e.g. when the component is
+      used purely for client-local aggregation without submit).
+    -#}
+    {{ ui_event_manifest(_ui_instance, null, _ui_event_config) }}
+</div>

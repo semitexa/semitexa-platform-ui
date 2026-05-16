@@ -1,0 +1,10 @@
+@layer platform-ui.primitives {
+    [ui="surface"] {
+        display: block;
+        background: var(--ui-surface-panel);
+        color: var(--ui-text-primary);
+        border: 1px solid var(--ui-border-subtle);
+        border-radius: var(--ui-radius-md, 0.5rem);
+        padding: 1rem;
+    }
+}

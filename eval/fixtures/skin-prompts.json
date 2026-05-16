@@ -1,0 +1,66 @@
+{
+    "schema_version": "1.0",
+    "description": "Prompt-resolution fixtures for platform-ui.skin.resolve-prompt skill. Each fixture has an expected hue range (± tolerance in degrees) — LLM output is considered a hit if seed OKLCH hue falls in range.",
+    "fixtures": [
+        {
+            "id": "mono-ocean",
+            "prompt": "deep ocean",
+            "expect": { "seed_hue_range_deg": [195, 245], "accent_required": false },
+            "kind": "mono"
+        },
+        {
+            "id": "mono-forest",
+            "prompt": "autumn forest",
+            "expect": { "seed_hue_range_deg": [100, 160], "accent_required": false },
+            "kind": "mono"
+        },
+        {
+            "id": "mono-sunset",
+            "prompt": "vivid sunset",
+            "expect": { "seed_hue_range_deg": [15, 55], "accent_required": false },
+            "kind": "mono"
+        },
+        {
+            "id": "mono-lavender",
+            "prompt": "lavender field at dusk",
+            "expect": { "seed_hue_range_deg": [275, 320], "accent_required": false },
+            "kind": "mono"
+        },
+        {
+            "id": "mono-minimal",
+            "prompt": "absolute minimalism, near-neutral",
+            "expect": { "seed_hue_range_deg": [0, 360], "max_chroma": 0.08 },
+            "kind": "mono"
+        },
+        {
+            "id": "bi-sea-sunset",
+            "prompt": "sea and sunset",
+            "expect": { "seed_hue_range_deg": [195, 245], "accent_required": true, "accent_hue_range_deg": [15, 55] },
+            "kind": "bi"
+        },
+        {
+            "id": "bi-forest-fire",
+            "prompt": "green forest with rust accents",
+            "expect": { "seed_hue_range_deg": [100, 160], "accent_required": true, "accent_hue_range_deg": [15, 55] },
+            "kind": "bi"
+        },
+        {
+            "id": "mood-corporate",
+            "prompt": "serious enterprise banking",
+            "expect": { "seed_hue_range_deg": [200, 260], "accent_required": false, "expected_mood": "corporate" },
+            "kind": "mood"
+        },
+        {
+            "id": "mood-playful",
+            "prompt": "playful kids app",
+            "expect": { "seed_hue_range_deg": [0, 360], "expected_mood": "playful", "min_chroma": 0.12 },
+            "kind": "mood"
+        },
+        {
+            "id": "mood-accessibility",
+            "prompt": "accessibility-first government portal, maximum legibility",
+            "expect": { "seed_hue_range_deg": [0, 360], "expected_mood": "accessible", "min_contrast_vs_white": 6.0 },
+            "kind": "mood"
+        }
+    ]
+}

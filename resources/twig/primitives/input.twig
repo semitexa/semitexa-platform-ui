@@ -1,0 +1,22 @@
+{# @platform-ui/input — styled input element #}
+{% macro render(options = {}) %}
+    {%- set name = options.name|default(null) -%}
+    {%- set id = options.id|default(name) -%}
+    {%- set type = options.type|default('text') -%}
+    {%- set value = options.value|default(null) -%}
+    {%- set placeholder = options.placeholder|default(null) -%}
+    {%- set size = options.size|default(null) -%}
+    {%- set state = options.state|default(null) -%}
+    {%- set required = options.required|default(false) -%}
+    {%- set disabled = options.disabled|default(false) -%}
+<input ui="input" type="{{ type }}"
+    {%- if name %} name="{{ name }}"{% endif -%}
+    {%- if id %} id="{{ id }}"{% endif -%}
+    {%- if value is not null %} value="{{ value }}"{% endif -%}
+    {%- if placeholder %} placeholder="{{ placeholder }}"{% endif -%}
+    {%- if size %} ui-size="{{ size }}"{% endif -%}
+    {%- if state %} ui-state="{{ state }}"{% endif -%}
+    {%- if required %} required{% endif -%}
+    {%- if disabled %} disabled{% endif -%}
+>
+{% endmacro %}

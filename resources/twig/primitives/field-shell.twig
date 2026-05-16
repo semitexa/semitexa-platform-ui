@@ -1,0 +1,17 @@
+{# @platform-ui/field-shell — wraps label + input + optional error text #}
+{% macro open(options = {}) %}
+    {%- set size = options.size|default(null) -%}
+    {%- set state = options.state|default(null) -%}
+<div ui="field-shell"
+    {%- if size %} ui-size="{{ size }}"{% endif -%}
+    {%- if state %} ui-state="{{ state }}"{% endif -%}
+>
+{% endmacro %}
+
+{% macro close() %}
+</div>
+{% endmacro %}
+
+{% macro errorText(text) %}
+<span ui="error-text">{{ text }}</span>
+{% endmacro %}

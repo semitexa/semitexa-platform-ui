@@ -1,0 +1,27 @@
+{%- set _type = type|default('text') -%}
+{%- set _id = id|default(name|default(null)) -%}
+{%- set _error = error|default(null) -%}
+{%- set _help = help|default(null) -%}
+{%- set _state = _error ? 'invalid' : state|default(null) -%}
+{%- set _has_addons = _error or _help -%}
+{%- set _explicit_aria_invalid = aria_invalid|default(null) -%}
+{%- set _explicit_aria_describedby = aria_describedby|default(null) -%}
+{%- if _has_addons %}<div sx-layout="stack" sx-gap="1">{% endif -%}
+<input ui="{{ _primitive.ui }}" data-ui-primitive="{{ _primitive.name }}" type="{{ _type }}"
+{%- if name|default(null) %} name="{{ name }}"{% endif -%}
+{%- if _id %} id="{{ _id }}"{% endif -%}
+{%- if value|default(null) is not null %} value="{{ value }}"{% endif -%}
+{%- if placeholder|default(null) %} placeholder="{{ placeholder }}"{% endif -%}
+{%- if size|default(null) %} ui-size="{{ size }}"{% endif -%}
+{%- if _state %} ui-state="{{ _state }}"{% endif -%}
+{%- if _explicit_aria_invalid is not null %} aria-invalid="{{ _explicit_aria_invalid ? 'true' : 'false' }}"
+{%- elseif _error %} aria-invalid="true"{% endif -%}
+{%- if _explicit_aria_describedby %} aria-describedby="{{ _explicit_aria_describedby }}"
+{%- elseif _error and _id %} aria-describedby="{{ _id }}-error"
+{%- elseif _help and _id %} aria-describedby="{{ _id }}-help"{% endif -%}
+{%- if required|default(false) %} required{% endif -%}
+{%- if disabled|default(false) %} disabled{% endif -%}
+>
+{%- if _error %}<span{% if _id %} id="{{ _id }}-error"{% endif %} ui-text="label" style="color:var(--ui-state-danger);font-weight:500;">{{ _error }}</span>{% endif -%}
+{%- if not _error and _help %}<span{% if _id %} id="{{ _id }}-help"{% endif %} ui-text="muted" style="font-size:0.8125rem;">{{ _help }}</span>{% endif -%}
+{%- if _has_addons %}</div>{% endif -%}

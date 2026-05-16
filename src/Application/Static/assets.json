@@ -1,0 +1,26 @@
+{
+    "$schema": "semitexa://asset-manifest/v2",
+    "module": "platform-ui",
+    "include": {
+        "css": ["css/*.css"],
+        "js": ["js/*.js"]
+    },
+    "overrides": {
+        "css/full.css": {
+            "scope": "global",
+            "position": "head",
+            "priority": 40
+        },
+        "css/baseline.css": {
+            "scope": "page",
+            "position": "head",
+            "priority": 30
+        },
+        "js/event-runtime.js": {
+            "scope": "global",
+            "position": "body",
+            "priority": 60,
+            "attributes": { "defer": true }
+        }
+    }
+}
