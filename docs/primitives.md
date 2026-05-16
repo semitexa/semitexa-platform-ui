@@ -1440,6 +1440,92 @@ The registry MUST resolve through a fixed `match` — NEVER `new $name(...)` or 
 
 **Built-in action**: `platform.demo.accept` (`PlatformDemoAcceptAction`). Returns `UiFormSubmitActionResult::accepted('Demo action accepted. No data was persisted.')` with safe debug counts only. Does not persist data, send email, redirect, or echo raw values. Persistence-capable actions are an explicit future slice.
 
+#### Submit action authorizer + security policy seams
+
+The action seam is gated by two dedicated seams that run AFTER authoritative field validation and BEFORE the action's `handle()`:
+
+1. **`UiFormSubmitActionAuthorizerInterface::authorize(UiFormSubmitActionAuthorizationContext)`** — application-level identity / role / rate-limit decision. Default `AllowAllUiFormSubmitActionAuthorizer` is a no-op so the demo flow works unchanged.
+2. **`UiFormSubmitSecurityPolicyInterface::verify(UiFormSubmitSecurityContext)`** — submit-shaped CSRF / session / token check. Default is now **`CacheBackedUiFormSubmitSecurityPolicy`** — a one-time nonce bound to the rendered form via the signed ctx (`cfg.s = {k, t}`) and an HMAC-stored cache entry. See "Submit CSRF policy" below for the full token flow. `SignedContextOnlyUiFormSubmitSecurityPolicy` stays available as an explicit opt-in fallback for environments without a shared cache or for tests that want to bypass CSRF.
+
+Both seams use a **throw-on-deny** convention (the dispatcher-level `UiInteractionAuthorizerInterface` returns bool because it has no need for a per-decision reason channel — these seams do, so they raise typed exceptions instead):
+
+```php
+interface UiFormSubmitActionAuthorizerInterface
+{
+    /** @throws UiFormSubmitActionAuthorizationException on deny. */
+    public function authorize(UiFormSubmitActionAuthorizationContext $context): void;
+}
+
+interface UiFormSubmitSecurityPolicyInterface
+{
+    /** @throws UiFormSubmitSecurityPolicyException on policy failure. */
+    public function verify(UiFormSubmitSecurityContext $context): void;
+}
+```
+
+Both exceptions carry a `reasonCode` (`role_required`, `rate_limited`, `csrf_verification_failed`, `session_required`, `submit_security_failed`, …) plus a user-facing `message`. FormComponent catches them and emits **the same two form-level patches** as a normal action (`setText form-status` + `setAttribute ui-state=invalid`) — no class names, no raw values, no patches outside the existing allow-list. Debug surface:
+
+```jsonc
+"action": {
+  "name":    "platform.demo.accept",
+  "invoked": false,
+  "reason":  "action_forbidden",       // or "submit_security_failed"
+  "detail":  "role_required",          // the exception's reasonCode
+  "message": "You do not have permission to run this action."
+}
+```
+
+**Override seam**: apps bind their own implementations via `#[SatisfiesServiceContract(of: ...)]` in a module that "extends" semitexa-platform-ui. The contract registry picks the descendant-module winner; `BootPlatformUiRegistryListener` stashes them in `UiFormSubmitActionAuthorizer` / `UiFormSubmitSecurityPolicy` (worker-scoped static holders, mirroring the rule-registry pattern).
+
+#### Submit CSRF policy (nonce-backed, one-time consume)
+
+The default security policy is **`CacheBackedUiFormSubmitSecurityPolicy`**. It binds a one-time token to each rendered form-with-action:
+
+1. **Render time.** Form template calls `ui_form_issue_submit_csrf($actionName)` (only when `submitAction` is set). The helper asks the active `UiFormSubmitCsrfTokenStoreInterface` to mint a fresh `{id, raw}` pair. The store keeps ONLY `hash_hmac('sha256', raw, id)` against `id` in a namespaced cache (`ui-form-submit-csrf`), with a TTL bounded by the form ctx lifetime (default 600 s / 10 min). The pair is signed into `cfg.s = {k: <id>, t: <raw>}` of the submit ctx.
+
+2. **Dispatch time.** FormComponent reads `event->config['s']` and passes it as the new `UiFormSubmitSecurityContext::$securityConfig` field to the policy. The policy:
+   - asserts `cfg.s.k` matches `uicsrf_[a-f0-9]{16}` and `cfg.s.t` matches `[a-f0-9]{32}`;
+   - calls `UiFormSubmitCsrfTokenStoreInterface::consume($k, $t)` which atomically verifies HMAC + removes the entry;
+   - returns void on success, throws `UiFormSubmitSecurityPolicyException(reasonCode: 'csrf_verification_failed', message: 'Submit security check failed. Please reload the form and try again.')` on any failure (missing / expired / wrong / already consumed — all collapse to the same surface, no side-channel).
+
+3. **One-time consume semantics.** The policy runs AFTER field validation + the action authorizer. So:
+   - **invalid submits** never reach `consume()` → the token survives → the user can fix the form and resubmit;
+   - **authorizer-denied submits** never reach `consume()` → token survives;
+   - **valid + authorized submits** consume the token regardless of whether the action itself rejects (acceptable — the user already saw a server response, which is enough to invalidate the bearer secret).
+   - A second submit attempt with the same `cfg.s` after a successful first one fails CSRF — the user reloads the form to mint a fresh token. The playground demo exercises this end-to-end.
+
+**Token store**: `UiFormSubmitCsrfTokenStoreInterface` (`issue($ttl) → UiFormSubmitCsrfTokenHandle{id, raw}` + `consume($id, $rawToken): bool` + `isShared(): bool` + `diagnosticName(): string`). Default impl is `CacheBackedUiFormSubmitCsrfTokenStore` (`#[SatisfiesServiceContract]`, namespaced through `CacheManagerInterface`, observable across all workers sharing the cache backend). Lazy-default fallback is `InMemoryUiFormSubmitCsrfTokenStore` for tests / single-worker dev (NOT safe across Swoole workers).
+
+**Trust perimeter**:
+- Cache stores ONLY the HMAC hash. A leaked cache snapshot cannot replay a token because the raw value is never persisted and HMAC keys each hash with the token id.
+- Failure messages never echo the bad token id or value.
+- `cfg.s` carries only `{k, t}`: no session id, no cache key format details, no class FQCNs, no service ids.
+- `payload.csrf` / `payload.csrfToken` / `payload.csrf_token` (top-level + form-nested) remain forbidden by `UiPayloadFieldGuard` from the previous slice — the client cannot smuggle the token through anywhere except the signed ctx, where the HMAC binds it.
+
+**Known limitations** (call-outs in `primitives.md` limitations list):
+- This is a **nonce-backed**, **not yet session-bound** policy. The token is bound to the rendered form via the signed ctx; it is not bound to a session cookie. A leaked full-page HTML (with the signed ctx + token) can be submitted from any UA until consumed. True session binding lands when Semitexa exposes a stable request-scoped seam reachable from reflection-instantiated components.
+- No CSRF token rotation across multiple forms on the same page — each `FormComponent` instance mints its own independent token.
+- TTL is a fixed default (600 s) at the helper level; future work threads a configurable TTL through.
+
+**Override seam**: apps that want a stricter policy bind their own implementation with `#[SatisfiesServiceContract(of: UiFormSubmitSecurityPolicyInterface::class)]` (and optionally their own token store). The `BootPlatformUiRegistryListener` stashes the container-bound winners in the matching static holders.
+
+**Submit ordering** (single canonical pipeline):
+
+1. parse signed `cfg.f`;
+2. parse signed `cfg.a` (optional);
+3. validate every signed field → `UiFormSubmitResult`;
+4. **if invalid**: emit per-field + summary patches; authorizer / policy / action NEVER run; `debug.action.reason = 'validation_invalid'`;
+5. **if valid && cfg.a is set**:
+   a. resolve action via registry;
+   b. run authorizer → may throw `UiFormSubmitActionAuthorizationException` → safe denial patches + `debug.action.reason = 'action_forbidden'`;
+   c. run security policy → may throw `UiFormSubmitSecurityPolicyException` → safe denial patches + `debug.action.reason = 'submit_security_failed'`;
+   d. invoke action's `handle()` → form-status uses the action's message + state.
+6. **if valid && no cfg.a**: emit per-field + summary patches with the standard "Form is valid. Submit accepted." message.
+
+Patch order is fully stable: per-field first, form-level last, action extras (if any) appended after. Denials NEVER produce action extras.
+
+**Payload guard** rejects the corresponding smuggling attempts: `payload.action`, `payload.submitAction`, `payload.csrf`, `payload.csrfToken`, `payload.security`, `payload.policy`, `payload.authorization`, `payload.authz` (and case / separator variants) all return `400 forbidden_payload_field`. Single-letter `a` is intentionally NOT in the forbidden list because legitimate form field names could collide; the signed `cfg.a` is the only canonical channel.
+
 **Trust perimeter** (auto vs. manual is identical):
 
 - Field definitions are **server-rendered**. The collector stores PHP value objects (`UiFormSubmitFieldDefinition`); no client payload, no DOM scanning at submit time.
@@ -1569,10 +1655,10 @@ Smuggling attempts (`payload.rules`, `payload.cfg`, `payload.form.rules`, `paylo
 
 - No persistence. No business action. No redirect. No real account creation / email send.
 - Automatic slot introspection now resolves field definitions for FieldComponents inside the content slot (`autoFields: true`). Fields rendered outside the slot, or anonymous / unsafe-named FieldComponents, are not discovered — caller must use the manual `fields` prop instead. No multi-pass component tree reflection.
-- Submit action seam is in place (`submitAction` + `UiFormSubmitActionRegistryInterface`) but persistence is NOT — the built-in `platform.demo.accept` action is intentionally inert. Real persistence needs its own slice with authorization, CSRF/session policy, and storage-specific input validation.
-- No separate action authorizer yet. The action seam is gated by the dispatcher-level `UiInteractionAuthorizerInterface`. A dedicated `UiFormSubmitActionAuthorizerInterface` is explicit future work.
+- Submit action seam, action authorizer seam, and CSRF/security policy seam are all in place — but persistence is NOT. Built-in defaults are `platform.demo.accept` (no-op action), `AllowAllUiFormSubmitActionAuthorizer` (allow), and `SignedContextOnlyUiFormSubmitSecurityPolicy` (no-op). Real persistence needs custom implementations of the authorizer + the security policy alongside whatever the persistent action itself does.
+- CSRF policy is in place via `CacheBackedUiFormSubmitSecurityPolicy` (one-time nonce, HMAC-stored in a namespaced cache, bound to the rendered form via `cfg.s`). It is **nonce-backed, not session-bound** — a token issued for a rendered form survives across user agents until consumed. Full session binding lands when Semitexa exposes a request-scoped seam reachable from reflection-instantiated components.
 - No redirect / file upload / async / database action variants in `UiFormSubmitActionResult`.
-- No CSRF / session policy / submit pipeline middleware in this slice. Adding one is the next safety layer when persistence arrives.
+- No request metadata (session id, auth identity, IP) in the authorization / security contexts yet — a separate slice once Semitexa lands a stable convention for passing it into UI handlers.
 - No async / database / remote validation.
 - No multi-step forms, no durable form state, no cross-tab state sync.
 - No new patch op, no new attribute allow-list entry. `disabled` is still off the allow-list — submit button cannot be disabled through a patch in this slice.

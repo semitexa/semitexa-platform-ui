@@ -17,7 +17,20 @@ use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\FormRootPrimitive;
 use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveMetadataFactory;
 use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveRegistry;
 use Semitexa\PlatformUi\Application\Service\Submit\Action\PlatformDemoAcceptAction;
+use Semitexa\PlatformUi\Application\Service\Submit\CacheBackedUiFormSubmitSecurityPolicy;
+use Semitexa\PlatformUi\Application\Service\Submit\InMemoryUiFormSubmitCsrfTokenStore;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionAuthorizer;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionAuthorizerInterface;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistry;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitCsrfTokenStore;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitSecurityPolicy;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitSecurityPolicyInterface;
+use Semitexa\PlatformUi\Application\Service\Submit\SignedContextOnlyUiFormSubmitSecurityPolicy;
+use Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitCsrfTokenHandle;
+use Semitexa\PlatformUi\Domain\Exception\UiFormSubmitActionAuthorizationException;
+use Semitexa\PlatformUi\Domain\Exception\UiFormSubmitSecurityPolicyException;
+use Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitActionAuthorizationContext;
+use Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitSecurityContext;
 use Semitexa\Ssr\Application\Service\UiEvent\SignedContext;
 
 /**
@@ -55,6 +68,15 @@ final class FormSubmitDispatchTest extends TestCase
         UiComponentRegistry::register(
             (new UiComponentMetadataFactory())->fromClass(FormComponent::class),
         );
+        // The vast majority of the existing dispatch tests exercise
+        // submit BEHAVIOUR that is independent of CSRF. The new
+        // CacheBackedUiFormSubmitSecurityPolicy default rejects every
+        // submit-with-action that does not also sign cfg.s, which
+        // would force a churny update to every legacy test. Default
+        // back to the demo-only SignedContextOnly policy here; the
+        // dedicated csrf_* tests below explicitly install the
+        // cache-backed policy + a fresh in-memory token store.
+        UiFormSubmitSecurityPolicy::setActive(new SignedContextOnlyUiFormSubmitSecurityPolicy());
         $this->dispatchSeq = 0;
     }
 
@@ -63,6 +85,9 @@ final class FormSubmitDispatchTest extends TestCase
         UiPrimitiveRegistry::reset();
         UiComponentRegistry::reset();
         UiFormSubmitActionRegistry::reset();
+        UiFormSubmitActionAuthorizer::reset();
+        UiFormSubmitSecurityPolicy::reset();
+        UiFormSubmitCsrfTokenStore::reset();
         if ($this->previousSecret === null) {
             putenv('APP_SECRET');
         } else {
@@ -1003,5 +1028,498 @@ final class FormSubmitDispatchTest extends TestCase
         self::assertSame(self::FORM_INSTANCE, $lastTwo[1]['target']['instance']);
         self::assertSame('ui-state', $lastTwo[1]['attribute']);
         self::assertSame('valid', $lastTwo[1]['value']);
+    }
+
+    // ---------------------------------------------------------------
+    // Submit action authorizer + security policy ordering
+    // ---------------------------------------------------------------
+
+    /**
+     * Per-call audit log used by the ordering tests: each gate writes
+     * its name into a shared list so we can assert the dispatcher
+     * walked them in the documented order. PUBLIC because the
+     * anonymous-class recorders defined inside the install*() helpers
+     * have their own scope and cannot reach a private static.
+     */
+    public static array $orderingTrace = [];
+
+    private function installRecordingAuthorizer(bool $deny = false, string $reason = 'role_required'): void
+    {
+        UiFormSubmitActionAuthorizer::setActive(new class($deny, $reason) implements UiFormSubmitActionAuthorizerInterface {
+            public function __construct(private readonly bool $deny, private readonly string $reason) {}
+            public function authorize(UiFormSubmitActionAuthorizationContext $context): void
+            {
+                FormSubmitDispatchTest::$orderingTrace[] = 'authorizer';
+                if ($this->deny) {
+                    throw new UiFormSubmitActionAuthorizationException(
+                        message: 'You do not have permission to run this action.',
+                        reasonCode: $this->reason,
+                    );
+                }
+            }
+        });
+    }
+
+    private function installRecordingSecurityPolicy(bool $fail = false, string $reason = 'csrf_verification_failed'): void
+    {
+        UiFormSubmitSecurityPolicy::setActive(new class($fail, $reason) implements UiFormSubmitSecurityPolicyInterface {
+            public function __construct(private readonly bool $fail, private readonly string $reason) {}
+            public function verify(UiFormSubmitSecurityContext $context): void
+            {
+                FormSubmitDispatchTest::$orderingTrace[] = 'security_policy';
+                if ($this->fail) {
+                    throw new UiFormSubmitSecurityPolicyException(
+                        message: 'Form security token has expired. Reload and try again.',
+                        reasonCode: $this->reason,
+                    );
+                }
+            }
+        });
+    }
+
+    private function installRecordingDemoAction(): void
+    {
+        // Compose a tracing wrapper around the default registry — the
+        // default is final, so we cannot extend it. Implement the
+        // interface directly and delegate.
+        $default = new \Semitexa\PlatformUi\Application\Service\Submit\DefaultUiFormSubmitActionRegistry();
+        $registry = new class($default) implements \Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistryInterface {
+            public function __construct(private readonly \Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistryInterface $inner) {}
+
+            public function resolve(string $actionName): \Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionInterface
+            {
+                $action = $this->inner->resolve($actionName);
+                return new class($action) implements \Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionInterface {
+                    public function __construct(private readonly \Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionInterface $action) {}
+                    public function name(): string { return $this->action->name(); }
+                    public function handle(\Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitActionContext $context): \Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitActionResult
+                    {
+                        FormSubmitDispatchTest::$orderingTrace[] = 'action';
+                        return $this->action->handle($context);
+                    }
+                };
+            }
+
+            public function knownActionNames(): array
+            {
+                return $this->inner->knownActionNames();
+            }
+        };
+        UiFormSubmitActionRegistry::setActive($registry);
+    }
+
+    #[Test]
+    public function valid_submit_runs_authorizer_before_security_policy_before_action(): void
+    {
+        self::$orderingTrace = [];
+        $this->installRecordingAuthorizer();
+        $this->installRecordingSecurityPolicy();
+        $this->installRecordingDemoAction();
+
+        $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME), [
+            'form' => ['values' => [
+                'access_code'         => 'abcd',
+                'confirm_access_code' => 'abcd',
+            ]],
+        ]);
+        self::assertSame(200, $resp->getStatusCode());
+        self::assertSame(['authorizer', 'security_policy', 'action'], self::$orderingTrace);
+    }
+
+    #[Test]
+    public function invalid_submit_does_NOT_invoke_authorizer_security_policy_or_action(): void
+    {
+        self::$orderingTrace = [];
+        $this->installRecordingAuthorizer();
+        $this->installRecordingSecurityPolicy();
+        $this->installRecordingDemoAction();
+
+        $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME), [
+            'form' => ['values' => [
+                'access_code'         => '',
+                'confirm_access_code' => '',
+            ]],
+        ]);
+        self::assertSame(200, $resp->getStatusCode());
+        $data = $this->decode($resp);
+        self::assertFalse($data['debug']['submit']['valid']);
+        self::assertSame([], self::$orderingTrace, 'No authz/policy/action should run on invalid submit.');
+    }
+
+    #[Test]
+    public function denied_authorizer_prevents_security_policy_and_action(): void
+    {
+        self::$orderingTrace = [];
+        $this->installRecordingAuthorizer(deny: true);
+        $this->installRecordingSecurityPolicy();
+        $this->installRecordingDemoAction();
+
+        $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME), [
+            'form' => ['values' => [
+                'access_code'         => 'abcd',
+                'confirm_access_code' => 'abcd',
+            ]],
+        ]);
+        self::assertSame(200, $resp->getStatusCode());
+        // Authorizer denied → policy + action skipped.
+        self::assertSame(['authorizer'], self::$orderingTrace);
+        $data = $this->decode($resp);
+        self::assertSame('platform.demo.accept', $data['debug']['action']['name']);
+        self::assertFalse($data['debug']['action']['invoked']);
+        self::assertSame('action_forbidden', $data['debug']['action']['reason']);
+        self::assertSame('role_required', $data['debug']['action']['detail']);
+    }
+
+    #[Test]
+    public function denied_authorizer_emits_safe_form_status_and_invalid_ui_state(): void
+    {
+        $this->installRecordingAuthorizer(deny: true, reason: 'role_required');
+        $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME), [
+            'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
+        ]);
+        $data = $this->decode($resp);
+        $form = $this->patchesForInstance($data, self::FORM_INSTANCE);
+        self::assertSame('form-status', $form[0]['target']['name']);
+        self::assertSame('You do not have permission to run this action.', $form[0]['value']);
+        self::assertSame('ui-state', $form[1]['attribute']);
+        self::assertSame('invalid', $form[1]['value']);
+    }
+
+    #[Test]
+    public function failing_security_policy_prevents_action_but_authorizer_still_ran(): void
+    {
+        self::$orderingTrace = [];
+        $this->installRecordingAuthorizer();
+        $this->installRecordingSecurityPolicy(fail: true);
+        $this->installRecordingDemoAction();
+
+        $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME), [
+            'form' => ['values' => [
+                'access_code'         => 'abcd',
+                'confirm_access_code' => 'abcd',
+            ]],
+        ]);
+        $data = $this->decode($resp);
+        self::assertSame(['authorizer', 'security_policy'], self::$orderingTrace);
+        self::assertFalse($data['debug']['action']['invoked']);
+        self::assertSame('submit_security_failed', $data['debug']['action']['reason']);
+        self::assertSame('csrf_verification_failed', $data['debug']['action']['detail']);
+    }
+
+    #[Test]
+    public function failing_security_policy_emits_safe_form_status(): void
+    {
+        $this->installRecordingSecurityPolicy(fail: true);
+        $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME), [
+            'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
+        ]);
+        $data = $this->decode($resp);
+        $form = $this->patchesForInstance($data, self::FORM_INSTANCE);
+        self::assertSame('form-status', $form[0]['target']['name']);
+        self::assertSame('Form security token has expired. Reload and try again.', $form[0]['value']);
+        self::assertSame('invalid', $form[1]['value']);
+    }
+
+    #[Test]
+    public function denied_path_does_not_echo_raw_submitted_values(): void
+    {
+        $this->installRecordingAuthorizer(deny: true);
+        $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME), [
+            'form' => ['values' => [
+                'access_code'         => 'denied-canary-XYZ',
+                'confirm_access_code' => 'denied-canary-XYZ',
+            ]],
+        ]);
+        $raw = $resp->getContent();
+        self::assertStringNotContainsString('denied-canary-XYZ', $raw);
+    }
+
+    #[Test]
+    public function denied_path_does_not_leak_class_names(): void
+    {
+        $this->installRecordingAuthorizer(deny: true);
+        $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME), [
+            'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
+        ]);
+        $raw = $resp->getContent();
+        self::assertStringNotContainsString('AllowAllUiFormSubmitActionAuthorizer', $raw);
+        self::assertStringNotContainsString('Semitexa\\\\', $raw);
+    }
+
+    #[Test]
+    public function payload_csrf_smuggling_returns_400(): void
+    {
+        $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME), [
+            'csrf' => 'token',
+            'form' => ['values' => ['access_code' => 'abcd']],
+        ]);
+        self::assertSame(400, $resp->getStatusCode());
+        self::assertSame('forbidden_payload_field', $this->decode($resp)['reason']);
+    }
+
+    #[Test]
+    public function payload_form_csrf_smuggling_returns_400(): void
+    {
+        $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME), [
+            'form' => ['values' => ['access_code' => 'abcd'], 'csrf' => 'token'],
+        ]);
+        self::assertSame(400, $resp->getStatusCode());
+        self::assertSame('forbidden_payload_field', $this->decode($resp)['reason']);
+    }
+
+    #[Test]
+    public function payload_authorization_smuggling_returns_400(): void
+    {
+        $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME), [
+            'authorization' => 'Bearer evil',
+            'form' => ['values' => ['access_code' => 'abcd']],
+        ]);
+        self::assertSame(400, $resp->getStatusCode());
+        self::assertSame('forbidden_payload_field', $this->decode($resp)['reason']);
+    }
+
+    #[Test]
+    public function payload_security_and_policy_smuggling_returns_400(): void
+    {
+        foreach (['security', 'policy', 'authz'] as $key) {
+            $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME), [
+                $key => 'evil',
+                'form' => ['values' => ['access_code' => 'abcd']],
+            ]);
+            self::assertSame(400, $resp->getStatusCode(), "payload.$key must be rejected");
+            self::assertSame('forbidden_payload_field', $this->decode($resp)['reason']);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // CSRF / submit security policy (cache-backed, one-time consume)
+    // ---------------------------------------------------------------
+
+    /**
+     * Install the cache-backed CSRF policy + a fresh in-memory token
+     * store, mint a token, and return the handle. Callers sign the
+     * handle into cfg.s of the submit ctx via `submitCtxWithCsrf()`.
+     */
+    private function installCsrfPolicyAndIssueToken(): UiFormSubmitCsrfTokenHandle
+    {
+        $store = new InMemoryUiFormSubmitCsrfTokenStore();
+        UiFormSubmitCsrfTokenStore::setActive($store);
+        UiFormSubmitSecurityPolicy::setActive(new CacheBackedUiFormSubmitSecurityPolicy());
+        return $store->issue(60);
+    }
+
+    /**
+     * Sign a submit ctx with cfg.f + cfg.a + cfg.s = {k, t}.
+     */
+    private function submitCtxWithCsrf(?UiFormSubmitCsrfTokenHandle $handle): string
+    {
+        $cfg = [
+            'f' => [
+                [
+                    'n' => 'access_code',
+                    'r' => [['n' => 'required'], ['n' => 'minLength', 'p' => [4]]],
+                    'l' => 'Access code',
+                    'q' => true,
+                ],
+                [
+                    'n' => 'confirm_access_code',
+                    'r' => [
+                        ['n' => 'required'],
+                        ['n' => 'sameAsField', 'p' => ['access_code', 'Codes must match.']],
+                    ],
+                    'l' => 'Confirm access code',
+                    'q' => true,
+                ],
+            ],
+            'a' => PlatformDemoAcceptAction::NAME,
+        ];
+        if ($handle !== null) {
+            $cfg['s'] = ['k' => $handle->id, 't' => $handle->raw];
+        }
+        return SignedContext::sign([
+            'c' => 'platform.form',
+            'i' => self::FORM_INSTANCE,
+            'p' => 'form',
+            'e' => 'submit',
+            'cfg' => $cfg,
+        ]);
+    }
+
+    #[Test]
+    public function valid_submit_with_valid_csrf_token_invokes_action(): void
+    {
+        $h = $this->installCsrfPolicyAndIssueToken();
+        $resp = $this->post($this->submitCtxWithCsrf($h), [
+            'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
+        ]);
+        self::assertSame(200, $resp->getStatusCode());
+        $data = $this->decode($resp);
+        self::assertTrue($data['debug']['action']['accepted']);
+        self::assertSame(PlatformDemoAcceptAction::MESSAGE, $data['debug']['action']['message']);
+    }
+
+    #[Test]
+    public function second_valid_submit_with_same_token_fails_csrf(): void
+    {
+        $h = $this->installCsrfPolicyAndIssueToken();
+        $ctx = $this->submitCtxWithCsrf($h);
+        $first  = $this->post($ctx, [
+            'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
+        ]);
+        self::assertSame(200, $first->getStatusCode());
+        self::assertTrue($this->decode($first)['debug']['action']['accepted']);
+
+        // Same ctx, fresh dispatchId, same token → CSRF must fail
+        // because the token was consumed by the first call.
+        $second = $this->post($ctx, [
+            'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
+        ]);
+        self::assertSame(200, $second->getStatusCode());
+        $data = $this->decode($second);
+        self::assertSame('submit_security_failed', $data['debug']['action']['reason']);
+        self::assertSame('csrf_verification_failed', $data['debug']['action']['detail']);
+        self::assertFalse($data['debug']['action']['invoked']);
+    }
+
+    #[Test]
+    public function invalid_submit_does_NOT_consume_token(): void
+    {
+        $h = $this->installCsrfPolicyAndIssueToken();
+        $ctx = $this->submitCtxWithCsrf($h);
+        // First call has empty values → validation fails → CSRF
+        // policy never runs → token survives.
+        $first = $this->post($ctx, [
+            'form' => ['values' => ['access_code' => '', 'confirm_access_code' => '']],
+        ]);
+        $data = $this->decode($first);
+        self::assertFalse($data['debug']['submit']['valid']);
+        self::assertSame('validation_invalid', $data['debug']['action']['reason']);
+
+        // Second call with same token + valid values must succeed.
+        $second = $this->post($ctx, [
+            'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
+        ]);
+        self::assertTrue($this->decode($second)['debug']['action']['accepted']);
+    }
+
+    #[Test]
+    public function authorizer_deny_does_NOT_consume_token(): void
+    {
+        $h = $this->installCsrfPolicyAndIssueToken();
+        // Install a denying authorizer.
+        UiFormSubmitActionAuthorizer::setActive(new class implements UiFormSubmitActionAuthorizerInterface {
+            public function authorize(
+                \Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitActionAuthorizationContext $context,
+            ): void {
+                throw new \Semitexa\PlatformUi\Domain\Exception\UiFormSubmitActionAuthorizationException(
+                    'forbidden', 'role_required',
+                );
+            }
+        });
+        $ctx = $this->submitCtxWithCsrf($h);
+        $first = $this->post($ctx, [
+            'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
+        ]);
+        self::assertSame('action_forbidden', $this->decode($first)['debug']['action']['reason']);
+
+        // Remove the deny → token must still work.
+        UiFormSubmitActionAuthorizer::reset();
+        $second = $this->post($ctx, [
+            'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
+        ]);
+        self::assertTrue($this->decode($second)['debug']['action']['accepted']);
+    }
+
+    #[Test]
+    public function valid_submit_with_missing_cfg_s_fails_csrf(): void
+    {
+        $this->installCsrfPolicyAndIssueToken();
+        $resp = $this->post($this->submitCtxWithCsrf(null), [
+            'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
+        ]);
+        $data = $this->decode($resp);
+        self::assertSame('submit_security_failed', $data['debug']['action']['reason']);
+        self::assertSame('csrf_verification_failed', $data['debug']['action']['detail']);
+    }
+
+    #[Test]
+    public function valid_submit_with_unknown_token_fails_csrf(): void
+    {
+        $this->installCsrfPolicyAndIssueToken();
+        $ctx = $this->submitCtxWithCsrf(new UiFormSubmitCsrfTokenHandle(
+            id: 'uicsrf_0123456789abcdef',
+            raw: str_repeat('a', 32),
+        ));
+        $resp = $this->post($ctx, [
+            'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
+        ]);
+        self::assertSame('csrf_verification_failed', $this->decode($resp)['debug']['action']['detail']);
+    }
+
+    #[Test]
+    public function tampered_signed_ctx_still_returns_403_before_csrf_check(): void
+    {
+        $h = $this->installCsrfPolicyAndIssueToken();
+        $resp = $this->post($this->submitCtxWithCsrf($h) . 'xx', [
+            'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
+        ]);
+        self::assertSame(403, $resp->getStatusCode());
+        self::assertSame('invalid_signed_ctx', $this->decode($resp)['reason']);
+    }
+
+    #[Test]
+    public function replay_same_dispatch_id_returns_409_before_csrf_consumes_token(): void
+    {
+        $h = $this->installCsrfPolicyAndIssueToken();
+        $ctx = $this->submitCtxWithCsrf($h);
+        $body = json_encode([
+            'ctx'        => $ctx,
+            'dispatchId' => 'ui_evt_csrf_replay_test_padding_pad',
+            'payload'    => ['form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']]],
+        ], JSON_THROW_ON_ERROR);
+        $req = new Request('POST', '/__ui/dispatch', [], [], [], [], [], $body, []);
+        $handler = (new UiDispatchHandler())->withRequest($req);
+        $first  = $handler->handle(new UiDispatchPayload(), new ResourceResponse());
+        $second = $handler->handle(new UiDispatchPayload(), new ResourceResponse());
+        self::assertSame(200, $first->getStatusCode());
+        self::assertSame(409, $second->getStatusCode());
+    }
+
+    #[Test]
+    public function payload_csrf_smuggling_still_returns_400(): void
+    {
+        $h = $this->installCsrfPolicyAndIssueToken();
+        foreach (['csrf', 'csrfToken', 'csrf_token'] as $key) {
+            $resp = $this->post($this->submitCtxWithCsrf($h), [
+                $key => 'evil',
+                'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
+            ]);
+            self::assertSame(400, $resp->getStatusCode(), "top-level payload.$key must be rejected");
+        }
+        foreach (['csrf', 'csrfToken'] as $key) {
+            $resp = $this->post($this->submitCtxWithCsrf($h), [
+                'form' => ['values' => ['access_code' => 'abcd'], $key => 'evil'],
+            ]);
+            self::assertSame(400, $resp->getStatusCode(), "form-nested payload.$key must be rejected");
+        }
+    }
+
+    #[Test]
+    public function csrf_response_does_not_leak_raw_token_or_id(): void
+    {
+        $h = $this->installCsrfPolicyAndIssueToken();
+        // Force a CSRF failure (use a stale ctx whose token has been
+        // consumed) and confirm neither the id nor the raw token
+        // appears in the response body.
+        $ctx = $this->submitCtxWithCsrf($h);
+        $this->post($ctx, [
+            'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
+        ]); // consumes token
+        $resp = $this->post($ctx, [
+            'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
+        ]);
+        $raw = $resp->getContent();
+        self::assertStringNotContainsString($h->id, $raw);
+        self::assertStringNotContainsString($h->raw, $raw);
     }
 }

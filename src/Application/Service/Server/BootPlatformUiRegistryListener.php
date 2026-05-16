@@ -17,6 +17,8 @@ use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionAuthorizer;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionAuthorizerInterface;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistry;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistryInterface;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitCsrfTokenStore;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitCsrfTokenStoreInterface;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitSecurityPolicy;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitSecurityPolicyInterface;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistry;
@@ -35,6 +37,7 @@ final class BootPlatformUiRegistryListener implements ServerLifecycleListenerInt
         private readonly UiFormSubmitActionRegistryInterface $formSubmitActionRegistry,
         private readonly UiFormSubmitActionAuthorizerInterface $formSubmitActionAuthorizer,
         private readonly UiFormSubmitSecurityPolicyInterface $formSubmitSecurityPolicy,
+        private readonly UiFormSubmitCsrfTokenStoreInterface $formSubmitCsrfTokenStore,
     ) {}
 
     public function handle(ServerLifecycleContext $context): void
@@ -69,5 +72,13 @@ final class BootPlatformUiRegistryListener implements ServerLifecycleListenerInt
         // authorizer and before the action's handle().
         UiFormSubmitActionAuthorizer::setActive($this->formSubmitActionAuthorizer);
         UiFormSubmitSecurityPolicy::setActive($this->formSubmitSecurityPolicy);
+
+        // CSRF token store: the `ui_form_issue_submit_csrf` Twig
+        // helper (reflection-instantiated) and
+        // CacheBackedUiFormSubmitSecurityPolicy both read from the
+        // static holder so the same container-bound winner backs
+        // render-time issue() and dispatch-time consume() inside one
+        // worker.
+        UiFormSubmitCsrfTokenStore::setActive($this->formSubmitCsrfTokenStore);
     }
 }

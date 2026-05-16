@@ -36,6 +36,13 @@ final class UiPayloadFieldGuardTest extends TestCase
         yield 'submitAction'   => [['submitAction' => 'x'], 'payload.submitAction'];
         yield 'submit_action'  => [['submit_action' => 'x'], 'payload.submit_action'];
         yield 'submit-action'  => [['submit-action' => 'x'], 'payload.submit-action'];
+        yield 'csrf'           => [['csrf' => 'x'], 'payload.csrf'];
+        yield 'csrfToken'      => [['csrfToken' => 'x'], 'payload.csrfToken'];
+        yield 'csrf_token'     => [['csrf_token' => 'x'], 'payload.csrf_token'];
+        yield 'security'       => [['security' => 'x'], 'payload.security'];
+        yield 'policy'         => [['policy' => 'x'], 'payload.policy'];
+        yield 'authorization'  => [['authorization' => 'x'], 'payload.authorization'];
+        yield 'authz'          => [['authz' => 'x'], 'payload.authz'];
         yield 'dispatcher'     => [['dispatcher' => 'x'], 'payload.dispatcher'];
         yield 'route'          => [['route' => 'x'], 'payload.route'];
         yield 'controller'     => [['controller' => 'x'], 'payload.controller'];

@@ -17,7 +17,9 @@ use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\InputPrimitive;
 use Semitexa\PlatformUi\Application\Service\Primitive\PrimitiveRenderer;
 use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveMetadataFactory;
 use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveRegistry;
+use Semitexa\PlatformUi\Application\Service\Submit\InMemoryUiFormSubmitCsrfTokenStore;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistry;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitCsrfTokenStore;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFormSubmitConfigParser;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFormSubmitDefinitionExtractor;
 use Semitexa\PlatformUi\Domain\Exception\UiComponentRegistryException;
@@ -191,6 +193,18 @@ final class FormComponentRenderTest extends TestCase
         ));
 
         $this->twig->addFunction(new TwigFunction(
+            'ui_form_issue_submit_csrf',
+            static function (?string $actionName = null, ?int $ttlSeconds = null): ?array {
+                if ($actionName === null || $actionName === '') {
+                    return null;
+                }
+                $ttl = $ttlSeconds ?? 600;
+                $handle = UiFormSubmitCsrfTokenStore::getActive()->issue($ttl);
+                return ['k' => $handle->id, 't' => $handle->raw];
+            },
+        ));
+
+        $this->twig->addFunction(new TwigFunction(
             'ui_form_resolve_submit_action',
             static function (mixed $name = null): ?string {
                 if ($name === null || $name === '') {
@@ -329,6 +343,7 @@ final class FormComponentRenderTest extends TestCase
         UiPrimitiveRegistry::reset();
         UiComponentRegistry::reset();
         AssetCollectorStore::reset();
+        UiFormSubmitCsrfTokenStore::reset();
         if ($this->previousSecret === null) {
             putenv('APP_SECRET');
         } else {
@@ -771,6 +786,66 @@ final class FormComponentRenderTest extends TestCase
                 $cause = $cause->getPrevious();
             }
             self::assertInstanceOf(UiFormSubmitActionException::class, $cause);
+        }
+    }
+
+    #[Test]
+    public function submit_action_render_signs_cfg_s_with_safe_csrf_token(): void
+    {
+        UiFormSubmitCsrfTokenStore::setActive(new InMemoryUiFormSubmitCsrfTokenStore());
+        $html = $this->renderFormWithRealFields([
+            'showSubmit'   => true,
+            'autoFields'   => true,
+            'submitAction' => 'platform.demo.accept',
+        ]);
+        $manifest = $this->decodeManifestPayload($html);
+        $cfgS = null;
+        foreach ($manifest['events'] ?? [] as $event) {
+            if (($event['e'] ?? null) === 'submit') {
+                $payload = \Semitexa\Ssr\Application\Service\UiEvent\SignedContext::verify($event['ctx']) ?? [];
+                $cfgS = $payload['cfg']['s'] ?? null;
+            }
+        }
+        self::assertIsArray($cfgS, 'cfg.s must be signed when submitAction is set.');
+        self::assertMatchesRegularExpression('/\Auicsrf_[a-f0-9]{16}\z/', $cfgS['k']);
+        self::assertMatchesRegularExpression('/\A[a-f0-9]{32}\z/', $cfgS['t']);
+    }
+
+    #[Test]
+    public function form_without_submit_action_signs_no_cfg_s(): void
+    {
+        UiFormSubmitCsrfTokenStore::setActive(new InMemoryUiFormSubmitCsrfTokenStore());
+        $html = $this->renderFormWithRealFields([
+            'showSubmit' => true,
+            'autoFields' => true,
+        ]);
+        $manifest = $this->decodeManifestPayload($html);
+        foreach ($manifest['events'] ?? [] as $event) {
+            if (($event['e'] ?? null) === 'submit') {
+                $payload = \Semitexa\Ssr\Application\Service\UiEvent\SignedContext::verify($event['ctx']) ?? [];
+                self::assertArrayNotHasKey('s', $payload['cfg'] ?? []);
+            }
+        }
+    }
+
+    #[Test]
+    public function cfg_s_carries_only_compact_token_pair(): void
+    {
+        UiFormSubmitCsrfTokenStore::setActive(new InMemoryUiFormSubmitCsrfTokenStore());
+        $html = $this->renderFormWithRealFields([
+            'showSubmit'   => true,
+            'autoFields'   => true,
+            'submitAction' => 'platform.demo.accept',
+        ]);
+        $manifest = $this->decodeManifestPayload($html);
+        foreach ($manifest['events'] ?? [] as $event) {
+            if (($event['e'] ?? null) === 'submit') {
+                $payload = \Semitexa\Ssr\Application\Service\UiEvent\SignedContext::verify($event['ctx']) ?? [];
+                $cfgS = $payload['cfg']['s'];
+                // ONLY `k` + `t`. No session id, no cache key format,
+                // no internal fields.
+                self::assertSame(['k', 't'], array_keys($cfgS));
+            }
         }
     }
 
