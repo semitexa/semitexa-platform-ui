@@ -212,7 +212,9 @@ final class FieldComponentRenderTest extends TestCase
                 if ($rawRules === []) {
                     return [];
                 }
-                return (new \Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleParser())->parseAllToWire($rawRules);
+                return (new \Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleParser(
+                    new \Semitexa\PlatformUi\Application\Service\Validation\DefaultUiFieldRuleRegistry(),
+                ))->parseAllToWire($rawRules);
             },
         ));
 

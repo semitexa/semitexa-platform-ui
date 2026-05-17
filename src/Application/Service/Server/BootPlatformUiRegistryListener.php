@@ -15,6 +15,12 @@ use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveMetadataFactory
 use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveRegistry;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionAuthorizer;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionAuthorizerInterface;
+use Semitexa\PlatformUi\Application\Service\Submit\UiDemoSubmissionAdminAuthorizer;
+use Semitexa\PlatformUi\Application\Service\Submit\UiDemoSubmissionAdminAuthorizerInterface;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormDatabaseDemoSubmissionRepository;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormDatabaseDemoSubmissionRepositoryInterface;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormDemoSubmissionRepository;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormDemoSubmissionRepositoryInterface;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistry;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistryInterface;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitCsrfTokenStore;
@@ -38,6 +44,9 @@ final class BootPlatformUiRegistryListener implements ServerLifecycleListenerInt
         private readonly UiFormSubmitActionAuthorizerInterface $formSubmitActionAuthorizer,
         private readonly UiFormSubmitSecurityPolicyInterface $formSubmitSecurityPolicy,
         private readonly UiFormSubmitCsrfTokenStoreInterface $formSubmitCsrfTokenStore,
+        private readonly UiFormDemoSubmissionRepositoryInterface $formDemoSubmissionRepository,
+        private readonly UiFormDatabaseDemoSubmissionRepositoryInterface $formDatabaseDemoSubmissionRepository,
+        private readonly UiDemoSubmissionAdminAuthorizerInterface $demoSubmissionAdminAuthorizer,
     ) {}
 
     public function handle(ServerLifecycleContext $context): void
@@ -80,5 +89,27 @@ final class BootPlatformUiRegistryListener implements ServerLifecycleListenerInt
         // render-time issue() and dispatch-time consume() inside one
         // worker.
         UiFormSubmitCsrfTokenStore::setActive($this->formSubmitCsrfTokenStore);
+
+        // Demo submission repository — the
+        // PlatformDemoStoreContactAction (constructed lazily by
+        // DefaultUiFormSubmitActionRegistry::resolve()) reads the
+        // active repository from the static holder. Cache-backed in
+        // production via SatisfiesServiceContract; in-memory
+        // fallback in tests / single-worker dev.
+        UiFormDemoSubmissionRepository::setActive($this->formDemoSubmissionRepository);
+
+        // Database-backed demo submission repository — the
+        // PlatformDemoStoreContactDbAction reads the active repo
+        // through its dedicated holder so the cache-backed
+        // `platform.demo.storeContact` action is not silently
+        // re-targeted at the database.
+        UiFormDatabaseDemoSubmissionRepository::setActive($this->formDatabaseDemoSubmissionRepository);
+
+        // Read-only diagnostic-listing authorizer — the
+        // `/ui-playground/admin/demo-submissions` handler reads the
+        // active authorizer through its dedicated static holder.
+        // Default impl allows everyone; production apps bind their
+        // own via SatisfiesServiceContract.
+        UiDemoSubmissionAdminAuthorizer::setActive($this->demoSubmissionAdminAuthorizer);
     }
 }

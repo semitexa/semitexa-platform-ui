@@ -15,6 +15,7 @@ use Semitexa\PlatformUi\Application\Service\Event\UiEventManifestBuilder;
 use Semitexa\PlatformUi\Application\Service\Event\UiInteractionDispatcher;
 use Semitexa\PlatformUi\Application\Service\Event\UiPatchValidator;
 use Semitexa\PlatformUi\Application\Service\Event\UiPayloadFieldGuard;
+use Semitexa\PlatformUi\Application\Service\Validation\DefaultUiFieldRuleRegistry;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleParser;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult;
 use Semitexa\PlatformUi\Domain\Model\Event\UiResponsePatch;
@@ -82,7 +83,7 @@ final class UiFieldRuleDispatchTest extends TestCase
         // `cfg.r` populated by the rule parser. Returns the signed
         // ctx for the input.change event.
         $metadata = UiComponentRegistry::get('platform.field');
-        $wire = (new UiFieldRuleParser())->parseAllToWire($rawRules);
+        $wire = (new UiFieldRuleParser(new DefaultUiFieldRuleRegistry()))->parseAllToWire($rawRules);
         $manifest = (new UiEventManifestBuilder())->build(
             metadata:    $metadata,
             instanceId:  $instance,
