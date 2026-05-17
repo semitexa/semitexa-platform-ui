@@ -12,6 +12,7 @@ use Semitexa\PlatformUi\Application\Service\Event\UiSseChannelToken;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleParser;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistry;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistry;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitCsrfTokenStore;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFormSubmitConfigParser;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFormSubmitDefinitionExtractor;
 use Semitexa\PlatformUi\Domain\Exception\UiFormSubmitActionException;
@@ -563,6 +564,43 @@ final class PlatformUiTwigExtension
             'ui_form_strip_submit_markers',
             static function (string $html): string {
                 return (new UiFormSubmitDefinitionExtractor())->stripMarkers($html);
+            },
+        );
+
+        /**
+         * ui_form_issue_submit_csrf(actionName, ttlSeconds = null)
+         *
+         * Issue a one-time CSRF token through the active
+         * UiFormSubmitCsrfTokenStore. Returns the compact `{k, t}`
+         * map FormComponent's template signs into `cfg.s` of the
+         * submit ctx:
+         *
+         *   - `k` (string) : token id (`uicsrf_<16hex>`). Acts as the
+         *                    cache key (with namespace).
+         *   - `t` (string) : raw 128-bit token (32 hex chars). The
+         *                    store keeps only its HMAC hash.
+         *
+         * Behaviour:
+         *   - `$actionName === null` → returns `null`. Forms without a
+         *     `submitAction` do not issue tokens; the policy is
+         *     therefore never invoked for them.
+         *   - non-empty action  → mint a fresh `{k, t}` pair. The
+         *     same pair is signed verbatim into the submit ctx so
+         *     the dispatch path can present it back.
+         *
+         * Default TTL: 600s (10 min) — chosen to comfortably outlive
+         * a typical user fill time without inflating cache pressure.
+         * Callers can pass a tighter `$ttlSeconds`.
+         */
+        TwigExtensionRegistry::registerFunction(
+            'ui_form_issue_submit_csrf',
+            static function (?string $actionName = null, ?int $ttlSeconds = null): ?array {
+                if ($actionName === null || $actionName === '') {
+                    return null;
+                }
+                $ttl = $ttlSeconds ?? 600;
+                $handle = UiFormSubmitCsrfTokenStore::getActive()->issue($ttl);
+                return ['k' => $handle->id, 't' => $handle->raw];
             },
         );
 

@@ -24,11 +24,37 @@ use Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitResult;
 final class DefaultUiFormSubmitActionRegistryTest extends TestCase
 {
     #[Test]
-    public function known_action_names_contains_demo_accept(): void
+    public function known_action_names_contains_all_three_demo_actions(): void
     {
         $registry = new DefaultUiFormSubmitActionRegistry();
-        self::assertContains(PlatformDemoAcceptAction::NAME, $registry->knownActionNames());
-        self::assertSame(['platform.demo.accept'], $registry->knownActionNames());
+        self::assertSame(
+            ['platform.demo.accept', 'platform.demo.storeContact', 'platform.demo.storeContactDb'],
+            $registry->knownActionNames(),
+        );
+    }
+
+    #[Test]
+    public function resolves_store_contact_action_instance_with_active_repository(): void
+    {
+        $registry = new DefaultUiFormSubmitActionRegistry();
+        $action = $registry->resolve('platform.demo.storeContact');
+        self::assertInstanceOf(
+            \Semitexa\PlatformUi\Application\Service\Submit\Action\PlatformDemoStoreContactAction::class,
+            $action,
+        );
+        self::assertSame('platform.demo.storeContact', $action->name());
+    }
+
+    #[Test]
+    public function resolves_store_contact_db_action_instance_with_active_database_repository(): void
+    {
+        $registry = new DefaultUiFormSubmitActionRegistry();
+        $action = $registry->resolve('platform.demo.storeContactDb');
+        self::assertInstanceOf(
+            \Semitexa\PlatformUi\Application\Service\Submit\Action\PlatformDemoStoreContactDbAction::class,
+            $action,
+        );
+        self::assertSame('platform.demo.storeContactDb', $action->name());
     }
 
     #[Test]
@@ -59,7 +85,7 @@ final class DefaultUiFormSubmitActionRegistryTest extends TestCase
         } catch (UiFormSubmitActionException $e) {
             $msg = $e->getMessage();
             self::assertStringNotContainsString('PlatformDemoAcceptAction', $msg);
-            self::assertStringNotContainsString('Semitexa\\\\', $msg);
+            self::assertStringNotContainsString('Semitexa\\', $msg);
             self::assertStringNotContainsString('::class', $msg);
         }
     }

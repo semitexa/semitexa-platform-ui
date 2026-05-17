@@ -171,21 +171,28 @@ final class CustomRuleRegistryFixtureTest extends TestCase
     public function default_parser_does_NOT_know_slug(): void
     {
         // Sanity: the default registry must not know 'slug' — that's
-        // a fixture rule, never shipped as a built-in.
-        $defaultParser = new UiFieldRuleParser(); // implicit default registry
+        // a fixture rule, never shipped as a built-in. Built explicitly
+        // with DefaultUiFieldRuleRegistry now that the parser ctor
+        // requires the registry argument (no silent fallback).
+        $defaultParser = new UiFieldRuleParser(new DefaultUiFieldRuleRegistry());
         $this->expectException(UiFieldValidationRuleException::class);
         $defaultParser->parseAllToWire(['slug']);
     }
 
     #[Test]
-    public function parser_registry_accessor_exposes_active_registry(): void
+    public function parser_registry_accessor_exposes_passed_registry(): void
     {
+        // The registry the parser exposes is the one the caller passed
+        // — verbatim, not a clone, not a wrapped instance. This is
+        // what production callers rely on when they later need to
+        // reach the same registry through `$parser->registry()`.
         $custom = new AppFieldRuleRegistry();
         $parser = new UiFieldRuleParser($custom);
         self::assertSame($custom, $parser->registry());
 
-        $defaultParser = new UiFieldRuleParser();
-        self::assertInstanceOf(DefaultUiFieldRuleRegistry::class, $defaultParser->registry());
+        $defaultRegistry = new DefaultUiFieldRuleRegistry();
+        $defaultParser = new UiFieldRuleParser($defaultRegistry);
+        self::assertSame($defaultRegistry, $defaultParser->registry());
     }
 }
 

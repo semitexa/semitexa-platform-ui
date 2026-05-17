@@ -22,6 +22,18 @@ use Semitexa\PlatformUi\Domain\Model\Event\UiFieldRuleSpec;
  *     constructs the rule instances. Apps override by binding a
  *     custom registry via SatisfiesServiceContract.
  *
+ * Dependency rule (post-cleanup):
+ *   The registry is a REQUIRED constructor argument. The parser does
+ *   NOT silently fall back to `new DefaultUiFieldRuleRegistry()` and
+ *   does NOT reach into the static `UiFieldRuleRegistry::getActive()`
+ *   holder. Callers that want the active registry MUST pass it in
+ *   explicitly — this prevents an incorrectly wired application from
+ *   silently validating against the wrong rule set (the most likely
+ *   failure mode if the implicit-fallback default went unmaintained).
+ *   Production callers — FieldComponent, FormComponent, the
+ *   ui_field_rules / ui_form_resolve_submit_fields Twig helpers,
+ *   UiFormSubmitConfigParser — all pass an explicit registry today.
+ *
  * The DSL surface itself is unchanged:
  *
  *   1. String form: `'required'` for parameterless rules.
@@ -42,12 +54,9 @@ use Semitexa\PlatformUi\Domain\Model\Event\UiFieldRuleSpec;
  */
 final class UiFieldRuleParser
 {
-    private readonly UiFieldRuleRegistryInterface $registry;
-
-    public function __construct(?UiFieldRuleRegistryInterface $registry = null)
-    {
-        $this->registry = $registry ?? new DefaultUiFieldRuleRegistry();
-    }
+    public function __construct(
+        private readonly UiFieldRuleRegistryInterface $registry,
+    ) {}
 
     /**
      * Parse a list of raw specs into normalized UiFieldRuleSpec

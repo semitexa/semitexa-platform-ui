@@ -96,12 +96,16 @@
 {%- set _ui_content_html %}{{ slot('content')|raw }}{% endset -%}
 {%- set _ui_submit_fields_wire = ui_form_resolve_submit_fields(_ui_content_html, _ui_auto_fields, _ui_manual_fields) -%}
 {%- set _ui_content_html = ui_form_strip_submit_markers(_ui_content_html) -%}
+{%- set _ui_submit_csrf = ui_form_issue_submit_csrf(_ui_submit_action) -%}
 {%- set _ui_submit_cfg = {} -%}
 {%- if _ui_submit_fields_wire is not empty -%}
     {%- set _ui_submit_cfg = _ui_submit_cfg|merge({'f': _ui_submit_fields_wire}) -%}
 {%- endif -%}
 {%- if _ui_submit_action -%}
     {%- set _ui_submit_cfg = _ui_submit_cfg|merge({'a': _ui_submit_action}) -%}
+{%- endif -%}
+{%- if _ui_submit_csrf -%}
+    {%- set _ui_submit_cfg = _ui_submit_cfg|merge({'s': _ui_submit_csrf}) -%}
 {%- endif -%}
 {%- set _ui_event_config = _ui_submit_cfg is empty ? {} : {'form.submit': _ui_submit_cfg} -%}
 <div

@@ -6,12 +6,30 @@ namespace Semitexa\PlatformUi\Application\Service\Submit;
 
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
 use Semitexa\PlatformUi\Application\Service\Submit\Action\PlatformDemoAcceptAction;
+use Semitexa\PlatformUi\Application\Service\Submit\Action\PlatformDemoStoreContactAction;
+use Semitexa\PlatformUi\Application\Service\Submit\Action\PlatformDemoStoreContactDbAction;
 use Semitexa\PlatformUi\Domain\Exception\UiFormSubmitActionException;
 
 /**
- * Default action registry — knows one built-in:
+ * Default action registry — knows the built-in demo actions:
  *
- *   - `platform.demo.accept`  → PlatformDemoAcceptAction
+ *   - `platform.demo.accept`         → PlatformDemoAcceptAction
+ *     (inert; returns an accepted message; no persistence)
+ *   - `platform.demo.storeContact`   → PlatformDemoStoreContactAction
+ *     (cache-backed demo persistence via
+ *     {@see UiFormDemoSubmissionRepositoryInterface}; 24h TTL)
+ *   - `platform.demo.storeContactDb` → PlatformDemoStoreContactDbAction
+ *     (database-backed demo persistence via
+ *     {@see UiFormDatabaseDemoSubmissionRepositoryInterface}; table
+ *     `platform_ui_demo_submissions`, durable)
+ *
+ * The storage-capable actions need their respective repositories;
+ * the registry pulls the active repo for each action from its
+ * static holder (`UiFormDemoSubmissionRepository::getActive()`
+ * for the cache action, `UiFormDatabaseDemoSubmissionRepository::getActive()`
+ * for the DB action) lazily at resolve time. The registry itself
+ * stays stateless and can be instantiated from the lazy-default
+ * fallback path without any container access.
  *
  * Bound as the default UiFormSubmitActionRegistryInterface
  * implementation via SatisfiesServiceContract. Apps register their
@@ -53,6 +71,12 @@ final class DefaultUiFormSubmitActionRegistry implements UiFormSubmitActionRegis
     {
         return match ($actionName) {
             PlatformDemoAcceptAction::NAME => new PlatformDemoAcceptAction(),
+            PlatformDemoStoreContactAction::NAME => new PlatformDemoStoreContactAction(
+                UiFormDemoSubmissionRepository::getActive(),
+            ),
+            PlatformDemoStoreContactDbAction::NAME => new PlatformDemoStoreContactDbAction(
+                UiFormDatabaseDemoSubmissionRepository::getActive(),
+            ),
             default => throw new UiFormSubmitActionException(
                 sprintf(
                     'Unknown form submit action "%s". Known actions: %s.',
@@ -67,6 +91,10 @@ final class DefaultUiFormSubmitActionRegistry implements UiFormSubmitActionRegis
     /** @return list<string> */
     public function knownActionNames(): array
     {
-        return [PlatformDemoAcceptAction::NAME];
+        return [
+            PlatformDemoAcceptAction::NAME,
+            PlatformDemoStoreContactAction::NAME,
+            PlatformDemoStoreContactDbAction::NAME,
+        ];
     }
 }

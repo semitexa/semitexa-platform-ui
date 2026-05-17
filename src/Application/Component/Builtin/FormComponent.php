@@ -266,6 +266,10 @@ final class FormComponent implements UsesUiFieldRuleRegistry
             // if the authorizer already denied — both gates together
             // form a single deny channel.
             if ($actionDenialDebug === null) {
+                $securityCfg = $event->config['s'] ?? [];
+                if (!is_array($securityCfg)) {
+                    $securityCfg = [];
+                }
                 try {
                     UiFormSubmitSecurityPolicy::getActive()->verify(
                         new UiFormSubmitSecurityContext(
@@ -274,6 +278,7 @@ final class FormComponent implements UsesUiFieldRuleRegistry
                             dispatchId:     $event->dispatchId,
                             fields:         $config->fields,
                             submitResult:   $summary,
+                            securityConfig: $securityCfg,
                         ),
                     );
                 } catch (UiFormSubmitSecurityPolicyException $e) {

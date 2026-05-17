@@ -21,6 +21,12 @@
             "position": "body",
             "priority": 60,
             "attributes": { "defer": true }
+        },
+        "js/grid-runtime.js": {
+            "scope": "global",
+            "position": "body",
+            "priority": 70,
+            "attributes": { "defer": true }
         }
     }
 }
