@@ -821,12 +821,15 @@ final class FormComponentRenderTest extends TestCase
             'autoFields' => true,
         ]);
         $manifest = $this->decodeManifestPayload($html);
+        $foundSubmit = false;
         foreach ($manifest['events'] ?? [] as $event) {
             if (($event['e'] ?? null) === 'submit') {
+                $foundSubmit = true;
                 $payload = \Semitexa\Ssr\Application\Service\UiEvent\SignedContext::verify($event['ctx']) ?? [];
                 self::assertArrayNotHasKey('s', $payload['cfg'] ?? []);
             }
         }
+        self::assertTrue($foundSubmit, 'submit event entry must still be present');
     }
 
     #[Test]
@@ -839,8 +842,10 @@ final class FormComponentRenderTest extends TestCase
             'submitAction' => 'platform.demo.accept',
         ]);
         $manifest = $this->decodeManifestPayload($html);
+        $foundSubmit = false;
         foreach ($manifest['events'] ?? [] as $event) {
             if (($event['e'] ?? null) === 'submit') {
+                $foundSubmit = true;
                 $payload = \Semitexa\Ssr\Application\Service\UiEvent\SignedContext::verify($event['ctx']) ?? [];
                 $cfgS = $payload['cfg']['s'];
                 // ONLY `k` + `t`. No session id, no cache key format,
@@ -848,6 +853,7 @@ final class FormComponentRenderTest extends TestCase
                 self::assertSame(['k', 't'], array_keys($cfgS));
             }
         }
+        self::assertTrue($foundSubmit, 'submit event entry must still be present');
     }
 
     #[Test]

@@ -66,9 +66,8 @@ final class UiFormSubmitActionAuthorizerTest extends TestCase
     #[Test]
     public function default_allow_authorizer_returns_void_for_every_context(): void
     {
+        $this->expectNotToPerformAssertions();
         (new AllowAllUiFormSubmitActionAuthorizer())->authorize($this->context());
-        // No throw → pass.
-        self::assertTrue(true);
     }
 
     #[Test]

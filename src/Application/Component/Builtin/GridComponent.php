@@ -30,7 +30,7 @@ use Semitexa\Ssr\Attribute\AsComponent;
  *   - SSE topic / publisher — the caller wires those project-side;
  *   - row repository, projection, or column types.
  *
- * Frontend runtime: `packages/semitexa-platform-ui/src/Application/Static/js/grid-runtime.js`
+ * Frontend runtime: `src/Application/Static/js/grid-runtime.js`
  * discovers every `[data-ui-grid]` root, reads `data-ui-grid-data-url`
  * + `data-ui-grid-sse-url` + the JSON bundle, and orchestrates
  * dynamic loading. The runtime never uses `innerHTML`, `eval`, or

@@ -21,8 +21,8 @@ use Semitexa\PlatformUi\Domain\Exception\UiDemoSubmissionAdminAuthorizationExcep
  *     deny. The route handler catches the typed exception and
  *     renders a safe `403`-flavoured template state.
  *
- * Default implementation is {@see AllowAllUiDemoSubmissionAdminAuthorizer}
- * — preserves out-of-the-box demo accessibility. Apps override by
+ * Default implementation is {@see ConfigurableUiDemoSubmissionAdminAuthorizer}
+ * — denies unless PLATFORM_UI_DEMO_ADMIN_ENABLED is truthy. Apps override by
  * binding their own implementation with
  * `#[SatisfiesServiceContract(of: UiDemoSubmissionAdminAuthorizerInterface::class)]`
  * inside a module that "extends" semitexa-platform-ui.

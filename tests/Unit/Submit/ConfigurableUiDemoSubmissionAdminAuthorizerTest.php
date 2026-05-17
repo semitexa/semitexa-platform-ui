@@ -109,7 +109,7 @@ final class ConfigurableUiDemoSubmissionAdminAuthorizerTest extends TestCase
             self::assertStringNotContainsString('leak-canary-XYZ', $msg);
             self::assertStringNotContainsString('PLATFORM_UI_DEMO_ADMIN_ENABLED', $msg);
             self::assertStringNotContainsString('ConfigurableUiDemoSubmissionAdminAuthorizer', $msg);
-            self::assertStringNotContainsString('Semitexa\\\\', $msg);
+            self::assertStringNotContainsString('Semitexa\\', $msg);
             self::assertSame(
                 'Diagnostic listing access is disabled. An operator must enable it explicitly.',
                 $msg,
@@ -118,15 +118,10 @@ final class ConfigurableUiDemoSubmissionAdminAuthorizerTest extends TestCase
     }
 
     #[Test]
-    public function authorizer_is_NOT_the_default_service_contract_winner(): void
+    public function authorizer_is_the_default_service_contract_winner(): void
     {
-        // Strategy 1 pin: the package's default binding remains
-        // AllowAllUiDemoSubmissionAdminAuthorizer. The configurable
-        // one is opt-in only — production apps wire it via their
-        // own SatisfiesServiceContract or via setActive() from a
-        // custom boot listener.
         $reflection = new \ReflectionClass(ConfigurableUiDemoSubmissionAdminAuthorizer::class);
         $satisfies = $reflection->getAttributes(\Semitexa\Core\Attribute\SatisfiesServiceContract::class);
-        self::assertSame([], $satisfies, 'Configurable authorizer must NOT carry SatisfiesServiceContract.');
+        self::assertCount(1, $satisfies, 'Configurable authorizer must carry SatisfiesServiceContract.');
     }
 }

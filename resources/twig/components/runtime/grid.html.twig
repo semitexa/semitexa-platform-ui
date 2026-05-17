@@ -231,7 +231,9 @@
         <p data-ui-grid-next-wrap
            {% if not _grid_has_more or _grid_next_cursor is null %}hidden{% endif %}
            ui-text="body" style="margin:0;font-size:0.875rem;">
-            <a data-ui-grid-next href="{{ _grid_next_fallback_href }}">Next page →</a>
+            <a data-ui-grid-next
+               {% if _grid_has_more and _grid_next_cursor is not null %}data-ui-grid-next-cursor="{{ _grid_next_cursor }}"{% endif %}
+               href="{{ _grid_next_fallback_href }}">Next page →</a>
         </p>
     </section>
 

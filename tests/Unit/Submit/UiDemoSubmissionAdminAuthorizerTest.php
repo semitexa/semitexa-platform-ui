@@ -7,16 +7,17 @@ namespace Semitexa\PlatformUi\Tests\Unit\Submit;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Semitexa\PlatformUi\Application\Service\Submit\AllowAllUiDemoSubmissionAdminAuthorizer;
+use Semitexa\PlatformUi\Application\Service\Submit\ConfigurableUiDemoSubmissionAdminAuthorizer;
 use Semitexa\PlatformUi\Application\Service\Submit\UiDemoSubmissionAdminAuthorizer;
 use Semitexa\PlatformUi\Application\Service\Submit\UiDemoSubmissionAdminAuthorizerInterface;
 use Semitexa\PlatformUi\Domain\Exception\UiDemoSubmissionAdminAuthorizationException;
 
 /**
  * Diagnostic listing authorizer seam:
- *   - default impl allows (no throw);
+ *   - explicit allow-all impl allows (no throw);
  *   - typed exception carries reason code + message;
  *   - failure surface does not leak class FQCNs;
- *   - static holder lazy-defaults / setActive / reset.
+ *   - static holder lazy-defaults to configurable mode / setActive / reset.
  */
 final class UiDemoSubmissionAdminAuthorizerTest extends TestCase
 {
@@ -33,8 +34,8 @@ final class UiDemoSubmissionAdminAuthorizerTest extends TestCase
     #[Test]
     public function default_authorizer_allows_every_call(): void
     {
+        $this->expectNotToPerformAssertions();
         (new AllowAllUiDemoSubmissionAdminAuthorizer())->authorize();
-        self::assertTrue(true);
     }
 
     #[Test]
@@ -61,10 +62,10 @@ final class UiDemoSubmissionAdminAuthorizerTest extends TestCase
     }
 
     #[Test]
-    public function static_holder_lazy_defaults_to_allow_all(): void
+    public function static_holder_lazy_defaults_to_configurable_authorizer(): void
     {
         self::assertInstanceOf(
-            AllowAllUiDemoSubmissionAdminAuthorizer::class,
+            ConfigurableUiDemoSubmissionAdminAuthorizer::class,
             UiDemoSubmissionAdminAuthorizer::getActive(),
         );
     }
@@ -83,7 +84,7 @@ final class UiDemoSubmissionAdminAuthorizerTest extends TestCase
 
         UiDemoSubmissionAdminAuthorizer::reset();
         self::assertInstanceOf(
-            AllowAllUiDemoSubmissionAdminAuthorizer::class,
+            ConfigurableUiDemoSubmissionAdminAuthorizer::class,
             UiDemoSubmissionAdminAuthorizer::getActive(),
         );
     }

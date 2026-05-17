@@ -12,6 +12,7 @@ use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
 use Semitexa\PlatformUi\Application\Db\MySQL\Model\UiFormDemoSubmissionResource;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormDatabaseDemoSubmissionRepositoryInterface;
+use Semitexa\PlatformUi\Domain\Exception\UiFormDemoSubmissionCursorException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFormDemoSubmissionCursor;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFormDemoSubmissionListCriteria;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFormDemoSubmissionPage;
@@ -119,6 +120,8 @@ final class UiFormDemoSubmissionDbRepository implements UiFormDatabaseDemoSubmis
         ?UiFormDemoSubmissionCursor $cursor,
         int $limit,
     ): UiFormDemoSubmissionPage {
+        self::assertCursorMatchesCriteria($criteria, $cursor);
+
         $clamped = max(1, min($limit, UiFormDatabaseDemoSubmissionRepositoryInterface::MAX_RECENT_LIMIT));
 
         // Resolve sort direction. `paginate()` (criteria=null) keeps
@@ -278,8 +281,14 @@ final class UiFormDemoSubmissionDbRepository implements UiFormDatabaseDemoSubmis
             /** @var mixed $decoded */
             $decoded = json_decode($resource->values_json, true, 8, JSON_THROW_ON_ERROR);
             if (is_array($decoded)) {
-                /** @var array<string, scalar|null> $decoded */
-                $values = $decoded;
+                foreach ($decoded as $key => $value) {
+                    if (!is_string($key) || (!is_scalar($value) && $value !== null)) {
+                        throw new \InvalidArgumentException(
+                            'Malformed values_json for demo submission resource ' . $resource->id . '.',
+                        );
+                    }
+                    $values[$key] = $value;
+                }
             }
         } catch (\JsonException) {
             // Corrupted row — return an empty values map rather than
@@ -294,5 +303,19 @@ final class UiFormDemoSubmissionDbRepository implements UiFormDatabaseDemoSubmis
             submittedAt:    $resource->submitted_at->getTimestamp(),
             values:         $values,
         );
+    }
+
+    private static function assertCursorMatchesCriteria(
+        ?UiFormDemoSubmissionListCriteria $criteria,
+        ?UiFormDemoSubmissionCursor $cursor,
+    ): void {
+        if ($cursor === null) {
+            return;
+        }
+        if ($cursor->filterFingerprint !== $criteria?->fingerprint()) {
+            throw new UiFormDemoSubmissionCursorException(
+                'Cursor fingerprint does not match active criteria.',
+            );
+        }
     }
 }

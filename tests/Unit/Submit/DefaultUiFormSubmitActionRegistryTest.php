@@ -85,7 +85,7 @@ final class DefaultUiFormSubmitActionRegistryTest extends TestCase
         } catch (UiFormSubmitActionException $e) {
             $msg = $e->getMessage();
             self::assertStringNotContainsString('PlatformDemoAcceptAction', $msg);
-            self::assertStringNotContainsString('Semitexa\\\\', $msg);
+            self::assertStringNotContainsString('Semitexa\\', $msg);
             self::assertStringNotContainsString('::class', $msg);
         }
     }

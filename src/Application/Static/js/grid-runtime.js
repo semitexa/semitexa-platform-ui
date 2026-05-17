@@ -80,6 +80,7 @@
             sort:   readFormValue(formEl, sortParam) || initialSort || '',
             cursor: null,
         };
+        var latestRequestId = 0;
 
         // --- Filter form -------------------------------------------------
         if (formEl) {
@@ -223,6 +224,7 @@
 
         // --- Core fetch + render ------------------------------------------
         function reload() {
+            var requestId = ++latestRequestId;
             clearError();
             var url = composeUrl(dataUrl, state, sortParam);
             fetch(url, {
@@ -236,6 +238,7 @@
                     return { status: resp.status, body: null };
                 });
             }).then(function (parsed) {
+                if (requestId !== latestRequestId) return;
                 if (!parsed.body || typeof parsed.body !== 'object') {
                     renderError('The server returned an unexpected response.');
                     return;
@@ -246,6 +249,7 @@
                 }
                 renderPage(parsed.body);
             }).catch(function () {
+                if (requestId !== latestRequestId) return;
                 renderError('Network error — please retry.');
             });
         }
@@ -281,6 +285,9 @@
 
             // Pagination text + Next-link state.
             var pagination = envelope.pagination;
+            if (typeof pagination.limit === 'number' && pagination.limit > 0) {
+                state.limit = String(pagination.limit);
+            }
             var sizeEl  = rootEl.querySelector('[data-ui-grid-pagination-size]');
             var countEl = rootEl.querySelector('[data-ui-grid-pagination-count]');
             var labelEl = rootEl.querySelector('[data-ui-grid-pagination-label]');

@@ -2012,6 +2012,12 @@ final class FormSubmitDispatchTest extends TestCase
         $dbData = $this->decode($dbResp);
         self::assertTrue($dbData['debug']['action']['accepted']);
         self::assertSame('database', $dbData['debug']['action']['detail']['storage']);
+        $dbSubmissionId = $dbData['debug']['action']['detail']['submissionId'];
+        $dbStored = $dbRepo->find($dbSubmissionId);
+        self::assertNotNull($dbStored);
+        self::assertSame(PlatformDemoStoreContactDbAction::NAME, $dbStored->actionName);
+        self::assertSame('DB Ada', $dbStored->values['contact_name'] ?? null);
+        self::assertNull($cacheRepo->find($dbSubmissionId));
 
         // Cache action submission — re-use the new helper.
         $cacheResp = $this->post($this->submitCtxForActionWithCsrf($cacheToken, PlatformDemoStoreContactAction::NAME), [
@@ -2021,6 +2027,12 @@ final class FormSubmitDispatchTest extends TestCase
         self::assertTrue($cacheData['debug']['action']['accepted']);
         // Cache action's detail does NOT carry a `storage` key — only the DB action does.
         self::assertArrayNotHasKey('storage', $cacheData['debug']['action']['detail']);
+        $cacheSubmissionId = $cacheData['debug']['action']['detail']['submissionId'];
+        $cacheStored = $cacheRepo->find($cacheSubmissionId);
+        self::assertNotNull($cacheStored);
+        self::assertSame(PlatformDemoStoreContactAction::NAME, $cacheStored->actionName);
+        self::assertSame('Cache Ada', $cacheStored->values['contact_name'] ?? null);
+        self::assertNull($dbRepo->find($cacheSubmissionId));
 
         // Each landed in its own bucket — no cross-storage.
         self::assertSame(1, $dbRepo->count());

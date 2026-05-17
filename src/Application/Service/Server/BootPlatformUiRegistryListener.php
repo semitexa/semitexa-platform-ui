@@ -108,8 +108,8 @@ final class BootPlatformUiRegistryListener implements ServerLifecycleListenerInt
         // Read-only diagnostic-listing authorizer — the
         // `/ui-playground/admin/demo-submissions` handler reads the
         // active authorizer through its dedicated static holder.
-        // Default impl allows everyone; production apps bind their
-        // own via SatisfiesServiceContract.
+        // Default impl denies unless PLATFORM_UI_DEMO_ADMIN_ENABLED
+        // is truthy; apps may bind their own via SatisfiesServiceContract.
         UiDemoSubmissionAdminAuthorizer::setActive($this->demoSubmissionAdminAuthorizer);
     }
 }

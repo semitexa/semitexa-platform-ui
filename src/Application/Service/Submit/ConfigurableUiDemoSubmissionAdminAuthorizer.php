@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Submit;
 
+use Semitexa\Core\Attribute\SatisfiesServiceContract;
 use Semitexa\Core\Environment;
 use Semitexa\PlatformUi\Domain\Exception\UiDemoSubmissionAdminAuthorizationException;
 
 /**
- * Stricter built-in `UiDemoSubmissionAdminAuthorizerInterface` —
- * **opt-in protected mode** for the dev-facing diagnostic listing.
+ * Default built-in `UiDemoSubmissionAdminAuthorizerInterface` —
+ * deny-by-default protected mode for the dev-facing diagnostic listing.
  *
  * Allows access **only** when an explicit environment flag is set:
  *
@@ -21,17 +22,17 @@ use Semitexa\PlatformUi\Domain\Exception\UiDemoSubmissionAdminAuthorizationExcep
  * safe and never echoes the bad value, the flag name's source, or
  * any class FQCN.
  *
- * NOT marked `#[SatisfiesServiceContract]` on purpose: the package
- * keeps `AllowAllUiDemoSubmissionAdminAuthorizer` as the default
- * binding so the dev playground keeps working out of the box.
- * Production apps opt into this stricter authorizer by either:
+ * Marked `#[SatisfiesServiceContract]` on purpose: the package must
+ * not expose submission diagnostics unless the operator explicitly
+ * enables the route for a dev environment. Apps can still replace it
+ * by either:
  *
  *   - binding their own implementation that wraps / replaces it via
  *     `#[SatisfiesServiceContract(of: UiDemoSubmissionAdminAuthorizerInterface::class)]`
  *     in a module that "extends" semitexa-platform-ui;
  *
  *   - or calling
- *     `UiDemoSubmissionAdminAuthorizer::setActive(new ConfigurableUiDemoSubmissionAdminAuthorizer())`
+ *     `UiDemoSubmissionAdminAuthorizer::setActive(new AllowAllUiDemoSubmissionAdminAuthorizer())`
  *     from their own boot listener.
  *
  * Reads the flag exactly once per `authorize()` call via the same
@@ -48,6 +49,7 @@ use Semitexa\PlatformUi\Domain\Exception\UiDemoSubmissionAdminAuthorizationExcep
  *     stable `demo_admin_disabled` reason code — the operator
  *     diagnostic surface stays minimal.
  */
+#[SatisfiesServiceContract(of: UiDemoSubmissionAdminAuthorizerInterface::class)]
 final class ConfigurableUiDemoSubmissionAdminAuthorizer implements UiDemoSubmissionAdminAuthorizerInterface
 {
     /** Environment key that gates the listing. */

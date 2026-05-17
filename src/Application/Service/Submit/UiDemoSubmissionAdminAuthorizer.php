@@ -14,7 +14,7 @@ namespace Semitexa\PlatformUi\Application\Service\Submit;
  * here once per worker; the diagnostic handler reads it via
  * `getActive()` at request time.
  *
- * Lazy-default: {@see AllowAllUiDemoSubmissionAdminAuthorizer}.
+ * Lazy-default: {@see ConfigurableUiDemoSubmissionAdminAuthorizer}.
  * Test seam: `setActive(...)` lets tests inject a custom
  * (throwing) fake without going through the container; `reset()`
  * restores the lazy-default path.
@@ -26,7 +26,7 @@ final class UiDemoSubmissionAdminAuthorizer
     public static function getActive(): UiDemoSubmissionAdminAuthorizerInterface
     {
         if (self::$active === null) {
-            self::$active = new AllowAllUiDemoSubmissionAdminAuthorizer();
+            self::$active = new ConfigurableUiDemoSubmissionAdminAuthorizer();
         }
         return self::$active;
     }

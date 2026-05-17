@@ -7,6 +7,7 @@ namespace Semitexa\PlatformUi\Tests\Integration;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Semitexa\Core\Request;
+use Semitexa\PlatformUi\Application\Service\Submit\AllowAllUiDemoSubmissionAdminAuthorizer;
 use Semitexa\PlatformUi\Application\Service\Submit\ConfigurableUiDemoSubmissionAdminAuthorizer;
 use Semitexa\PlatformUi\Application\Service\Submit\InMemoryUiFormDatabaseDemoSubmissionRepository;
 use Semitexa\PlatformUi\Application\Service\Submit\UiDemoSubmissionAdminAuthorizer;
@@ -56,9 +57,7 @@ final class DemoSubmissionsAdminHandlerTest extends TestCase
     {
         $handler = new (self::HANDLER_CLASS)();
         $handler->withRepository($repo);
-        if ($authorizer !== null) {
-            $handler->withAuthorizer($authorizer);
-        }
+        $handler->withAuthorizer($authorizer ?? new AllowAllUiDemoSubmissionAdminAuthorizer());
         return $handler;
     }
 
@@ -212,20 +211,22 @@ final class DemoSubmissionsAdminHandlerTest extends TestCase
     }
 
     #[Test]
-    public function default_authorizer_falls_back_through_static_holder(): void
+    public function default_authorizer_falls_back_to_configurable_static_holder(): void
     {
         // No `withAuthorizer()` call → handler MUST resolve through
         // UiDemoSubmissionAdminAuthorizer::getActive() (lazy-default
-        // to AllowAll). Pin the bridge.
+        // to configurable deny-by-default mode). Pin the bridge.
         $repo = new InMemoryUiFormDatabaseDemoSubmissionRepository();
         $repo->save($this->makeRecord('uifs_bridge', 1, ['contact_name' => 'Ada']));
         $handler = new (self::HANDLER_CLASS)();
         $handler->withRepository($repo);
         // do NOT call withAuthorizer
         $resource = $this->invokeHandler($handler);
-        self::assertSame(200, $resource->getStatusCode());
-        $rows = $this->renderContext($resource)['submissions'];
-        self::assertCount(1, $rows);
+        self::assertSame(403, $resource->getStatusCode());
+        $ctx = $this->renderContext($resource);
+        self::assertTrue($ctx['denied']);
+        self::assertSame('demo_admin_disabled', $ctx['denialReason']);
+        self::assertArrayNotHasKey('submissions', $ctx);
     }
 
     // ----------------------------------------------------------------

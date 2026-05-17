@@ -1493,7 +1493,7 @@ The registry MUST resolve through a fixed `match` — NEVER `new $name(...)` or 
 
   - **Sortable column headers** (lead grid + demo-submissions grid, both at parity). When a column map carries BOTH `sortAsc` + `sortDesc` allow-listed tokens, the template renders the header label as `<a data-ui-grid-sort data-ui-grid-sort-asc="..." data-ui-grid-sort-desc="...">` with an `aria-sort="ascending|descending|none"` on the surrounding `<th>` and a small toggle indicator (`▲`/`▼`/`↕`). The toggle `href` is composed server-side from `pageFallbackUrl` + active filter state + the *other* direction's token (so the no-JS path works without JS). The runtime intercepts clicks, flips between `sortAsc` and `sortDesc` based on the current `state.sort`, clears the cursor, mirrors the new sort into the caller-owned hidden `<input name="sort">` inside the filter form, updates the aria-sort + toggle-href + indicator glyph immediately, and reloads. The tokens are SERVER-OWNED and ALLOW-LISTED — the runtime never invents one. Per-grid allow-lists (both grids identical in this slice): `submittedAt_desc` (default) + `submittedAt_asc`. Sortable column for both grids: ONLY `submittedAt`. **Demo-submissions Sort VO** is the package-side `Semitexa\PlatformUi\Domain\Model\Event\UiFormDemoSubmissionSort` — same allow-list shape as the project-side lead Sort VO, with `invalid_sort` rejection routed through the package-side `UiFormDemoSubmissionSearchException`. Out-of-scope this slice: contact-field / lead_message / `id_*` sorting, multi-sort, client-side sort. **The shared `UiGridFilterState` envelope is UNCHANGED** (Option B): sort travels as a hidden form input, not as part of the on-wire filter envelope.
 
-  - **Runtime**: `packages/semitexa-platform-ui/src/Application/Static/js/grid-runtime.js`, declared in the package `assets.json` (`scope: global`, `position: body`, `priority: 70`, `defer: true`). Namespace: `window.SemitexaUi.grid` (`bootAll()` is the explicit re-discovery hook; auto-runs on `DOMContentLoaded`). Reads the inline `<script type="application/json" data-ui-grid-bundle>` block for column order + refresh-marker name + page-fallback URL.
+  - **Runtime**: `src/Application/Static/js/grid-runtime.js`, declared in the package `assets.json` (`scope: global`, `position: body`, `priority: 70`, `defer: true`). Namespace: `window.SemitexaUi.grid` (`bootAll()` is the explicit re-discovery hook; auto-runs on `DOMContentLoaded`). Reads the inline `<script type="application/json" data-ui-grid-bundle>` block for column order + refresh-marker name + page-fallback URL.
 
   - **Runtime safety**: DOM mutations use `createElement` + `textContent` exclusively. Cell attributes go through `setAttribute` with a literal allow-list (`style`, `ui-text`, `data-ui-grid-row-id`); the per-column `style` string is sourced from the server-rendered bundle, NOT from the JSON envelope. Row keys filtered through the bundle's `columns` allow-list — extra keys ignored. JSON envelope shape-checked before any DOM update; deviation surfaces an error banner. **No `innerHTML`, no `eval`, no `Function` constructor, no `document.write`, no script-tag rendering, no arbitrary selectors from server payload, no client-side dataset cache.** Pinned by `GridRuntimeStaticAssertTest`.
 
@@ -1617,11 +1617,12 @@ This drives a tiny dev-facing diagnostic page registered in the **UiPlayground m
 - The view-model is a flat array (`{id, actionName, formInstanceId, submittedAt, contactName, contactTopic, contactMessagePreview, storedFieldCount}`). Raw `values_json` never reaches the template.
 - The page deliberately does NOT surface CSRF token ids, raw tokens, signed-ctx blobs, dispatchIds, raw payload bytes, or debug internals — they are not in the table to begin with, and the projection never invents them.
 
-**Access control**: `UiDemoSubmissionAdminAuthorizerInterface` (throw-on-deny, mirrors the action authorizer / security policy seams). Default impl is `AllowAllUiDemoSubmissionAdminAuthorizer` (`#[SatisfiesServiceContract]`) — appropriate for the dev playground. **Apps that mount the playground in any non-dev environment MUST bind their own implementation**; the page renders a visible production-warning callout to make this explicit. Worker-scoped static holder + Boot listener wiring match the surrounding patterns. Denial returns HTTP 403 with a safe template state — never the bad caller's identity, never class FQCNs.
+**Access control**: `UiDemoSubmissionAdminAuthorizerInterface` (throw-on-deny, mirrors the action authorizer / security policy seams). Default impl is `ConfigurableUiDemoSubmissionAdminAuthorizer` (`#[SatisfiesServiceContract]`) — deny-by-default unless `PLATFORM_UI_DEMO_ADMIN_ENABLED` is explicitly truthy. Dev playground deployments that intentionally want open diagnostics can bind `AllowAllUiDemoSubmissionAdminAuthorizer` themselves or install it through the worker-scoped static holder. Worker-scoped static holder + Boot listener wiring match the surrounding patterns. Denial returns HTTP 403 with a safe template state — never the bad caller's identity, never class FQCNs.
 
-**Protected mode (opt-in built-in)**: the package ships a stricter authorizer alongside the default:
+**Protected mode (default built-in)**: the package ships the env-gated authorizer as the default:
 
 ```php
+#[SatisfiesServiceContract(of: UiDemoSubmissionAdminAuthorizerInterface::class)]
 final class ConfigurableUiDemoSubmissionAdminAuthorizer
     implements UiDemoSubmissionAdminAuthorizerInterface
 {
@@ -1630,11 +1631,11 @@ final class ConfigurableUiDemoSubmissionAdminAuthorizer
 }
 ```
 
-It is **NOT** registered as the contract default (Strategy 1: keep `AllowAll` as the silent fallback so the dev playground keeps working out of the box). Apps opt in either via their own boot listener call —
+Apps that need a different decision can replace the default either via their own boot listener call —
 
 ```php
 UiDemoSubmissionAdminAuthorizer::setActive(
-    new ConfigurableUiDemoSubmissionAdminAuthorizer(),
+    new AllowAllUiDemoSubmissionAdminAuthorizer(), // dev-only open diagnostics
 );
 ```
 
@@ -1741,8 +1742,8 @@ Only after all seven pass does the action's `handle()` run. Invalid submits / re
 
 **Demo-grade limitations**:
 
-- Storage is cache-backed only — no permanent database, no admin UI, no search, no export, no migration.
-- 24-hour TTL — records evaporate; abandoned demo deployments do not accumulate data.
+- The default `platform.demo.storeContact` action uses the cache-backed demo repository with a 24-hour TTL — records evaporate; abandoned demo deployments do not accumulate data.
+- The alternate `platform.demo.storeContactDb` action uses the DB-backed demo repository/table (`platform_ui_demo_submissions`) and persists rows until the consuming app's database retention policy removes them. Operators can override that behaviour by binding `UiFormDatabaseDemoSubmissionRepositoryInterface` or replacing the DB action wiring.
 - The action does NOT send email, redirect, call external APIs, create accounts, or run any other business action.
 - Real persistence (audit, retention, queryability) is a separate slice with its own storage contract.
 

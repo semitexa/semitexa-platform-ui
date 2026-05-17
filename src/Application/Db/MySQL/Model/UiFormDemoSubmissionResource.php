@@ -43,6 +43,7 @@ use Semitexa\Orm\Metadata\HasRelationReferences;
 #[FromTable(name: 'platform_ui_demo_submissions')]
 #[Index(columns: ['form_instance_id'], name: 'idx_pui_demo_form_instance')]
 #[Index(columns: ['action_name', 'submitted_at'], name: 'idx_pui_demo_action_submitted')]
+#[Index(columns: ['submitted_at', 'id'], name: 'idx_pui_demo_submitted_id')]
 final readonly class UiFormDemoSubmissionResource
 {
     use HasColumnReferences;

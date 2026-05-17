@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Submit;
 
+use Semitexa\PlatformUi\Domain\Exception\UiFormDemoSubmissionCursorException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFormDemoSubmissionCursor;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFormDemoSubmissionListCriteria;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFormDemoSubmissionPage;
@@ -81,6 +82,12 @@ class InMemoryUiFormDatabaseDemoSubmissionRepository implements UiFormDatabaseDe
         ?UiFormDemoSubmissionCursor $cursor,
         int $limit,
     ): UiFormDemoSubmissionPage {
+        if ($cursor !== null && $cursor->filterFingerprint !== $criteria?->fingerprint()) {
+            throw new UiFormDemoSubmissionCursorException(
+                'Cursor fingerprint does not match active criteria.',
+            );
+        }
+
         $clamped = max(1, min($limit, UiFormDatabaseDemoSubmissionRepositoryInterface::MAX_RECENT_LIMIT));
 
         $rows = array_values($this->records);

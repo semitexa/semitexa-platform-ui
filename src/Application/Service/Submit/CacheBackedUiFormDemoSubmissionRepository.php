@@ -101,13 +101,19 @@ final class CacheBackedUiFormDemoSubmissionRepository implements UiFormDemoSubmi
         ) {
             return null;
         }
-        /** @var array<string, scalar|null> $values */
+        $normalised = [];
+        foreach ($values as $key => $value) {
+            if (!is_string($key) || (!is_scalar($value) && $value !== null)) {
+                return null;
+            }
+            $normalised[$key] = $value;
+        }
         return new UiFormDemoSubmissionRecord(
             id: $id,
             formInstanceId: $formInstanceId,
             actionName: $actionName,
             submittedAt: $submittedAt,
-            values: $values,
+            values: $normalised,
         );
     }
 
