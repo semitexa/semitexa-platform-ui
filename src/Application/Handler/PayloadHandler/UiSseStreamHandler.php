@@ -151,7 +151,7 @@ final class UiSseStreamHandler implements TypedHandlerInterface
             // 5. Grab the underlying Swoole response. Done AFTER all
             //    upstream checks so an unprivileged client never even
             //    sees response headers.
-            $swooleCtx = SwooleBootstrap::getCurrentSwooleRequestResponse();
+            $swooleCtx = $this->currentSwooleContext();
             if ($swooleCtx === null || ($swooleCtx[1] ?? null) === null) {
                 throw new UiSseSubscriptionException(
                     'sse_unavailable',
@@ -242,7 +242,7 @@ final class UiSseStreamHandler implements TypedHandlerInterface
         // AsyncResourceSseServer also reads). Fall back to whatever
         // the framework exposes via Request when running outside
         // Swoole — tests construct Request directly with $server.
-        $context = SwooleBootstrap::getCurrentSwooleRequestResponse();
+        $context = $this->currentSwooleContext();
         if ($context !== null && is_array($context[0]->server ?? null)) {
             $server = $context[0]->server;
             $ip = trim((string) ($server['remote_addr'] ?? ''));
@@ -269,6 +269,17 @@ final class UiSseStreamHandler implements TypedHandlerInterface
             $this->limiter = new InMemoryUiSseConnectionLimiter();
         }
         return $this->limiter;
+    }
+
+    /**
+     * @return array{0: object, 1: object, 2?: object}|null
+     */
+    private function currentSwooleContext(): ?array
+    {
+        if (!class_exists(Coroutine::class)) {
+            return null;
+        }
+        return SwooleBootstrap::getCurrentSwooleRequestResponse();
     }
 
     /**
