@@ -49,23 +49,53 @@ use Semitexa\Ssr\Application\Service\UiEvent\SignedContext;
 final class UiEventManifestBuilder
 {
     /**
+     * Safe shape for the optional `sub` (subscriber channel id) claim:
+     * starts with an alphanumeric, followed by 0–127 `[A-Za-z0-9_-]`
+     * characters. Same family as the legacy dispatchId pattern; the
+     * canonical SSE session id ({@see \Semitexa\Ssr\Application\Service\Async\AsyncResourceSseServer::handle()}
+     * — `session_id` query param) is opaque to the framework, so the
+     * builder enforces the conservative identifier shape rather than
+     * trusting any blob the page handler hands in.
+     */
+    private const SUBSCRIBER_CHANNEL_ID_PATTERN = '/\A[A-Za-z0-9][A-Za-z0-9_-]{0,127}\z/';
+
+    /**
      * @param array<string, array<string, mixed>> $eventConfig Map of
      *        "<part>.<event>" → config payload. Each value is embedded
      *        verbatim as the `cfg` claim on its matching manifest
      *        entry. Empty / unset entries omit `cfg` from the signed
      *        ctx. Caller is responsible for the config being JSON-
      *        encodable and free of secrets / PHP class FQCNs.
+     * @param string|null $subscriberChannelId Optional canonical SSE
+     *        subscriber channel id (the `session_id` the page intends
+     *        to open `/__semitexa_kiss` with). When set, every signed
+     *        entry carries an additive `sub` claim that the dispatcher
+     *        reads after verification to publish `ui.patch` messages
+     *        on that channel. Old ctxs minted without this argument
+     *        remain valid — the dispatcher falls back to inline
+     *        response patches when `sub` is absent.
      */
     public function build(
         UiComponentMetadata $metadata,
         string $instanceId,
         ?int $ttlSeconds = null,
         array $eventConfig = [],
+        ?string $subscriberChannelId = null,
     ): UiEventManifest {
         if ($instanceId === '') {
             throw new UiComponentRegistryException(
                 'UiEventManifestBuilder requires a non-empty instance id.',
             );
+        }
+
+        $normalisedSub = null;
+        if ($subscriberChannelId !== null && $subscriberChannelId !== '') {
+            if (preg_match(self::SUBSCRIBER_CHANNEL_ID_PATTERN, $subscriberChannelId) !== 1) {
+                throw new UiComponentRegistryException(
+                    'UiEventManifestBuilder subscriberChannelId must match [A-Za-z0-9][A-Za-z0-9_-]{0,127}.',
+                );
+            }
+            $normalisedSub = $subscriberChannelId;
         }
 
         $entries = [];
@@ -83,6 +113,10 @@ final class UiEventManifestBuilder
             $configKey = $event->partName . '.' . $event->eventName;
             if (isset($eventConfig[$configKey]) && $eventConfig[$configKey] !== []) {
                 $claims['cfg'] = $eventConfig[$configKey];
+            }
+
+            if ($normalisedSub !== null) {
+                $claims['sub'] = $normalisedSub;
             }
 
             $blob = SignedContext::sign($claims, $ttlSeconds);

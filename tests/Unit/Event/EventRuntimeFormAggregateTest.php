@@ -271,30 +271,51 @@ final class EventRuntimeFormAggregateTest extends TestCase
         $code = $this->jsCode();
 
         // The aggregator must never run document.querySelectorAll
-        // with a caller-shaped selector. As of the cross-field
-        // snapshot slice there are exactly THREE document.querySelector
+        // with a caller-shaped selector. As of the transport-mode
+        // policy slice there are exactly FIVE document.querySelector
         // callsites in the whole file:
         //
         //   1. patch applier's component-root resolver,
         //   2. form aggregate's field-root lookup,
-        //   3. cross-field snapshot collector's field-root lookup.
+        //   3. cross-field snapshot collector's field-root lookup,
+        //   4. canonical SSE session-id meta-tag reader
+        //      (`meta[name="semitexa-ui-sse-session"]`),
+        //   5. canonical SSE transport-mode meta-tag reader
+        //      (`meta[name="semitexa-ui-transport-mode"]`).
         //
-        // All three look up by `[data-ui-component-instance-id="<safe-id>"]`.
-        // Any new callsite forces this test to be reviewed for
-        // selector safety.
+        // The first three look up by
+        // `[data-ui-component-instance-id="<safe-id>"]`; the fourth and
+        // fifth look up by a hard-coded `meta[name="…"]` attribute
+        // selector with a static constant value, so no caller-shaped
+        // string ever lands in the selector. Any further callsite
+        // forces this test to be reviewed for selector safety.
         self::assertSame(
-            3,
+            5,
             substr_count($code, 'document.querySelector('),
             'A new document.querySelector callsite was added — review for selector safety.',
         );
-        // Every document.querySelector reads by the safe instance-id
-        // attribute pattern. No raw class selectors, no tag selectors,
-        // no attribute-presence selectors.
-        $callsites = preg_match_all(
+        // Three of the five querySelector callsites read by the safe
+        // instance-id attribute pattern. The fourth — pinned in
+        // EventRuntimeAssetTest::runtime_auto_opens_canonical_kiss_when_meta_present
+        // — reads the static `meta[name="semitexa-ui-sse-session"]`
+        // selector. The fifth reads
+        // `meta[name="semitexa-ui-transport-mode"]` for the policy
+        // resolver and is similarly anchored on a static constant.
+        $idLookups = preg_match_all(
             '/document\.querySelector\(\s*\n?\s*[\'"]\[data-ui-component-instance-id="/',
             $code,
         );
-        self::assertSame(3, $callsites);
+        self::assertSame(3, $idLookups);
+        $sessionMetaLookups = preg_match_all(
+            '/document\.querySelector\(\s*\n?\s*[\'"]meta\[name="\'\s*\+\s*SSE_SESSION_META_NAME/',
+            $code,
+        );
+        self::assertSame(1, $sessionMetaLookups);
+        $transportMetaLookups = preg_match_all(
+            '/document\.querySelector\(\s*\n?\s*[\'"]meta\[name="\'\s*\+\s*SSE_TRANSPORT_MODE_META_NAME/',
+            $code,
+        );
+        self::assertSame(1, $transportMetaLookups);
 
         // document.querySelectorAll is allowed ONLY inside the form
         // snapshot collector, where the selector is the literal

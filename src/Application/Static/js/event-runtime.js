@@ -398,36 +398,82 @@
      * NOT cryptographically random — it's only there so we still
      * generate a well-formed id; the replay guard treats dispatchIds as
      * opaque anyway.
+     *
+     * The same generator is also used for `eventId` on the canonical
+     * `/__ui/event` envelope (Phase 3 Part 2 — the adapter maps
+     * `eventId → dispatchId` 1:1 for replay protection, so the strict
+     * pattern matters in both transports).
      */
     function generateDispatchId() {
+        return mintHexPrefixedId('ui_evt_', 16);
+    }
+
+    /**
+     * Per-event correlation id for the canonical envelope. Free-form
+     * tracing aid — never used for routing, replay, or security
+     * decisions. Server-side this lands in dispatcher logs and in the
+     * outbound canonical envelope's `correlationId` field, so clients
+     * can correlate request/response without exposing the dispatchId.
+     */
+    function generateCorrelationId() {
+        return mintHexPrefixedId('ui_cor_', 16);
+    }
+
+    function mintHexPrefixedId(prefix, byteCount) {
         var hex = '';
         try {
             var crypto = window.crypto || window.msCrypto;
             if (crypto && typeof crypto.getRandomValues === 'function') {
-                var bytes = new Uint8Array(16);
+                var bytes = new Uint8Array(byteCount);
                 crypto.getRandomValues(bytes);
                 for (var i = 0; i < bytes.length; i++) {
                     var b = bytes[i].toString(16);
                     if (b.length < 2) b = '0' + b;
                     hex += b;
                 }
-                return 'ui_evt_' + hex;
+                return prefix + hex;
             }
         } catch (e) {
             // fall through to non-crypto fallback
         }
         var rnd = (Math.random().toString(16) + '0000000000000000').slice(2, 18)
             + (Date.now().toString(16) + '0000000000000000').slice(0, 16);
-        return 'ui_evt_' + rnd.slice(0, 32);
+        return prefix + rnd.slice(0, byteCount * 2);
     }
+
+    /**
+     * Derive the canonical envelope's `semanticEvent` from the captured
+     * payload. The dispatcher uses `semanticEvent` for logging /
+     * tracing only — handler identity comes exclusively from the signed
+     * context. Format: `<component>.<event>` (e.g. `platform.form.submit`,
+     * `platform.field.change`). Stable across releases so log greps
+     * keep working.
+     */
+    function deriveSemanticEvent(captured) {
+        var component = captured && typeof captured.component === 'string' ? captured.component : 'platform.ui';
+        var event = captured && typeof captured.event === 'string' ? captured.event : 'event';
+        return component + '.' + event;
+    }
+
+    /**
+     * Default endpoint for the canonical inbound `POST /__ui/event`
+     * (semitexa-ssr's `UiEventEndpointHandler`). The legacy
+     * `/__ui/dispatch` endpoint remains as a compatibility shim — direct
+     * callers passing `attachTransport({ endpoint: '/__ui/dispatch' })`
+     * still work and continue to receive the legacy `{ctx, dispatchId,
+     * payload}` wire body so the server-side decoder stays unchanged.
+     */
+    var DEFAULT_TRANSPORT_ENDPOINT = '/__ui/event';
+    var CANONICAL_TRANSPORT_ENDPOINT = '/__ui/event';
+    var ENVELOPE_SCHEMA_VERSION = 1;
 
     function attachTransport(options) {
         if (typeof options !== 'object' || options === null) {
-            options = { endpoint: '/__ui/dispatch' };
+            options = { endpoint: DEFAULT_TRANSPORT_ENDPOINT };
         }
         var endpoint = typeof options.endpoint === 'string' && options.endpoint !== ''
             ? options.endpoint
-            : '/__ui/dispatch';
+            : DEFAULT_TRANSPORT_ENDPOINT;
 
         if (typeof fetch !== 'function') {
             if (typeof console !== 'undefined' && console.warn) {
@@ -461,13 +507,37 @@
             if (formSnapshot !== null) {
                 payloadObj.form = { values: formSnapshot };
             }
+
+            // Body shape depends on the endpoint. The canonical
+            // `/__ui/event` route in semitexa-ssr decodes a
+            // `UiEventEnvelope`; the legacy `/__ui/dispatch` route in
+            // semitexa-platform-ui decodes the older
+            // `{ctx, dispatchId, payload}` shape. We branch on the
+            // string match so direct callers that explicitly opt into
+            // `/__ui/dispatch` (e.g. demo pages) keep their legacy
+            // wire contract intact, while the new default
+            // (`/__ui/event`) gets the canonical envelope.
             var body;
+            var correlationId = generateCorrelationId();
+            var semanticEvent = deriveSemanticEvent(captured);
             try {
-                body = JSON.stringify({
-                    ctx: captured.ctx,
-                    dispatchId: dispatchId,
-                    payload: payloadObj
-                });
+                if (endpoint === CANONICAL_TRANSPORT_ENDPOINT) {
+                    body = JSON.stringify({
+                        schemaVersion: ENVELOPE_SCHEMA_VERSION,
+                        eventId: dispatchId,
+                        correlationId: correlationId,
+                        semanticEvent: semanticEvent,
+                        signedContext: captured.ctx,
+                        timestamp: new Date().toISOString(),
+                        payload: payloadObj
+                    });
+                } else {
+                    body = JSON.stringify({
+                        ctx: captured.ctx,
+                        dispatchId: dispatchId,
+                        payload: payloadObj
+                    });
+                }
             } catch (encErr) {
                 emitTransportEvent('semitexa:ui-event:failed', {
                     captured: captured,
@@ -1096,6 +1166,23 @@
             return function () {};
         }
 
+        // Same-URL dedupe — opening a second EventSource to the same
+        // URL would duplicate every typed-message handler. Phase 3
+        // Part 3 allows callers to attach idempotently (the page-level
+        // helper may run twice during HMR / partial re-renders).
+        for (var existing = 0; existing < ATTACHED_SSE_CONNECTIONS.length; existing++) {
+            if (ATTACHED_SSE_CONNECTIONS[existing].url === url) {
+                var existingEntry = ATTACHED_SSE_CONNECTIONS[existing];
+                return function detachExisting() {
+                    try { existingEntry.source.close(); } catch (e) { /* ignore */ }
+                    var idx = ATTACHED_SSE_CONNECTIONS.indexOf(existingEntry);
+                    if (idx >= 0) {
+                        ATTACHED_SSE_CONNECTIONS.splice(idx, 1);
+                    }
+                };
+            }
+        }
+
         var source;
         try {
             source = new EventSource(url, { withCredentials: false });
@@ -1125,6 +1212,19 @@
                 });
                 return;
             }
+            // Shape-detect: canonical typed message from /__semitexa_kiss
+            // carries `_type: 'ui.patch'` + a single `patch` body and
+            // wraps it in a `componentInstanceId` envelope. The legacy
+            // /__ui/stream shape is `{v, patches[]}`. Both routes share
+            // this listener; we route by shape, not by URL.
+            if (parsed._type === 'ui.patch') {
+                emitTransportEvent('semitexa:ui-sse:message', {
+                    message: parsed,
+                    url: url
+                });
+                applyCanonicalUiPatch(parsed);
+                return;
+            }
             if (parsed.v !== SSE_MESSAGE_VERSION) {
                 emitTransportEvent('semitexa:ui-sse:error', {
                     phase: 'version',
@@ -1141,12 +1241,66 @@
             applySsePatches(parsed.patches);
         });
 
+        // Canonical typed `ui.componentState` — whole-state snapshot
+        // for one component instance. No DOM consumer ships in this
+        // slice (grid migration is Phase 4); we surface a safe
+        // CustomEvent so future consumers can subscribe without
+        // re-parsing the SSE frame.
+        source.addEventListener('ui.componentState', function (ev) {
+            var parsed = parseSseFrame(ev);
+            if (parsed === null || parsed._type !== 'ui.componentState') {
+                emitTransportEvent('semitexa:ui-sse:error', {
+                    phase: 'parse',
+                    url: url
+                });
+                return;
+            }
+            emitTransportEvent('semitexa:ui-sse:component-state', {
+                message: parsed,
+                url: url
+            });
+        });
+
+        // Canonical typed `ui.error` — operator-safe error surface
+        // delivered over the canonical SSE channel. The frame body
+        // already contains only `reason` + `message` + optional
+        // `correlationId` (the framework's UiErrorMessage value object
+        // enforces the no-FQCN / no-trace contract at construction
+        // time). We surface a CustomEvent without touching the DOM.
+        source.addEventListener('ui.error', function (ev) {
+            var parsed = parseSseFrame(ev);
+            if (parsed === null || parsed._type !== 'ui.error') {
+                emitTransportEvent('semitexa:ui-sse:error', {
+                    phase: 'parse',
+                    url: url
+                });
+                return;
+            }
+            emitTransportEvent('semitexa:ui-sse:error-message', {
+                message: parsed,
+                url: url
+            });
+        });
+
         source.addEventListener('close', function (ev) {
             var parsed = parseSseFrame(ev);
             emitTransportEvent('semitexa:ui-sse:close', {
                 detail: parsed,
                 url: url
             });
+            // Deterministic teardown. SSR's AsyncResourceSseServer
+            // emits `event: close` once it has flushed the drain
+            // queue; if we do not call `source.close()` here, the
+            // browser's EventSource would treat the server-initiated
+            // shutdown as a transient error and silently reconnect,
+            // which defeats the whole point of drain mode. Idempotent
+            // on `live` streams that never receive a server-side
+            // close.
+            try { source.close(); } catch (closeErr) { /* ignore */ }
+            var idx = ATTACHED_SSE_CONNECTIONS.indexOf(entry);
+            if (idx >= 0) {
+                ATTACHED_SSE_CONNECTIONS.splice(idx, 1);
+            }
         });
 
         source.onerror = function (err) {
@@ -1177,6 +1331,32 @@
         } catch (err) {
             return null;
         }
+    }
+
+    /**
+     * Apply one canonical typed `ui.patch` envelope from
+     * `/__semitexa_kiss`. The envelope wraps a SINGLE patch body
+     * alongside its `componentInstanceId` (the framework's
+     * UiPatchMessage value object). We route the inner patch object
+     * through the same safe applier the legacy SSE stream uses, with
+     * a pseudo-captured carrying `instanceId` so the
+     * `target_instance_mismatch` defense-in-depth check still fires.
+     */
+    function applyCanonicalUiPatch(parsed) {
+        if (!parsed || typeof parsed !== 'object') {
+            return;
+        }
+        var componentInstanceId = typeof parsed.componentInstanceId === 'string'
+            ? parsed.componentInstanceId
+            : null;
+        var patch = parsed.patch && typeof parsed.patch === 'object' ? parsed.patch : null;
+        if (patch === null) {
+            return;
+        }
+        var pseudoCaptured = componentInstanceId !== null
+            ? { instanceId: componentInstanceId, source: 'sse-canonical' }
+            : { source: 'sse-canonical' };
+        applyOnePatchForSse(patch, pseudoCaptured, 0);
     }
 
     /**
@@ -1264,13 +1444,239 @@
         }
     };
 
+    /**
+     * Gated auto-attach for the canonical inbound transport.
+     *
+     * Trigger condition: at least one signed platform-ui component
+     * manifest is present on the page AND no caller has already wired
+     * a transport AND `fetch` is available AND the page has not opted
+     * out via `window.SEMITEXA_UI_DISABLE_AUTOATTACH`.
+     *
+     * Why this is safe:
+     *   - A signed manifest is an unambiguous server-issued opt-in.
+     *     Non-platform-ui pages emit no manifest → no auto-attach →
+     *     zero network impact.
+     *   - The capture listener fires only for DOM events declared
+     *     inside a parsed manifest. Other forms on the same page
+     *     (e.g. a static `<form action="/checkout">`) are NOT
+     *     captured — `handleNativeEvent` walks up to a
+     *     `[data-ui-component-instance-id]` ancestor and bails out
+     *     when there is none.
+     *   - The auto-attached transport uses the canonical
+     *     `/__ui/event` endpoint. Direct callers explicitly attaching
+     *     `/__ui/dispatch` still win because they call before us
+     *     (page-level script tags execute synchronously; the auto-
+     *     attach runs after `scan()` + observer setup).
+     *
+     * Opt-out for tests / niche pages:
+     *
+     *     window.SEMITEXA_UI_DISABLE_AUTOATTACH = true;
+     *
+     * Must be set before the runtime script loads (it lives in the
+     * IIFE's closure once evaluated).
+     */
+    function maybeAutoAttachTransport() {
+        if (window.SEMITEXA_UI_DISABLE_AUTOATTACH === true) {
+            return;
+        }
+        if (parsedManifests.length === 0) {
+            return;
+        }
+        if (attachedTransports.length > 0) {
+            return;
+        }
+        if (typeof fetch !== 'function') {
+            return;
+        }
+        attachTransport({ endpoint: DEFAULT_TRANSPORT_ENDPOINT });
+    }
+
+    /**
+     * Gated auto-open for the canonical SSE patch stream.
+     *
+     * Trigger condition: at least one signed platform-ui manifest is
+     * parsed AND the page advertised a subscriber channel id via
+     * `<meta name="semitexa-ui-sse-session" content="<id>">` AND the
+     * page has not opted out via `window.SEMITEXA_UI_DISABLE_AUTOATTACH`
+     * AND EventSource is available AND the id matches the safe
+     * `[A-Za-z0-9][A-Za-z0-9_-]{0,127}` shape (same alphabet the
+     * server-side dispatcher accepts on the signed `sub` claim).
+     *
+     * Pages that never render the meta tag (the default for
+     * components added before this slice) get no SSE auto-open and
+     * the dispatcher keeps delivering patches inline — fully
+     * backward-compatible.
+     *
+     * Why this is safe to run unconditionally on every platform-ui
+     * page:
+     *
+     *   - The meta tag is an unambiguous server-issued opt-in. The
+     *     id it carries is the same value the page's signed ctxs
+     *     hold under `sub`, so the dispatcher can only publish into
+     *     a channel that this very page minted.
+     *   - `attachSse({url})` already deduplicates same-URL attaches,
+     *     so even if a caller manually attached the same KISS URL
+     *     first, no second EventSource opens.
+     *   - The framework's existing `semitexa-twig.js` deferred SSR
+     *     stream opens a DIFFERENT URL
+     *     (`/__semitexa_kiss?session_id=<X>&deferred_request_id=<Y>`),
+     *     so two distinct streams coexist without competing for the
+     *     same channel.
+     */
+    var SSE_SESSION_ID_SAFE_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+    var SSE_SESSION_META_NAME = 'semitexa-ui-sse-session';
+    var SSE_TRANSPORT_MODE_META_NAME = 'semitexa-ui-transport-mode';
+    var SSE_TRANSPORT_MODE_DRAIN = 'drain';
+    var SSE_TRANSPORT_MODE_LIVE = 'live';
+
+    function readPageSseSessionId() {
+        if (!document.querySelector) {
+            return null;
+        }
+        var meta = document.querySelector(
+            'meta[name="' + SSE_SESSION_META_NAME + '"]'
+        );
+        if (!meta || !meta.getAttribute) {
+            return null;
+        }
+        var raw = meta.getAttribute('content');
+        if (typeof raw !== 'string' || raw === '') {
+            return null;
+        }
+        if (!SSE_SESSION_ID_SAFE_RE.test(raw)) {
+            if (typeof console !== 'undefined' && console.warn) {
+                console.warn('[semitexa-ui] sse session id has unsafe shape; ignored');
+            }
+            return null;
+        }
+        return raw;
+    }
+
+    /**
+     * Read the canonical transport mode the server-side helper baked
+     * into `<meta name="semitexa-ui-transport-mode">`. The server-side
+     * policy (PlatformUiTransportModePolicy) already enforces the
+     * allow-list and resolves the default — we re-validate on the
+     * client purely as defence-in-depth so a hand-edited meta cannot
+     * smuggle a non-allow-listed mode into the KISS URL.
+     *
+     * Unknown / missing values fall back to drain. That is the safe
+     * default for public/guest pages: the runtime will not open a
+     * long-lived EventSource on DOMContentLoaded.
+     */
+    function readPageTransportMode() {
+        if (!document.querySelector) {
+            return SSE_TRANSPORT_MODE_DRAIN;
+        }
+        var meta = document.querySelector(
+            'meta[name="' + SSE_TRANSPORT_MODE_META_NAME + '"]'
+        );
+        if (!meta || !meta.getAttribute) {
+            return SSE_TRANSPORT_MODE_DRAIN;
+        }
+        var raw = meta.getAttribute('content');
+        if (raw === SSE_TRANSPORT_MODE_LIVE) {
+            return SSE_TRANSPORT_MODE_LIVE;
+        }
+        if (raw === SSE_TRANSPORT_MODE_DRAIN) {
+            return SSE_TRANSPORT_MODE_DRAIN;
+        }
+        if (typeof console !== 'undefined' && console.warn) {
+            console.warn(
+                '[semitexa-ui] unknown transport mode meta value; falling back to drain'
+            );
+        }
+        return SSE_TRANSPORT_MODE_DRAIN;
+    }
+
+    function buildKissUrl(sessionId, mode) {
+        return '/__semitexa_kiss?session_id=' + encodeURIComponent(sessionId)
+            + '&mode=' + encodeURIComponent(mode);
+    }
+
+    // De-dupe state for the drain-on-demand listener. Without this
+    // a second qualifying `semitexa:ui-event:dispatched` (a second
+    // form submit during the same page lifetime) would attempt to
+    // re-attach — attachSse's same-URL dedupe already prevents a
+    // second EventSource, but bailing out here avoids the wasted
+    // closure work and keeps the wire log clean.
+    var drainOnDemandArmed = false;
+    var drainOnDemandOpened = false;
+
+    function armDrainOnDemand(sessionId) {
+        if (drainOnDemandArmed) {
+            return;
+        }
+        drainOnDemandArmed = true;
+        document.addEventListener('semitexa:ui-event:dispatched', function (ev) {
+            if (drainOnDemandOpened) {
+                return;
+            }
+            var detail = ev && ev.detail ? ev.detail : null;
+            if (!detail || !detail.response || typeof detail.response !== 'object') {
+                return;
+            }
+            // The dispatcher emits `streamedPatchCount` only when at
+            // least one patch was published over the canonical
+            // stream; absent / zero means we already received inline
+            // patches and there is nothing to drain.
+            var streamed = detail.response.streamedPatchCount;
+            if (typeof streamed !== 'number' || streamed <= 0) {
+                return;
+            }
+            drainOnDemandOpened = true;
+            attachSse({
+                url: buildKissUrl(sessionId, SSE_TRANSPORT_MODE_DRAIN)
+            });
+        }, false);
+    }
+
+    function maybeAutoOpenSse() {
+        if (window.SEMITEXA_UI_DISABLE_AUTOATTACH === true) {
+            return;
+        }
+        if (parsedManifests.length === 0) {
+            return;
+        }
+        if (typeof EventSource !== 'function') {
+            return;
+        }
+        var sessionId = readPageSseSessionId();
+        if (sessionId === null) {
+            return;
+        }
+        var mode = readPageTransportMode();
+        if (mode === SSE_TRANSPORT_MODE_LIVE) {
+            // Live pages hold the stream open for the lifetime of the
+            // view — same EventSource the page was opening before the
+            // policy split, now with explicit mode=live so the server
+            // resolver enters the long-lived branch deterministically.
+            attachSse({
+                url: buildKissUrl(sessionId, SSE_TRANSPORT_MODE_LIVE)
+            });
+            return;
+        }
+        // Drain mode (or any value the safe-shape guard fell back to
+        // drain on): do NOT open an EventSource on DOMContentLoaded.
+        // Arm a one-shot listener that opens the drain stream only
+        // when a canonical UI event reports streamedPatchCount > 0.
+        // The server flushes the queue + emits `event: close`, and
+        // the close-event handler below tears the EventSource down,
+        // so there is no long-lived connection for public/guest pages.
+        armDrainOnDemand(sessionId);
+    }
+
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', function () {
             scan();
             startObserver();
+            maybeAutoAttachTransport();
+            maybeAutoOpenSse();
         });
     } else {
         scan();
         startObserver();
+        maybeAutoAttachTransport();
+        maybeAutoOpenSse();
     }
 })();
