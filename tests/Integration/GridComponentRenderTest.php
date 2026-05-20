@@ -256,7 +256,9 @@ final class GridComponentRenderTest extends TestCase
         self::assertStringContainsString('data-ui-grid-pagination-size', $html);
         self::assertStringContainsString('data-ui-grid-pagination-count', $html);
         // Next link wrapper is visible (no hidden) because hasMore = true.
-        self::assertMatchesRegularExpression('/<p[^>]*data-ui-grid-next-wrap(?![^>]*hidden)/', $html);
+        // Element-agnostic regex — the wrapper may be <p>, <span>, or
+        // any other inline-flow tag that holds the data attribute.
+        self::assertMatchesRegularExpression('/<[a-z]+[^>]*data-ui-grid-next-wrap(?![^>]*hidden)/', $html);
         self::assertStringContainsString('data-ui-grid-next', $html);
     }
 
@@ -266,7 +268,97 @@ final class GridComponentRenderTest extends TestCase
         $props = $this->fullProps();
         $props['initialPagination'] = ['limit' => 25, 'hasMore' => false, 'nextCursor' => null];
         $html = $this->render($props);
-        self::assertMatchesRegularExpression('/<p[^>]*data-ui-grid-next-wrap[^>]*hidden/', $html);
+        self::assertMatchesRegularExpression('/<[a-z]+[^>]*data-ui-grid-next-wrap[^>]*hidden/', $html);
+    }
+
+    #[Test]
+    public function renders_default_pagination_window_size_attribute(): void
+    {
+        // Default behavior: when no paginationWindowSize prop is
+        // passed, the server-rendered root carries the documented
+        // default (7) so the runtime can read it without falling
+        // back to its own constant.
+        $html = $this->render($this->fullProps());
+        self::assertMatchesRegularExpression(
+            '/data-ui-grid-pagination-window-size="7"/',
+            $html,
+            'The grid root must carry data-ui-grid-pagination-window-size="7" by default.',
+        );
+    }
+
+    #[Test]
+    public function caller_pagination_window_size_is_emitted_as_a_data_attribute(): void
+    {
+        $props = $this->fullProps();
+        $props['paginationWindowSize'] = 5;
+        $html = $this->render($props);
+        self::assertMatchesRegularExpression(
+            '/data-ui-grid-pagination-window-size="5"/',
+            $html,
+            'A caller-supplied paginationWindowSize must be emitted verbatim onto the grid root.',
+        );
+    }
+
+    #[Test]
+    public function pagination_window_size_is_clamped_to_documented_bounds(): void
+    {
+        // Defence in depth — the runtime also clamps, but the server
+        // must clamp first so a hostile downstream cannot smuggle a
+        // huge value into the rendered DOM.
+        $tooHigh = $this->fullProps();
+        $tooHigh['paginationWindowSize'] = 999;
+        self::assertMatchesRegularExpression(
+            '/data-ui-grid-pagination-window-size="25"/',
+            $this->render($tooHigh),
+            'paginationWindowSize must clamp to 25 on the high end.',
+        );
+
+        $zero = $this->fullProps();
+        $zero['paginationWindowSize'] = 0;
+        self::assertMatchesRegularExpression(
+            '/data-ui-grid-pagination-window-size="1"/',
+            $this->render($zero),
+            'paginationWindowSize must clamp to 1 on the low end.',
+        );
+
+        $negative = $this->fullProps();
+        $negative['paginationWindowSize'] = -10;
+        self::assertMatchesRegularExpression(
+            '/data-ui-grid-pagination-window-size="1"/',
+            $this->render($negative),
+            'Negative paginationWindowSize must clamp to 1.',
+        );
+    }
+
+    #[Test]
+    public function renders_pagination_nav_with_prev_and_indicator(): void
+    {
+        // New pagination footer: Previous button (hidden on first
+        // paint until the runtime grows the history stack), a
+        // visited-page-buttons container (also runtime-populated),
+        // and a static "Page 1" indicator (overwritten by the
+        // runtime on every reload).
+        $html = $this->render($this->fullProps());
+        self::assertMatchesRegularExpression(
+            '/<nav[^>]*data-ui-grid-pagination/',
+            $html,
+            'Grid must render a <nav data-ui-grid-pagination> footer.',
+        );
+        self::assertMatchesRegularExpression(
+            '/<button[^>]*data-ui-grid-prev[^>]*hidden/',
+            $html,
+            'Previous button must be present and start hidden on first paint.',
+        );
+        self::assertMatchesRegularExpression(
+            '/data-ui-grid-pages/',
+            $html,
+            'Pagination footer must include the visited-page-buttons container.',
+        );
+        self::assertMatchesRegularExpression(
+            '/data-ui-grid-page-indicator[^>]*>Page 1</',
+            $html,
+            'Pagination footer must include a "Page 1" indicator the runtime can overwrite.',
+        );
     }
 
     #[Test]

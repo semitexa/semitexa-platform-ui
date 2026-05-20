@@ -32,6 +32,12 @@
  #   initialAction  (optional string — fallback Next-link state)
  #   pageFallbackUrl   (optional string — no-JS Next-link href base)
  #   emptyMessage   (optional string)
+ #   paginationWindowSize (optional int — max visited-page buttons
+ #                  rendered in the pagination footer; clamped to
+ #                  [1, 25]; default 7. The runtime slides the
+ #                  visible window so the active page stays inside.
+ #                  Never renders buttons for unknown future pages —
+ #                  cursor pagination has no total-count surface.)
  #
  # Slots:
  #   warning      (optional production-warning callout)
@@ -57,6 +63,21 @@
 {%- set _grid_sort_param   = sortParam|default('sort') -%}
 {%- set _grid_page_url     = pageFallbackUrl|default('') -%}
 {%- set _grid_empty        = emptyMessage|default('No rows.') -%}
+{#- Pagination window size — caller-tunable, but clamped + defaulted
+    server-side so the rendered data attribute is always a safe
+    integer the runtime can trust. The runtime additionally re-
+    validates / re-clamps when reading the attribute (defence in
+    depth: a hostile DOM injection could still tamper with the
+    rendered value at runtime). Negative / non-numeric / iterable
+    inputs all collapse to the documented default before clamping
+    to [1, 25]. -#}
+{%- set _grid_window_raw   = paginationWindowSize|default(7) -%}
+{%- if _grid_window_raw is iterable or _grid_window_raw is null -%}
+    {%- set _grid_window_raw = 7 -%}
+{%- endif -%}
+{%- set _grid_window       = (_grid_window_raw|number_format(0, '.', ''))|trim -%}
+{%- set _grid_window       = _grid_window matches '/\\A-?\\d+\\z/' ? (_grid_window + 0) : 7 -%}
+{%- set _grid_window       = max(1, min(25, _grid_window)) -%}
 
 {#- Build the no-JS-fallback Next-link href from the caller's page
     URL + the initial filter state + the server-issued cursor. The
@@ -88,6 +109,7 @@
     data-ui-grid-data-url="{{ _grid_data_url }}"
     {% if _grid_sse_url is not null and _grid_sse_url != '' %}data-ui-grid-sse-url="{{ _grid_sse_url }}"{% endif %}
     data-ui-grid-refresh-marker="{{ _grid_refresh_name }}"
+    data-ui-grid-pagination-window-size="{{ _grid_window }}"
     sx-layout="stack" sx-gap="2"
 >
     {#- Hidden patch target the runtime listens for over SSE. -#}
@@ -228,13 +250,58 @@
                 </tbody>
             </table>
         </div>
-        <p data-ui-grid-next-wrap
-           {% if not _grid_has_more or _grid_next_cursor is null %}hidden{% endif %}
-           ui-text="body" style="margin:0;font-size:0.875rem;">
-            <a data-ui-grid-next
-               {% if _grid_has_more and _grid_next_cursor is not null %}data-ui-grid-next-cursor="{{ _grid_next_cursor }}"{% endif %}
-               href="{{ _grid_next_fallback_href }}">Next page →</a>
-        </p>
+        {#- Pagination footer: Previous / current page / visited-page
+            buttons / Next. Layout collapses cleanly on no-JS — the
+            server only renders Next (cursor pagination is forward-
+            only without total counts or offset support), and the
+            runtime progressively enhances it with Previous + visited-
+            page buttons sourced from a client-side cursor history
+            stack tied to the active criteria fingerprint.
+
+            The buttons stay inside the existing `[data-ui-grid-table-
+            wrap]` so they hide together with the table on the empty-
+            state branch. -#}
+        <nav data-ui-grid-pagination
+             aria-label="Grid pagination"
+             sx-layout="cluster" sx-gap="2" sx-align="center"
+             style="margin:0;flex-wrap:wrap;font-size:0.875rem;">
+
+            {#- Previous: rendered hidden on first paint; runtime
+                reveals it whenever the client-side history stack
+                has more than one entry. No no-JS fallback href —
+                cursors are forward-only on the server. -#}
+            <button type="button" data-ui-grid-prev
+                    hidden
+                    style="padding:0.25rem 0.625rem;border:1px solid var(--ui-border-subtle);background:var(--ui-surface-raised);border-radius:var(--ui-radius-sm);font-size:0.8125rem;cursor:pointer;color:inherit;">
+                ← Previous page
+            </button>
+
+            {#- Visited-page numbered buttons. The runtime appends
+                a `<button data-ui-grid-page="N">` for every page
+                whose cursor it has actually seen (page 1 is always
+                present because its cursor is the implicit null).
+                Server renders nothing here — the initial state is
+                always page 1, and the runtime fills the first
+                button in on boot. -#}
+            <span data-ui-grid-pages sx-layout="cluster" sx-gap="1" sx-align="center"
+                  style="display:inline-flex;flex-wrap:wrap;gap:0.25rem;"></span>
+
+            {#- Current-page indicator. The runtime overwrites the
+                inner text via textContent on every reload. The
+                server-rendered fallback always reads "Page 1"
+                because cursors are forward-only and the server
+                doesn't track client-side history. -#}
+            <span data-ui-grid-page-indicator ui-text="muted"
+                  style="font-size:0.8125rem;">Page 1</span>
+
+            <span data-ui-grid-next-wrap
+                  {% if not _grid_has_more or _grid_next_cursor is null %}hidden{% endif %}>
+                <a data-ui-grid-next
+                   {% if _grid_has_more and _grid_next_cursor is not null %}data-ui-grid-next-cursor="{{ _grid_next_cursor }}"{% endif %}
+                   href="{{ _grid_next_fallback_href }}"
+                   style="padding:0.25rem 0.625rem;border:1px solid var(--ui-border-subtle);background:var(--ui-surface-raised);border-radius:var(--ui-radius-sm);text-decoration:none;color:inherit;">Next page →</a>
+            </span>
+        </nav>
     </section>
 
     {%- set _footer_slot = slot('footer')|default('')|trim %}
