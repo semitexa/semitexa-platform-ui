@@ -63,11 +63,11 @@ final class GridComponentRenderTest extends TestCase
     private function fullProps(): array
     {
         return [
-            'gridId'     => 'platform.grid.test',
-            'instanceId' => 'uci_0123456789abcdef',
-            'dataUrl'    => '/test/data',
-            'sseUrl'     => '/__ui/stream?token=test',
-            'refreshMarker' => 'lead-grid-refresh-marker',
+            'gridId'              => 'platform.grid.test',
+            'instanceId'          => 'uci_0123456789abcdef',
+            'dataUrl'             => '/test/data',
+            'subscriberChannelId' => 'sse_' . str_repeat('a', 32),
+            'refreshMarker'       => 'lead-grid-refresh-marker',
             'columns' => [
                 ['key' => 'submittedAt', 'label' => 'Submitted'],
                 ['key' => 'id',          'label' => 'ID',         'style' => 'font-family:mono;'],
@@ -121,19 +121,22 @@ final class GridComponentRenderTest extends TestCase
     }
 
     #[Test]
-    public function renders_sse_url_attribute_when_supplied(): void
+    public function renders_subscriber_channel_id_attribute_when_supplied(): void
     {
         $html = $this->render($this->fullProps());
-        self::assertStringContainsString('data-ui-grid-sse-url="/__ui/stream?token=test"', $html);
+        self::assertStringContainsString(
+            'data-ui-grid-subscriber-channel-id="sse_' . str_repeat('a', 32) . '"',
+            $html,
+        );
     }
 
     #[Test]
-    public function omits_sse_url_attribute_when_null(): void
+    public function omits_subscriber_channel_id_attribute_when_null(): void
     {
         $props = $this->fullProps();
-        $props['sseUrl'] = null;
+        $props['subscriberChannelId'] = null;
         $html = $this->render($props);
-        self::assertStringNotContainsString('data-ui-grid-sse-url=', $html);
+        self::assertStringNotContainsString('data-ui-grid-subscriber-channel-id=', $html);
     }
 
     #[Test]

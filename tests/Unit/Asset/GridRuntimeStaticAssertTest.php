@@ -147,13 +147,33 @@ final class GridRuntimeStaticAssertTest extends TestCase
     }
 
     #[Test]
-    public function runtime_listens_for_sse_patch_applied_event(): void
+    public function runtime_listens_for_canonical_component_state_event(): void
     {
         $source = $this->loadRuntime();
         self::assertStringContainsString(
-            "semitexa:ui-sse:patch-applied",
+            "semitexa:ui-sse:component-state",
             $source,
-            'grid-runtime.js must listen for the framework SSE patch-applied event.',
+            'grid-runtime.js must subscribe to the canonical ui.componentState document event dispatched by event-runtime.js.',
+        );
+    }
+
+    #[Test]
+    public function runtime_no_longer_references_legacy_sse_patch_applied(): void
+    {
+        // The legacy /__ui/stream patch-applied event is replaced by
+        // the canonical KISS componentState document event. Pin the
+        // removal so a future regression cannot reintroduce the
+        // legacy listener silently.
+        $source = $this->loadRuntime();
+        self::assertStringNotContainsString(
+            'semitexa:ui-sse:patch-applied',
+            $source,
+            'grid-runtime.js must not reference the legacy patch-applied event after the canonical refresh migration.',
+        );
+        self::assertStringNotContainsString(
+            'data-ui-grid-sse-url',
+            $source,
+            'grid-runtime.js must not read the legacy sseUrl attribute after the canonical refresh migration.',
         );
     }
 

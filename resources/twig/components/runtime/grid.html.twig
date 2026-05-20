@@ -11,20 +11,24 @@
  # Things this template **does not** do:
  #   - it does not know what `q` / `action` / cursor mean — the
  #     filter form lives in the caller's `filters` slot;
- #   - it does not know SSE topic / publisher / refresh semantics —
- #     the caller wires those project-side; the template only
- #     names the refresh-marker target via `data-ui-grid-refresh-marker`;
+ #   - it does not open an SSE connection — when the page opts into
+ #     canonical KISS via `ui_page_sse_session_meta('live')` the
+ #     event-runtime auto-opens the stream; the grid runtime only
+ #     subscribes to the resulting `semitexa:ui-sse:component-state`
+ #     document events and reloads when one targets this grid;
  #   - it does not authorize — the data endpoint authorizes;
  #   - it does not project rows — the data endpoint projects safely.
  #
  # Props consumed (see GridComponent docblock for full reference):
- #   gridId         (required string)
- #   instanceId     (optional string; falls back to ui_component_instance())
- #   title          (optional string)
- #   description    (optional string)
- #   dataUrl        (required string)
- #   sseUrl         (optional string)
- #   refreshMarker  (optional string; default 'grid-refresh-marker')
+ #   gridId               (required string)
+ #   instanceId           (optional string; falls back to ui_component_instance())
+ #   title                (optional string)
+ #   description          (optional string)
+ #   dataUrl              (required string)
+ #   subscriberChannelId  (optional string; advertised on the root so the
+ #                         runtime knows the page opted into canonical KISS.
+ #                         Null disables the live-refresh code path.)
+ #   refreshMarker        (optional string; default 'grid-refresh-marker')
  #   columns        (required list<{key, label, style?}>)
  #   initialRows    (optional list<map> — server-rendered fallback)
  #   initialPagination (optional {limit, hasMore, nextCursor})
@@ -49,7 +53,7 @@
 {%- set _grid_id           = gridId|default('grid') -%}
 {%- set _grid_instance     = instanceId|default(ui_component_instance()) -%}
 {%- set _grid_data_url     = dataUrl|default('') -%}
-{%- set _grid_sse_url      = sseUrl|default(null) -%}
+{%- set _grid_sub_channel  = subscriberChannelId|default(null) -%}
 {%- set _grid_refresh_name = refreshMarker|default('grid-refresh-marker') -%}
 {%- set _grid_columns      = columns|default([]) -%}
 {%- set _grid_initial_rows = initialRows|default([]) -%}
@@ -107,12 +111,15 @@
     data-ui-component-instance-id="{{ _grid_instance }}"
     data-ui-grid="{{ _grid_id }}"
     data-ui-grid-data-url="{{ _grid_data_url }}"
-    {% if _grid_sse_url is not null and _grid_sse_url != '' %}data-ui-grid-sse-url="{{ _grid_sse_url }}"{% endif %}
+    {% if _grid_sub_channel is not null and _grid_sub_channel != '' %}data-ui-grid-subscriber-channel-id="{{ _grid_sub_channel }}"{% endif %}
     data-ui-grid-refresh-marker="{{ _grid_refresh_name }}"
     data-ui-grid-pagination-window-size="{{ _grid_window }}"
     sx-layout="stack" sx-gap="2"
 >
-    {#- Hidden patch target the runtime listens for over SSE. -#}
+    {#- Hidden patch target retained for the legacy refresh-marker
+        contract callers can still send via `setText`. The canonical
+        KISS path ignores this element — it routes by component
+        instance id, not by patch target name. -#}
     <span data-ui-patch-target="{{ _grid_refresh_name }}" hidden aria-hidden="true"></span>
 
     {%- if title|default(null) is not null %}
@@ -129,7 +136,7 @@
         {{ slot('warning')|raw }}
     {%- endif %}
 
-    {%- if _grid_sse_url is not null and _grid_sse_url != '' %}
+    {%- if _grid_sub_channel is not null and _grid_sub_channel != '' %}
         <p data-ui-grid-live-indicator hidden ui-text="muted"
            style="margin:0;font-size:0.8125rem;color:var(--ui-state-success);"
            aria-live="polite">Live updates connected.</p>
@@ -315,15 +322,15 @@
         grid root. -#}
     <script type="application/json" data-ui-grid-bundle="{{ _grid_id }}">
 {{ {
-    "gridId":        _grid_id,
-    "instanceId":    _grid_instance,
-    "dataUrl":       _grid_data_url,
-    "sseUrl":        _grid_sse_url,
-    "refreshMarker": _grid_refresh_name,
-    "columns":       _grid_columns,
-    "pageFallbackUrl": _grid_page_url,
-    "initialSort":   _grid_initial_sort,
-    "sortParam":     _grid_sort_param,
+    "gridId":              _grid_id,
+    "instanceId":          _grid_instance,
+    "dataUrl":             _grid_data_url,
+    "subscriberChannelId": _grid_sub_channel,
+    "refreshMarker":       _grid_refresh_name,
+    "columns":             _grid_columns,
+    "pageFallbackUrl":     _grid_page_url,
+    "initialSort":         _grid_initial_sort,
+    "sortParam":           _grid_sort_param,
 }|json_encode|raw }}
     </script>
 </div>

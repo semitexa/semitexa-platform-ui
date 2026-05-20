@@ -681,7 +681,7 @@ final class EventRuntimeAssetTest extends TestCase
     }
 
     #[Test]
-    public function sse_auto_open_is_gated_by_manifests_and_eventsource_and_opt_out(): void
+    public function sse_auto_open_is_gated_by_session_meta_and_eventsource_and_opt_out(): void
     {
         $code = $this->jsCode();
         // Same opt-out flag the transport auto-attach honours.
@@ -690,11 +690,17 @@ final class EventRuntimeAssetTest extends TestCase
             $code,
             'Auto-open must honour SEMITEXA_UI_DISABLE_AUTOATTACH.',
         );
-        // No manifests → no auto-open.
-        self::assertMatchesRegularExpression(
-            '/function\s+maybeAutoOpenSse[^{]*\{(?:.|\n)*?parsedManifests\.length\s*===\s*0/s',
-            $code,
-            'Auto-open must bail when no platform-ui manifests are parsed.',
+        // The manifest-count gate that previously short-circuited the
+        // auto-open MUST be absent. Grid-only admin pages opt into
+        // canonical KISS via the transport-mode meta tag but render
+        // no component event manifests — gating on
+        // `parsedManifests.length === 0` would silently skip the
+        // EventSource open and break the live-refresh contract.
+        $body = $this->extractFunctionBody($code, 'maybeAutoOpenSse');
+        self::assertDoesNotMatchRegularExpression(
+            '/parsedManifests\.length\s*===\s*0/',
+            $body,
+            'maybeAutoOpenSse must not gate on parsedManifests.length (grid-only pages render no manifests).',
         );
         // No EventSource → no auto-open (no console-only fallback path).
         self::assertMatchesRegularExpression(
@@ -708,6 +714,35 @@ final class EventRuntimeAssetTest extends TestCase
             $code,
             'Auto-open must bail when the meta tag is missing or unsafe.',
         );
+    }
+
+    /**
+     * Extracts the body of the named top-level function from the JS
+     * source so assertions can scope to that function only. Uses a
+     * brace-counting scan starting from the `function NAME(` opening
+     * brace — robust against nested braces inside the body, unlike a
+     * single regex.
+     */
+    private function extractFunctionBody(string $code, string $functionName): string
+    {
+        $needle = 'function ' . $functionName;
+        $start = strpos($code, $needle);
+        self::assertNotFalse($start, "Function {$functionName} not found in event-runtime.js.");
+        $openBrace = strpos($code, '{', $start);
+        self::assertNotFalse($openBrace, "Opening brace for {$functionName} not found.");
+        $depth = 0;
+        for ($i = $openBrace; $i < strlen($code); $i++) {
+            $c = $code[$i];
+            if ($c === '{') {
+                $depth++;
+            } elseif ($c === '}') {
+                $depth--;
+                if ($depth === 0) {
+                    return substr($code, $openBrace, $i - $openBrace + 1);
+                }
+            }
+        }
+        self::fail("Unbalanced braces while extracting body of {$functionName}.");
     }
 
     #[Test]

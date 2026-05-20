@@ -1494,13 +1494,20 @@
     /**
      * Gated auto-open for the canonical SSE patch stream.
      *
-     * Trigger condition: at least one signed platform-ui manifest is
-     * parsed AND the page advertised a subscriber channel id via
-     * `<meta name="semitexa-ui-sse-session" content="<id>">` AND the
-     * page has not opted out via `window.SEMITEXA_UI_DISABLE_AUTOATTACH`
-     * AND EventSource is available AND the id matches the safe
+     * Trigger condition: the page advertised a subscriber channel id
+     * via `<meta name="semitexa-ui-sse-session" content="<id>">`, the
+     * page has not opted out via `window.SEMITEXA_UI_DISABLE_AUTOATTACH`,
+     * EventSource is available, and the id matches the safe
      * `[A-Za-z0-9][A-Za-z0-9_-]{0,127}` shape (same alphabet the
      * server-side dispatcher accepts on the signed `sub` claim).
+     *
+     * NOTE: there is intentionally NO `parsedManifests.length > 0`
+     * gate. Pages that opt into the canonical stream may render
+     * components without `#[UiOn]` handlers (e.g. `platform.grid` —
+     * a read-only component that still wants to receive
+     * `ui.componentState` frames). The meta tag is the explicit
+     * opt-in; the manifest count is irrelevant for the SSE open
+     * decision.
      *
      * Pages that never render the meta tag (the default for
      * components added before this slice) get no SSE auto-open and
@@ -1635,9 +1642,8 @@
         if (window.SEMITEXA_UI_DISABLE_AUTOATTACH === true) {
             return;
         }
-        if (parsedManifests.length === 0) {
-            return;
-        }
+        // No `parsedManifests.length > 0` gate here — see the function
+        // docblock above. The session-id meta tag IS the opt-in.
         if (typeof EventSource !== 'function') {
             return;
         }

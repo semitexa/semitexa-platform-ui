@@ -12,10 +12,13 @@
  *     current state;
  *   - Next-link (`[data-ui-grid-next]`) click → preventDefault →
  *     fetch with cursor;
- *   - SSE refresh (`semitexa:ui-sse:patch-applied`) → match
- *     `patch.target.name === <refreshMarker>` AND
- *     `patch.target.instance === <ourInstanceId>` → reload current
- *     state.
+ *   - Canonical refresh: listen for the
+ *     `semitexa:ui-sse:component-state` document event dispatched
+ *     by event-runtime.js when a canonical `ui.componentState`
+ *     frame arrives on the page's KISS stream. Match the frame's
+ *     `componentInstanceId` against this grid's instance id and
+ *     reload when `state.refresh === true`. event-runtime owns the
+ *     EventSource — the grid never opens its own connection.
  *
  * Safety boundaries:
  *
@@ -107,9 +110,9 @@
         var dataUrl = rootEl.getAttribute('data-ui-grid-data-url');
         if (typeof dataUrl !== 'string' || dataUrl === '') return;
 
-        var instanceId    = rootEl.getAttribute('data-ui-component-instance-id') || '';
-        var sseUrl        = rootEl.getAttribute('data-ui-grid-sse-url') || '';
-        var refreshMarker = rootEl.getAttribute('data-ui-grid-refresh-marker') || DEFAULT_REFRESH_MARKER;
+        var instanceId           = rootEl.getAttribute('data-ui-component-instance-id') || '';
+        var subscriberChannelId  = rootEl.getAttribute('data-ui-grid-subscriber-channel-id') || '';
+        var refreshMarker        = rootEl.getAttribute('data-ui-grid-refresh-marker') || DEFAULT_REFRESH_MARKER;
         // Pagination-window size: read from the server-rendered data
         // attribute, fall back to the default + clamp out-of-range /
         // non-numeric values. Defence in depth — the Twig template
@@ -339,23 +342,27 @@
             reload();
         }
 
-        // --- SSE refresh signal ------------------------------------------
-        if (sseUrl !== '' &&
-            window.SemitexaUi &&
-            window.SemitexaUi.sse &&
-            typeof window.SemitexaUi.sse.attach === 'function') {
-            try {
-                window.SemitexaUi.sse.attach({ url: sseUrl });
-                if (liveEl) liveEl.hidden = false;
-            } catch (_) {
-                // SSE setup failed → silent; the grid still works.
-            }
-            document.addEventListener('semitexa:ui-sse:patch-applied', function (event) {
+        // --- Canonical refresh signal ------------------------------------
+        // The grid does NOT open its own EventSource. When the page
+        // opted into canonical KISS via
+        // `ui_page_sse_session_meta('live')`, event-runtime.js opens
+        // a single shared stream and republishes every
+        // `ui.componentState` frame as a `semitexa:ui-sse:component-
+        // state` document event. We subscribe here, filter by
+        // `componentInstanceId` so frames addressed to other grids
+        // (or other components) are ignored, and reload via fetch
+        // when the frame's `state.refresh === true`. Instance ids
+        // are global random — no `data-ui-component` cross-check is
+        // necessary; a collision would require predicting 128 bits
+        // of entropy.
+        if (subscriberChannelId !== '' && instanceId !== '') {
+            if (liveEl) liveEl.hidden = false;
+            document.addEventListener('semitexa:ui-sse:component-state', function (event) {
                 var detail = event && event.detail;
-                if (!detail || !detail.patch || !detail.patch.target) return;
-                var target = detail.patch.target;
-                if (target.name !== refreshMarker) return;
-                if (target.instance && instanceId && target.instance !== instanceId) return;
+                if (!detail || !detail.message) return;
+                var msg = detail.message;
+                if (msg.componentInstanceId !== instanceId) return;
+                if (!msg.state || msg.state.refresh !== true) return;
                 reload();
             });
         }
