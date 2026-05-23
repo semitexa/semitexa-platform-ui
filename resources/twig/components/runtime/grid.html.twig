@@ -55,7 +55,7 @@
 {%- set _grid_data_url     = dataUrl|default('') -%}
 {%- set _grid_sub_channel  = subscriberChannelId|default(null) -%}
 {%- set _grid_refresh_name = refreshMarker|default('grid-refresh-marker') -%}
-{%- set _grid_columns      = columns|default([]) -%}
+{%- set _grid_columns_raw  = columns|default([]) -%}
 {%- set _grid_initial_rows = initialRows|default([]) -%}
 {%- set _grid_pagination   = initialPagination|default({}) -%}
 {%- set _grid_limit        = _grid_pagination.limit|default(25) -%}
@@ -67,6 +67,41 @@
 {%- set _grid_sort_param   = sortParam|default('sort') -%}
 {%- set _grid_page_url     = pageFallbackUrl|default('') -%}
 {%- set _grid_empty        = emptyMessage|default('No rows.') -%}
+
+{#- Column normalisation. Callers may pass either the legacy explicit
+    shape (`{key, label, style?, sortAsc?, sortDesc?}`) or the boot-
+    time providerProps shape from `#[AsColumn]`
+    (`{key, label, sortable: bool, type: string}`). Normalise to the
+    legacy shape: when `sortable: true` and no explicit `sortAsc/_desc`,
+    derive `${key}_asc` / `${key}_desc` (the convention the data
+    endpoint allow-list already follows); when `type` is set and no
+    explicit `style`, map to a sensible default cell style. -#}
+{%- set _grid_columns = [] -%}
+{%- for _col in _grid_columns_raw -%}
+    {%- set _col_key       = _col.key|default(null) -%}
+    {%- set _col_sort_asc  = _col.sortAsc|default(null) -%}
+    {%- set _col_sort_desc = _col.sortDesc|default(null) -%}
+    {%- if (_col_sort_asc is null or _col_sort_asc == '') and (_col_sort_desc is null or _col_sort_desc == '') and _col.sortable|default(false) and _col_key is not null -%}
+        {%- set _col_sort_asc  = _col_key ~ '_asc' -%}
+        {%- set _col_sort_desc = _col_key ~ '_desc' -%}
+    {%- endif -%}
+    {%- set _col_style = _col.style|default('') -%}
+    {%- if _col_style == '' -%}
+        {%- set _col_type = _col.type|default('text') -%}
+        {%- if _col_type == 'datetime' or _col_type == 'date' -%}
+            {%- set _col_style = 'white-space:nowrap;' -%}
+        {%- elseif _col_type == 'mono' -%}
+            {%- set _col_style = 'font-family:var(--ui-font-mono);font-size:0.75rem;' -%}
+        {%- endif -%}
+    {%- endif -%}
+    {%- set _grid_columns = _grid_columns|merge([{
+        key:      _col_key,
+        label:    _col.label|default(_col_key),
+        style:    _col_style,
+        sortAsc:  _col_sort_asc,
+        sortDesc: _col_sort_desc,
+    }]) -%}
+{%- endfor -%}
 {#- Pagination window size — caller-tunable, but clamped + defaulted
     server-side so the rendered data attribute is always a safe
     integer the runtime can trust. The runtime additionally re-
@@ -147,12 +182,113 @@
        style="margin:0;border-left:4px solid var(--ui-state-danger);"
        aria-live="polite"></p>
 
-    {#- Filter form — caller-owned. The runtime selects
-        `[data-ui-grid-form]` inside the grid root to intercept
+    {#- Filter form — caller-owned slot has precedence. The runtime
+        selects `[data-ui-grid-form]` inside the grid root to intercept
         submits. The slot's markup MUST include that attribute. -#}
     {%- set _filters_slot = slot('filters')|default('')|trim %}
     {%- if _filters_slot != '' %}
         {{ slot('filters')|raw }}
+    {%- else %}
+        {#- Structured-filter auto-render. Activates only when no
+            `filters` slot was supplied AND the caller passes a
+            structured `filters` prop (list of
+            `{field, type, placeholder, label}` entries — the shape
+            emitted by GridComponentMetadataProvider from
+            `#[AsFilter]`). Select options come from an optional
+            `filterOptions` map keyed by field; when absent, the
+            select renders with a single empty default option (the
+            filter stays visually present but is a no-op until the
+            caller supplies options). Current values come from an
+            optional `currentFilters` map keyed by field. Page-size
+            selector is rendered from `pagination.limitOptions` when
+            present. -#}
+        {%- set _grid_filters_struct = filters|default([]) -%}
+        {%- set _grid_pagination_struct = pagination|default({}) -%}
+        {%- set _grid_limit_options     = _grid_pagination_struct.limitOptions|default([]) -%}
+        {%- set _grid_filter_options    = filterOptions|default({}) -%}
+        {%- set _grid_current_filters   = currentFilters|default({}) -%}
+        {%- set _grid_has_struct_filters = false -%}
+        {%- if _grid_filters_struct is iterable and _grid_filters_struct|length > 0 -%}
+            {%- for _f in _grid_filters_struct -%}
+                {%- if _f.field|default(null) is not null -%}
+                    {%- set _grid_has_struct_filters = true -%}
+                {%- endif -%}
+            {%- endfor -%}
+        {%- endif -%}
+        {%- if _grid_has_struct_filters or _grid_limit_options|length > 0 -%}
+            {%- set _grid_any_filter_active = false -%}
+            {%- for _f in _grid_filters_struct -%}
+                {%- if _f.field|default(null) is not null -%}
+                    {%- set _v = _grid_current_filters[_f.field]|default(null) -%}
+                    {%- if _v is not null and _v != '' -%}
+                        {%- set _grid_any_filter_active = true -%}
+                    {%- endif -%}
+                {%- endif -%}
+            {%- endfor -%}
+            <form data-ui-grid-form method="get" action="{{ _grid_page_url }}"
+                  sx-surface="panel" sx-padding="3" sx-radius="md" sx-layout="cluster" sx-gap="2" sx-align="end"
+                  style="flex-wrap:wrap;">
+                {%- if _grid_initial_sort is not null and _grid_initial_sort != '' %}
+                    <input type="hidden" name="{{ _grid_sort_param }}" value="{{ _grid_initial_sort }}">
+                {%- endif %}
+                {%- if _grid_has_struct_filters %}
+                    {%- for _f in _grid_filters_struct %}
+                        {%- if _f.field|default(null) is not null %}
+                            {%- set _f_field = _f.field -%}
+                            {%- set _f_type  = _f.type|default('search') -%}
+                            {%- set _f_label = _f.label|default('') -%}
+                            {%- set _f_ph    = _f.placeholder|default('') -%}
+                            {%- set _f_value = _grid_current_filters[_f_field]|default('') -%}
+                            <label sx-layout="stack" sx-gap="1"
+                                   style="{% if _f_type == 'search' %}min-width:18rem;flex:1 1 18rem;{% else %}min-width:14rem;{% endif %}">
+                                <span ui-text="label" style="font-size:0.75rem;letter-spacing:0.04em;text-transform:uppercase;">{{ _f_label != '' ? _f_label : _f_field }}</span>
+                                {%- if _f_type == 'select' %}
+                                    <select name="{{ _f_field }}"
+                                            style="padding:0.5rem 0.75rem;border:1px solid var(--ui-border-subtle);border-radius:var(--ui-radius-sm);font-size:0.875rem;">
+                                        {%- set _f_options = _grid_filter_options[_f_field]|default([]) -%}
+                                        {%- if _f_options|length == 0 %}
+                                            <option value=""{% if _f_value == '' %} selected{% endif %}>{{ _f_ph != '' ? _f_ph : 'All' }}</option>
+                                        {%- else %}
+                                            {%- for _opt in _f_options %}
+                                                {%- set _opt_value = _opt.value|default('') -%}
+                                                {%- set _opt_label = _opt.label|default(_opt_value) -%}
+                                                <option value="{{ _opt_value }}"{% if _opt_value == _f_value %} selected{% endif %}>{{ _opt_label }}</option>
+                                            {%- endfor %}
+                                        {%- endif %}
+                                    </select>
+                                {%- else %}
+                                    <input type="{{ _f_type == 'search' ? 'search' : 'text' }}" name="{{ _f_field }}"
+                                           value="{{ _f_value }}"
+                                           {% if _f_ph != '' %}placeholder="{{ _f_ph }}"{% endif %}
+                                           maxlength="100"
+                                           style="padding:0.5rem 0.75rem;border:1px solid var(--ui-border-subtle);border-radius:var(--ui-radius-sm);font-size:0.875rem;">
+                                {%- endif %}
+                            </label>
+                        {%- endif %}
+                    {%- endfor %}
+                {%- endif %}
+                {%- if _grid_limit_options|length > 0 %}
+                    <label sx-layout="stack" sx-gap="1" style="min-width:7rem;">
+                        <span ui-text="label" style="font-size:0.75rem;letter-spacing:0.04em;text-transform:uppercase;">Page size</span>
+                        <select name="limit" data-ui-grid-reload-on-change
+                                style="padding:0.5rem 0.75rem;border:1px solid var(--ui-border-subtle);border-radius:var(--ui-radius-sm);font-size:0.875rem;">
+                            {%- for _opt in _grid_limit_options %}
+                                <option value="{{ _opt }}"{% if _opt == _grid_limit %} selected{% endif %}>{{ _opt }}</option>
+                            {%- endfor %}
+                        </select>
+                    </label>
+                {%- endif %}
+                {%- if _grid_has_struct_filters %}
+                    <button type="submit"
+                            style="padding:0.5rem 1rem;border:0;border-radius:var(--ui-radius-sm);background:var(--ui-action-primary);color:var(--ui-action-on-primary);font-size:0.875rem;cursor:pointer;">
+                        Filter
+                    </button>
+                    {%- if _grid_any_filter_active %}
+                        <a href="{{ _grid_page_url }}" data-ui-grid-clear ui-text="muted" style="font-size:0.875rem;text-decoration:none;">Clear</a>
+                    {%- endif %}
+                {%- endif %}
+            </form>
+        {%- endif %}
     {%- endif %}
 
     {%- set _filter_state_slot = slot('filterState')|default('')|trim %}

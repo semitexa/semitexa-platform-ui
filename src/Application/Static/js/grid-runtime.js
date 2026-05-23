@@ -705,8 +705,10 @@
         return typeof value === 'string' ? value : '';
     }
 
-    function bootAll() {
-        var roots = document.querySelectorAll('[data-ui-grid]');
+    function bootAll(scope) {
+        var root = (scope && typeof scope.querySelectorAll === 'function') ? scope : document;
+        if (root.matches && root.matches('[data-ui-grid]')) bootGrid(root);
+        var roots = root.querySelectorAll('[data-ui-grid]');
         for (var i = 0; i < roots.length; i++) bootGrid(roots[i]);
     }
 
@@ -722,8 +724,28 @@
     };
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', bootAll, { once: true });
+        document.addEventListener('DOMContentLoaded', function () { bootAll(); }, { once: true });
     } else {
         bootAll();
     }
+
+    // Late-arriving grids: when a deferred component or template
+    // block is delivered via SSE / fetch after DOMContentLoaded, the
+    // SSR runtime fires `semitexa:component:rendered` (deferred
+    // component) or `semitexa:block:rendered` (deferred slot) with
+    // the newly inserted element in `event.detail`. Re-scan that
+    // subtree so any `[data-ui-grid]` inside it gets hydrated. The
+    // `__uiGridBooted` flag on the root makes re-entry idempotent.
+    document.addEventListener('semitexa:component:rendered', function (event) {
+        var el = event && event.detail && event.detail.element instanceof Element
+            ? event.detail.element
+            : document;
+        bootAll(el);
+    });
+    document.addEventListener('semitexa:block:rendered', function (event) {
+        var el = event && event.detail && event.detail.block instanceof Element
+            ? event.detail.block
+            : document;
+        bootAll(el);
+    });
 })();
