@@ -30,6 +30,14 @@ namespace Semitexa\PlatformUi\Domain\Model\Event;
  *                         `valid === true` (the action is never invoked
  *                         on invalid forms) but it carries the per-field
  *                         outcome list for downstream audit / debug.
+ *   - `subscriberChannelId`: the form-submitter page's canonical KISS
+ *                         subscriber channel id (the `sub` claim from
+ *                         the verified signed ctx), or `null` if the
+ *                         page never called `ui_page_sse_session_meta()`.
+ *                         Lets actions publish typed messages back to
+ *                         the originating page over `/__semitexa_kiss`.
+ *                         Only the shape was re-checked at extraction;
+ *                         HMAC binding is what makes it trustworthy.
  *
  * Intentionally omitted from this slice:
  *
@@ -54,5 +62,6 @@ final readonly class UiFormSubmitActionContext
         public array $values,
         public array $fields,
         public UiFormSubmitResult $submitResult,
+        public ?string $subscriberChannelId = null,
     ) {}
 }

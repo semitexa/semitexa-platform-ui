@@ -6,6 +6,8 @@ namespace Semitexa\PlatformUi\Application\Service\Twig;
 
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
 use Semitexa\PlatformUi\Application\Service\Component\UiPartPropResolver;
+use Semitexa\PlatformUi\Application\Service\Event\PlatformUiSseSessionState;
+use Semitexa\PlatformUi\Application\Service\Event\PlatformUiTransportModePolicy;
 use Semitexa\PlatformUi\Application\Service\Event\UiEventManifestBuilder;
 use Semitexa\PlatformUi\Application\Service\Event\UiInstanceIdGenerator;
 use Semitexa\PlatformUi\Application\Service\Event\UiSseChannelToken;
@@ -294,11 +296,22 @@ final class PlatformUiTwigExtension
                     ));
                 }
 
+                // When the page has opted in to the canonical SSE
+                // patch stream by calling `ui_page_sse_session()` /
+                // `ui_page_sse_session_meta()`, the same id is folded
+                // into every signed ctx on the page as the `sub`
+                // claim. The dispatcher reads it after verification
+                // and publishes `ui.patch` messages over
+                // `/__semitexa_kiss?session_id=<sub>`. Pages that
+                // never minted a session keep `sub` absent — the
+                // dispatcher then falls back to inline patches,
+                // preserving the pre-canonical-SSE behaviour.
                 $manifest = (new UiEventManifestBuilder())->build(
                     metadata: $metadata,
                     instanceId: $instanceId,
                     ttlSeconds: $ttlSeconds,
                     eventConfig: $eventConfig,
+                    subscriberChannelId: PlatformUiSseSessionState::current(),
                 );
 
                 $json = json_encode(
@@ -629,6 +642,84 @@ final class PlatformUiTwigExtension
                     'url'     => '/__ui/stream?token=' . rawurlencode($token),
                 ];
             },
+        );
+
+        /**
+         * ui_page_sse_session()
+         *
+         * Opt-in helper that mints (or returns) the canonical SSE
+         * subscriber channel id shared by every platform-ui component
+         * on the page. Call this BEFORE any platform-ui component
+         * renders so the `ui_event_manifest()` helper picks it up and
+         * folds it into the signed `sub` claim.
+         *
+         * Returned value matches `[A-Za-z0-9][A-Za-z0-9_-]{0,127}`
+         * (`sse_<32 hex>` in practice). It is NOT a secret — KISS
+         * routes incoming subscribers on this id directly, so we
+         * publish it to the page in the open. Defence-in-depth comes
+         * from the signed ctx: a request for `/__ui/event` with a
+         * forged `sub` would also need a valid HMAC over the rest of
+         * the claim set, which the client cannot mint.
+         */
+        TwigExtensionRegistry::registerFunction(
+            'ui_page_sse_session',
+            static fn (): string => PlatformUiSseSessionState::mintIfAbsent(),
+        );
+
+        /**
+         * ui_page_sse_session_meta($mode = null)
+         *
+         * Render-side counterpart to {@see self::ui_page_sse_session()}:
+         * mints (or returns) the session id and emits TWO inert meta
+         * tags the frontend event runtime scans for:
+         *
+         *   <meta name="semitexa-ui-sse-session"  content="<id>">
+         *   <meta name="semitexa-ui-transport-mode" content="drain|live">
+         *
+         * The transport mode is resolved through
+         * {@see PlatformUiTransportModePolicy} with this precedence:
+         *
+         *   1. explicit $mode argument (string `'drain'` | `'live'`)
+         *   2. env default SEMITEXA_UI_TRANSPORT_MODE (same allow-list)
+         *   3. hard fallback drain (safe for public/guest pages)
+         *
+         * Drain pages do NOT auto-open an EventSource on
+         * DOMContentLoaded — the runtime opens
+         * `/__semitexa_kiss?session_id=<id>&mode=drain` only after a
+         * canonical UI event response reports `streamedPatchCount > 0`.
+         * Live pages auto-open `…&mode=live` on DOMContentLoaded and
+         * hold the stream open. Both modes share the same session id
+         * and the same `sub` claim threading through
+         * `ui_event_manifest()`.
+         *
+         * Pages that DO NOT call this helper get no meta tag, no
+         * canonical SSE auto-open, and no `sub` claim in their signed
+         * ctxs — the dispatcher then keeps returning inline patches
+         * exactly as it did before the canonical stream existed.
+         *
+         * Invalid $mode (non-string, unknown value) or invalid env
+         * value raises UiTransportModeException at render time so
+         * deployments fail fast rather than silently widening the
+         * surface to live. See PlatformUiTransportModePolicy for the
+         * exact error surface.
+         *
+         * Returns Markup so Twig's autoescape: html does not double-
+         * escape the attribute values.
+         */
+        TwigExtensionRegistry::registerFunction(
+            'ui_page_sse_session_meta',
+            static function (?string $mode = null): Markup {
+                $resolved = (new PlatformUiTransportModePolicy())->resolve($mode);
+                $id = PlatformUiSseSessionState::mintIfAbsent();
+                $idAttr = htmlspecialchars($id, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                $modeAttr = htmlspecialchars($resolved->value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                return new Markup(
+                    '<meta name="semitexa-ui-sse-session" content="' . $idAttr . '">'
+                    . '<meta name="semitexa-ui-transport-mode" content="' . $modeAttr . '">',
+                    'UTF-8',
+                );
+            },
+            ['is_safe' => ['html']],
         );
 
         TwigExtensionRegistry::registerFunction(

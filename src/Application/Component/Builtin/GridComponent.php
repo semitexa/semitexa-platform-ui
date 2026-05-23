@@ -27,31 +27,45 @@ use Semitexa\Ssr\Attribute\AsComponent;
  *     endpoint owns those; the component only knows the data URL;
  *   - the filter form — caller passes it through the `filters` slot;
  *   - authorization — the data endpoint enforces it;
- *   - SSE topic / publisher — the caller wires those project-side;
+ *   - SSE attach — the canonical KISS stream is opened by
+ *     `event-runtime.js` when the page emits
+ *     `ui_page_sse_session_meta(...)`; the grid never opens its
+ *     own connection;
  *   - row repository, projection, or column types.
  *
  * Frontend runtime: `src/Application/Static/js/grid-runtime.js`
  * discovers every `[data-ui-grid]` root, reads `data-ui-grid-data-url`
- * + `data-ui-grid-sse-url` + the JSON bundle, and orchestrates
- * dynamic loading. The runtime never uses `innerHTML`, `eval`, or
- * the `Function` constructor; rows render through `createElement` +
- * `textContent` only.
+ * + `data-ui-grid-subscriber-channel-id` + the JSON bundle, and
+ * orchestrates dynamic loading. When the page opted into canonical
+ * KISS, the runtime subscribes to `semitexa:ui-sse:component-state`
+ * document events (dispatched by event-runtime.js) and reloads on
+ * a frame matching this grid's instance id with
+ * `state.refresh === true`. The runtime never uses `innerHTML`,
+ * `eval`, or the `Function` constructor; rows render through
+ * `createElement` + `textContent` only.
  *
  * Caller prop reference (consumed by the template):
  *
  *   - `gridId`            : stable string used by the runtime for
  *                           correlation. Required.
- *   - `instanceId`        : `uci_<16hex>` — the per-render id the
- *                           refresh-marker patch will target.
- *                           Required for SSE refresh.
+ *   - `instanceId`        : `uci_<16hex>` — the per-render id every
+ *                           incoming canonical `ui.componentState`
+ *                           frame must match. Required for live
+ *                           refresh.
  *   - `title`             : page-level title above the grid. Optional.
  *   - `description`       : page-level description. Optional.
  *   - `dataUrl`           : JSON endpoint URL. Required.
- *   - `sseUrl`            : SSE channel URL. Optional.
+ *   - `subscriberChannelId`: the page's canonical KISS subscriber
+ *                           channel id (the `sub` claim baked into
+ *                           every signed ctx on this page). Optional.
+ *                           Null disables the live-refresh code path
+ *                           in the runtime; `sse_<32hex>` opts the
+ *                           grid into reloading on incoming
+ *                           `state.refresh === true` frames.
  *   - `refreshMarker`     : refresh-marker `data-ui-patch-target`
  *                           name. Default `grid-refresh-marker`.
- *                           Callers MUST set this to whatever name
- *                           their server-side publisher targets.
+ *                           Retained for the legacy patch contract;
+ *                           the canonical KISS path ignores it.
  *   - `columns`           : list of `{key, label, style?}` maps —
  *                           defines table header order + row cell
  *                           keys. Required.

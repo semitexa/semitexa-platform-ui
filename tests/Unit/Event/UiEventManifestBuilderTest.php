@@ -136,6 +136,63 @@ final class UiEventManifestBuilderTest extends TestCase
     }
 
     #[Test]
+    public function subscriber_channel_id_when_set_lands_in_signed_sub_claim(): void
+    {
+        $metadata = $this->factory->fromClass(FieldComponent::class);
+        $manifest = $this->builder->build(
+            metadata: $metadata,
+            instanceId: 'uci_sub_001',
+            subscriberChannelId: 'sse_abcd1234',
+        );
+
+        $entry = $manifest->entries[0];
+        $claims = SignedContext::verify($entry->signedContext);
+
+        self::assertNotNull($claims);
+        self::assertSame('sse_abcd1234', $claims['sub']);
+    }
+
+    #[Test]
+    public function subscriber_channel_id_omitted_when_null_or_empty(): void
+    {
+        $metadata = $this->factory->fromClass(FieldComponent::class);
+
+        $manifestNull = $this->builder->build(
+            metadata: $metadata,
+            instanceId: 'uci_no_sub_001',
+            subscriberChannelId: null,
+        );
+        $manifestEmpty = $this->builder->build(
+            metadata: $metadata,
+            instanceId: 'uci_no_sub_002',
+            subscriberChannelId: '',
+        );
+
+        $claimsNull = SignedContext::verify($manifestNull->entries[0]->signedContext);
+        $claimsEmpty = SignedContext::verify($manifestEmpty->entries[0]->signedContext);
+
+        self::assertNotNull($claimsNull);
+        self::assertNotNull($claimsEmpty);
+        self::assertArrayNotHasKey('sub', $claimsNull);
+        self::assertArrayNotHasKey('sub', $claimsEmpty);
+    }
+
+    #[Test]
+    public function subscriber_channel_id_unsafe_shape_is_rejected(): void
+    {
+        $metadata = $this->factory->fromClass(FieldComponent::class);
+
+        $this->expectException(UiComponentRegistryException::class);
+        $this->expectExceptionMessageMatches('/subscriberChannelId must match/');
+
+        $this->builder->build(
+            metadata: $metadata,
+            instanceId: 'uci_bad_sub_001',
+            subscriberChannelId: 'has space',
+        );
+    }
+
+    #[Test]
     public function manifest_for_component_without_uion_has_zero_entries(): void
     {
         $metadata = $this->factory->fromClass(NoEventsComponent::class);

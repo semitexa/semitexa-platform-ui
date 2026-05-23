@@ -224,12 +224,13 @@ final class FormComponent implements UsesUiFieldRuleRegistry
             }
 
             $actionContext = new UiFormSubmitActionContext(
-                formInstanceId: $event->instanceId,
-                actionName:     $signedAction,
-                dispatchId:     $event->dispatchId,
-                values:         $formValues,
-                fields:         $config->fields,
-                submitResult:   $summary,
+                formInstanceId:       $event->instanceId,
+                actionName:           $signedAction,
+                dispatchId:           $event->dispatchId,
+                values:               $formValues,
+                fields:               $config->fields,
+                submitResult:         $summary,
+                subscriberChannelId:  self::extractSubscriberChannelId($event->claims),
             );
 
             // Gate 1: action authorization. Runs BEFORE the security
@@ -440,5 +441,27 @@ final class FormComponent implements UsesUiFieldRuleRegistry
     {
         $registry = $this->ruleRegistry ?? UiFieldRuleRegistry::getActive();
         return new UiFieldRuleParser($registry);
+    }
+
+    /**
+     * Safe identifier shape for the canonical SSE subscriber channel id.
+     * Mirrors {@see PlatformUiResponseDispatcher}'s pattern so a value
+     * that survives this check is acceptable wherever the dispatcher
+     * accepts the same claim. Non-string / out-of-shape values fall to
+     * `null` so the action receives a clean signal that the originating
+     * page never opted into the canonical stream.
+     *
+     * @param array<string, mixed> $claims
+     */
+    private static function extractSubscriberChannelId(array $claims): ?string
+    {
+        $sub = $claims['sub'] ?? null;
+        if (!is_string($sub) || $sub === '') {
+            return null;
+        }
+        if (preg_match('/\A[A-Za-z0-9][A-Za-z0-9_-]{0,127}\z/', $sub) !== 1) {
+            return null;
+        }
+        return $sub;
     }
 }
