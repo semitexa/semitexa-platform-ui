@@ -50,7 +50,20 @@ final readonly class UiEventResponse
         public ?UiEventNotificationInstruction $notification = null,
         public ?string $correlationId = null,
         public ?UiEventError $error = null,
-    ) {}
+    ) {
+        if ($this->status === UiEventResponseStatus::Error && $this->error === null) {
+            throw new \InvalidArgumentException('UiEventResponse: Error status requires a UiEventError.');
+        }
+        if ($this->status !== UiEventResponseStatus::Error && $this->error !== null) {
+            throw new \InvalidArgumentException('UiEventResponse: error may only be set when status is Error.');
+        }
+        if (
+            $this->status === UiEventResponseStatus::Validation
+            && ($this->validation === null || $this->validation->isValid())
+        ) {
+            throw new \InvalidArgumentException('UiEventResponse: Validation status requires a non-empty UiEventValidationResult.');
+        }
+    }
 
     public static function ok(?string $correlationId = null): self
     {
@@ -63,9 +76,15 @@ final readonly class UiEventResponse
     /**
      * Async command acknowledgement. The handler accepted the work; later SSE
      * messages on `$correlationId` will carry the actual outcome.
+     *
+     * `$correlationId` is the SSE join key — required and non-empty.
      */
-    public static function commandAccepted(?string $correlationId): self
+    public static function commandAccepted(string $correlationId): self
     {
+        if ($correlationId === '') {
+            throw new \InvalidArgumentException('UiEventResponse::commandAccepted requires a non-empty correlationId.');
+        }
+
         return new self(
             status: UiEventResponseStatus::Ok,
             correlationId: $correlationId,

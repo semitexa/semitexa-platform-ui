@@ -103,6 +103,36 @@ final class UiEventResponseTest extends TestCase
         new UiEventNotificationInstruction(message: 'x', level: 'bogus');
     }
 
+    public function testConstructorRejectsErrorStatusWithoutError(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        new UiEventResponse(status: UiEventResponseStatus::Error);
+    }
+
+    public function testConstructorRejectsNonErrorStatusCarryingError(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        new UiEventResponse(
+            status: UiEventResponseStatus::Ok,
+            error: new UiEventError('x', 'y'),
+        );
+    }
+
+    public function testConstructorRejectsValidationStatusWithoutErrors(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        new UiEventResponse(
+            status: UiEventResponseStatus::Validation,
+            validation: new UiEventValidationResult([]),
+        );
+    }
+
+    public function testCommandAcceptedRejectsEmptyCorrelationId(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        UiEventResponse::commandAccepted('');
+    }
+
     public function testValidationResultHelpers(): void
     {
         $result = new UiEventValidationResult([

@@ -11,18 +11,23 @@ use Semitexa\PlatformUi\Domain\Model\Event\UiEventResponse;
  * Contract every backend handler invoked by the response-capable UI
  * Interaction dispatcher must satisfy (technical-design.md §7.6.2).
  *
- * Concrete handlers may type the payload more narrowly (`$payload` is
- * declared as `object` here because each handler binds its own DTO via
- * `#[UiOn(payload: …)]`) and may receive the current component State DTO
- * as an extra parameter when the framework can resolve it safely:
+ * Implementations MUST keep the exact
+ * `handle(object $payload, UiEventContext $context): UiEventResponse`
+ * signature — PHP forbids narrowing the parameter type or adding a required
+ * parameter on an interface implementation. To work with a typed payload,
+ * narrow inside the method:
  *
  * ```php
- * public function handle(
- *     EmailChangedPayload $payload,
- *     UiEventContext $context,
- *     ContactFormState $state,
- * ): UiEventResponse { ... }
+ * public function handle(object $payload, UiEventContext $context): UiEventResponse
+ * {
+ *     assert($payload instanceof EmailChangedPayload);
+ *     // ...
+ * }
  * ```
+ *
+ * Component-method handlers bound by `#[UiOn(payload: …)]` are dispatched
+ * reflectively by the framework — not through this interface — so they may
+ * use wider signatures (typed payload, optional component-state parameter).
  *
  * Handlers MUST return a typed {@see UiEventResponse} — they MUST NOT throw
  * raw framework exceptions back to the dispatcher. Use

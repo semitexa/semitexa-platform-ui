@@ -36,6 +36,9 @@ final class UiPartContextTest extends TestCase
 
         $contextObject = new UiPartContext($component, 'label', request: $component);
         self::assertSame($component, $contextObject->request);
+
+        $contextArray = new UiPartContext($component, 'label', request: ['route' => '/x']);
+        self::assertSame(['route' => '/x'], $contextArray->request);
     }
 
     public function testProviderInterfaceConsumesContextAndReturnsArray(): void
