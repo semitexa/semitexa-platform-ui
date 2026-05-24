@@ -20,6 +20,9 @@ namespace Semitexa\PlatformUi\Domain\Model\Event;
  *   - {@see self::ok()}              — no-op acknowledgement;
  *   - {@see self::commandAccepted()} — async command started (`$correlationId`
  *                                      is the SSE join key);
+ *   - {@see self::accepted()}        — async command started **with** frontend
+ *                                      instructions attached (e.g. subscribe
+ *                                      to a freshly-minted SSE channel);
  *   - {@see self::patch()}           — validation + state/part patches for
  *                                      `change` events;
  *   - {@see self::error()}           — typed error response.
@@ -87,6 +90,32 @@ final readonly class UiEventResponse
 
         return new self(
             status: UiEventResponseStatus::Ok,
+            correlationId: $correlationId,
+        );
+    }
+
+    /**
+     * Async command acknowledgement carrying frontend instructions — typically
+     * a freshly-minted SSE subscription and/or a toast. Mirrors the named
+     * parameter shape used in technical-design.md §12.9 / §17.9.
+     *
+     * `$correlationId` is the SSE join key. When supplied it must be a
+     * non-empty string; passing `null` is allowed for the rare case where the
+     * frontend instructions stand alone (static channel, fire-and-forget).
+     *
+     * @param array<string, mixed> $frontend
+     */
+    public static function accepted(
+        ?string $correlationId = null,
+        array $frontend = [],
+    ): self {
+        if ($correlationId === '') {
+            throw new \InvalidArgumentException('UiEventResponse::accepted requires a non-empty correlationId when supplied.');
+        }
+
+        return new self(
+            status: UiEventResponseStatus::Ok,
+            frontend: $frontend,
             correlationId: $correlationId,
         );
     }

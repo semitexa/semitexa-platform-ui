@@ -133,6 +133,44 @@ final class UiEventResponseTest extends TestCase
         UiEventResponse::commandAccepted('');
     }
 
+    public function testAcceptedFactoryCarriesCorrelationIdAndFrontendInstructions(): void
+    {
+        $response = UiEventResponse::accepted(
+            correlationId: 'corr-5',
+            frontend: [
+                ['op' => 'subscribe', 'channel' => 'imports.job_42'],
+                ['op' => 'toast', 'message' => 'Import started.'],
+            ],
+        );
+
+        self::assertSame(UiEventResponseStatus::Ok, $response->status);
+        self::assertSame('corr-5', $response->correlationId);
+        self::assertSame(
+            [
+                ['op' => 'subscribe', 'channel' => 'imports.job_42'],
+                ['op' => 'toast', 'message' => 'Import started.'],
+            ],
+            $response->frontend,
+        );
+    }
+
+    public function testAcceptedFactoryAllowsNullCorrelationId(): void
+    {
+        $response = UiEventResponse::accepted(
+            frontend: [['op' => 'subscribe', 'channel' => 'static.feed']],
+        );
+
+        self::assertSame(UiEventResponseStatus::Ok, $response->status);
+        self::assertNull($response->correlationId);
+        self::assertSame([['op' => 'subscribe', 'channel' => 'static.feed']], $response->frontend);
+    }
+
+    public function testAcceptedRejectsEmptyStringCorrelationId(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        UiEventResponse::accepted(correlationId: '', frontend: []);
+    }
+
     public function testValidationResultHelpers(): void
     {
         $result = new UiEventValidationResult([
