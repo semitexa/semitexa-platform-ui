@@ -9,6 +9,7 @@ use Semitexa\PlatformUi\Attribute\UiPart;
 use Semitexa\PlatformUi\Attribute\UiSlot;
 use Semitexa\PlatformUi\Domain\Exception\UiComponentRegistryException;
 use Semitexa\PlatformUi\Domain\Model\Component\UiComponentMetadata;
+use Semitexa\PlatformUi\Domain\Model\Component\UiOnMetadata;
 
 /**
  * Registry of Platform UI components — classes that combine #[AsComponent]
@@ -105,6 +106,24 @@ final class UiComponentRegistry
     {
         self::initialize();
         return array_values(self::$byName);
+    }
+
+    public static function getBinding(
+        string $componentName,
+        string $partName,
+        string $eventName,
+    ): ?UiOnMetadata {
+        return self::get($componentName)?->event($partName, $eventName);
+    }
+
+    /** @return list<UiOnMetadata> */
+    public static function bindingsFor(string $componentName): array
+    {
+        $component = self::get($componentName);
+        if ($component === null) {
+            return [];
+        }
+        return array_values($component->events);
     }
 
     public static function reset(): void
