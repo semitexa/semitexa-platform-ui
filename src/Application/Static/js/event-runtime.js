@@ -568,6 +568,7 @@
             emitTransportEvent('semitexa:ui-event:dispatching', {
                 captured: captured,
                 dispatchId: dispatchId,
+                correlationId: correlationId,
                 endpoint: endpoint
             });
 
@@ -586,6 +587,7 @@
                         emitTransportEvent('semitexa:ui-event:dispatched', {
                             captured: captured,
                             dispatchId: dispatchId,
+                            correlationId: correlationId,
                             status: resp.status,
                             response: parsed
                         });
@@ -1726,12 +1728,16 @@
             if (!detail || !detail.response || typeof detail.response !== 'object') {
                 return;
             }
-            // The dispatcher emits `streamedPatchCount` only when at
-            // least one patch was published over the canonical
-            // stream; absent / zero means we already received inline
-            // patches and there is nothing to drain.
-            var streamed = detail.response.streamedPatchCount;
-            if (typeof streamed !== 'number' || streamed <= 0) {
+            // The dispatcher emits `streamedPatchCount` /
+            // `streamedStateCount` only when at least one patch or a
+            // whole-component state frame was published over the
+            // canonical stream; absent / zero on both means we already
+            // received the response inline and there is nothing to drain.
+            var streamedPatches = detail.response.streamedPatchCount;
+            var streamedState = detail.response.streamedStateCount;
+            var streamed = (typeof streamedPatches === 'number' ? streamedPatches : 0)
+                         + (typeof streamedState === 'number' ? streamedState : 0);
+            if (streamed <= 0) {
                 return;
             }
             drainOnDemandOpened = true;

@@ -12,13 +12,18 @@
  *     current state;
  *   - Next-link (`[data-ui-grid-next]`) click → preventDefault →
  *     fetch with cursor;
- *   - Canonical refresh: listen for the
+ *   - Canonical SSE data delivery (Phase 6): listen for the
  *     `semitexa:ui-sse:component-state` document event dispatched
  *     by event-runtime.js when a canonical `ui.componentState`
  *     frame arrives on the page's KISS stream. Match the frame's
- *     `componentInstanceId` against this grid's instance id and
- *     reload when `state.refresh === true`. event-runtime owns the
- *     EventSource — the grid never opens its own connection.
+ *     `componentInstanceId` against this grid's instance id; when the
+ *     frame carries a row bag (`state.initialRows`), render it directly
+ *     — gated by the dispatch `correlationId` so a stale in-flight
+ *     dispatch never wins. A bare `state.refresh === true` frame still
+ *     triggers a data-URL reload (server-push refresh signal).
+ *     event-runtime owns the EventSource — the grid never opens its own
+ *     connection. The HTTP dispatch response is a bare ack; row data
+ *     never travels over it.
  *
  * Safety boundaries:
  *
@@ -164,39 +169,28 @@
         };
         var latestRequestId = 0;
 
-        // --- /__ui/event dispatch response listener ----------------------
-        // event-runtime emits `semitexa:ui-event:dispatched` after every
-        // successful round-trip. When the response targets THIS grid
-        // instance AND carries a `debug.state` prop bag with row data,
-        // re-render directly from it — that's the canonical Phase-5
-        // grid cutover path. Responses for other grids / components
-        // are ignored. Responses without a state payload (e.g. a bare
-        // ack with no rows) are also ignored — the legacy fetch
-        // fallback handles those cases when invoked separately.
-        document.addEventListener('semitexa:ui-event:dispatched', function (ev) {
+        // --- Canonical dispatch correlation tracking ---------------------
+        // Phase 6 moved the grid's row data OFF the HTTP response and onto
+        // the SSE `ui.componentState` frame. POST /__ui/event now returns
+        // only a bare ack (no `debug.state`); the data arrives over the
+        // page-session KISS channel and is rendered by the
+        // `semitexa:ui-sse:component-state` listener below.
+        //
+        // event-runtime emits `semitexa:ui-event:dispatching` synchronously
+        // before each POST, carrying the per-attempt `correlationId`. We
+        // record the latest correlationId for THIS grid instance so the SSE
+        // listener can reject a stale in-flight dispatch's frame: if the
+        // user clicks Next twice, both dispatches publish to the shared
+        // channel and only the frame matching the most recent dispatch's
+        // correlationId should win.
+        var latestCorrelationId = null;
+        document.addEventListener('semitexa:ui-event:dispatching', function (ev) {
             var detail = ev && ev.detail;
             if (!detail || !detail.captured) return;
             if (detail.captured.instanceId !== instanceId) return;
-            var response = detail.response;
-            if (!response || typeof response !== 'object') return;
-            // Both endpoints surface the handler's UiEventResponse state
-            // under `debug.state` (UiInteractionDispatchAdapter ->
-            // UiInteractionResult::ack(debug). The canonical /__ui/event
-            // envelope folds the legacy body's `debug` key into the
-            // top-level canonical response per
-            // UiEventEndpointHandler::encodeEnvelope; the legacy
-            // /__ui/dispatch endpoint surfaces `debug` directly).
-            var debug = response.debug;
-            if (!debug || typeof debug !== 'object') return;
-            var state2 = debug.state;
-            if (!state2 || typeof state2 !== 'object') return;
-            if (!Array.isArray(state2.initialRows)) return;
-            // Adapt the data provider's prop-bag shape into renderPage's
-            // expected envelope.
-            renderPage({
-                rows: state2.initialRows,
-                pagination: state2.initialPagination || {},
-            });
+            if (typeof detail.correlationId === 'string' && detail.correlationId !== '') {
+                latestCorrelationId = detail.correlationId;
+            }
         });
 
         // --- Filter form -------------------------------------------------
@@ -407,8 +401,36 @@
                 if (!detail || !detail.message) return;
                 var msg = detail.message;
                 if (msg.componentInstanceId !== instanceId) return;
-                if (!msg.state || msg.state.refresh !== true) return;
-                reload();
+                var sseState = msg.state;
+                if (!sseState || typeof sseState !== 'object') return;
+
+                // Phase 6 data delivery: the frame carries this grid's
+                // resolved row state (the data provider's prop bag). Render
+                // it directly — this is the real SSE data channel, not a
+                // refresh ping. Gate on correlationId so a stale earlier
+                // dispatch's frame can never overwrite a newer request's
+                // result: the page-session channel is shared across this
+                // grid's dispatches, correlationId multiplexes it. A frame
+                // with no correlationId is a server-pushed snapshot (no
+                // client dispatch to correlate against) and is accepted.
+                if (Array.isArray(sseState.initialRows)) {
+                    if (msg.correlationId && latestCorrelationId &&
+                        msg.correlationId !== latestCorrelationId) {
+                        return;
+                    }
+                    renderPage({
+                        rows: sseState.initialRows,
+                        pagination: sseState.initialPagination || {},
+                    });
+                    return;
+                }
+
+                // Legacy refresh signal: a bare `{ refresh: true }` snapshot
+                // tells the grid to re-pull via its data URL. Used by
+                // server-side pushes that do not carry a full row bag.
+                if (sseState.refresh === true) {
+                    reload();
+                }
             });
         }
 

@@ -86,6 +86,32 @@ final class PlatformUiSseSessionState
     }
 
     /**
+     * Restore the originating page's canonical SSE session id into the
+     * current request scope.
+     *
+     * Deferred-SSR components render in a SEPARATE request from the page
+     * that emitted them (the `/__semitexa_kiss` deferred stream). Without
+     * this, {@see self::mintIfAbsent()} called from a deferred component's
+     * data provider / `ui_event_manifest()` would mint a FRESH id that no
+     * live EventSource subscribes to — so the dispatcher would publish
+     * `ui.patch` / `ui.componentState` frames to a dead channel. The
+     * deferred-render pipeline captures the page's session id during the
+     * main render and calls this to re-establish it before the component
+     * renders, so its `sub` claim matches the page's live stream.
+     *
+     * Idempotent. Silently ignores an unsafe-shaped id (the caller then
+     * falls back to {@see self::mintIfAbsent()}) rather than throwing —
+     * a malformed stored id must never break deferred rendering.
+     */
+    public static function restore(string $id): void
+    {
+        if (preg_match(self::SAFE_ID_PATTERN, $id) !== 1) {
+            return;
+        }
+        self::$current = $id;
+    }
+
+    /**
      * Test seam: callers MAY pre-seed a deterministic id so unit
      * tests can assert on the exact value rendered into the page.
      * The id MUST match {@see self::SAFE_ID_PATTERN}; this guard
