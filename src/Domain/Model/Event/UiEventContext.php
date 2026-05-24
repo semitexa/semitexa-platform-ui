@@ -36,4 +36,20 @@ final readonly class UiEventContext
         public array $signedClaims = [],
         public object|array|null $request = null,
     ) {}
+
+    /**
+     * FQCN of the read-side {@see \Semitexa\PlatformUi\Contract\UiPartDataProviderInterface}
+     * the page handler signed into this event's context via
+     * `ui_event_manifest(..., dp:)`. Returns null when no `dp` claim is
+     * present.
+     *
+     * Type-safe sugar over `$signedClaims['dp']` — the manifest builder
+     * only ever folds the dp claim through after a class_exists + interface
+     * check, but callers shouldn't have to poke into the raw claim array.
+     */
+    public function dataProviderClass(): ?string
+    {
+        $dp = $this->signedClaims['dp'] ?? null;
+        return is_string($dp) && $dp !== '' ? $dp : null;
+    }
 }

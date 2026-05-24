@@ -8,6 +8,8 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
+use Psr\Container\ContainerInterface;
+use Psr\Container\NotFoundExceptionInterface;
 use Semitexa\PlatformUi\Application\Component\Builtin\FormComponent;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentMetadataFactory;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
@@ -18,8 +20,15 @@ use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveMetadataFactory
 use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveRegistry;
 use Semitexa\PlatformUi\Application\Service\Submit\SignedContextOnlyUiFormSubmitSecurityPolicy;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitSecurityPolicy;
+use Semitexa\PlatformUi\Attribute\HandlesUiEvent;
+use Semitexa\PlatformUi\Attribute\UiSlot;
+use Semitexa\PlatformUi\Contract\UiEventHandlerInterface;
+use Semitexa\PlatformUi\Domain\Model\Event\UiEventContext;
+use Semitexa\PlatformUi\Domain\Model\Event\UiEventResponse;
+use Semitexa\Ssr\Attribute\AsComponent;
 use Semitexa\Ssr\Application\Service\UiEvent\CanonicalUiMessagePublisherInterface;
 use Semitexa\Ssr\Application\Service\UiEvent\SignedContext;
+use Semitexa\Ssr\Application\Service\UiEvent\UiComponentStateMessage;
 use Semitexa\Ssr\Application\Service\UiEvent\UiEventEnvelope;
 use Semitexa\Ssr\Application\Service\UiEvent\UiPatchMessage;
 use Semitexa\Ssr\Application\Service\UiEvent\UiResponseDispatcherInterface;
@@ -365,6 +374,144 @@ final class PlatformUiResponseDispatcherTest extends TestCase
     }
 
     #[Test]
+    public function class_level_handles_ui_event_service_handler_dispatched_through_canonical_endpoint(): void
+    {
+        // Phase 5: PlatformUiResponseDispatcher must propagate a
+        // container-backed handler resolver into UiInteractionDispatcher
+        // so service handlers (#[HandlesUiEvent]) bound to slots resolve
+        // identically on /__ui/event and /__ui/dispatch.
+        UiComponentRegistry::register(
+            (new UiComponentMetadataFactory())->fromClass(PrdServiceHandlerComponent::class),
+        );
+        UiComponentRegistry::registerExternalFromClass(PrdServiceHandlerHandler::class);
+        $handler = new PrdServiceHandlerHandler();
+        $container = new PrdServiceHandlerStubContainer([
+            PrdServiceHandlerHandler::class => $handler,
+        ]);
+        $adapter = $this->newAdapter()->withContainer($container);
+
+        $envelope = $this->envelope(
+            $this->prdServiceHandlerCtx(),
+            ['value' => ['q' => 'integration-smoke']],
+        );
+
+        $result = $adapter->dispatch($envelope, $this->verifyClaims($envelope));
+
+        self::assertSame(200, $result->statusCode);
+        self::assertSame('accepted', $result->status);
+        // The handler returns UiEventResponse::patch(state: [...]); adapter
+        // surfaces that state under debug.state. Confirm it flowed through.
+        self::assertArrayHasKey('debug', $result->body);
+        self::assertSame(['from' => 'PrdServiceHandlerHandler'], $result->body['debug']['state']);
+        self::assertSame(['q' => 'integration-smoke'], $handler->capturedPayload);
+    }
+
+    #[Test]
+    public function state_response_with_sub_and_instance_publishes_component_state_and_strips_http_state(): void
+    {
+        // Phase 6: when a handler returns a whole-state snapshot (the grid
+        // row bag) AND the ctx carries both a `sub` (page-session channel)
+        // and an `i` (target instance) claim AND the publisher is wired,
+        // the dispatcher publishes a typed `ui.componentState` frame over
+        // the canonical channel and REMOVES the state from the HTTP body.
+        UiComponentRegistry::register(
+            (new UiComponentMetadataFactory())->fromClass(PrdServiceHandlerComponent::class),
+        );
+        UiComponentRegistry::registerExternalFromClass(PrdServiceHandlerHandler::class);
+        $handler = new PrdServiceHandlerHandler();
+        $container = new PrdServiceHandlerStubContainer([
+            PrdServiceHandlerHandler::class => $handler,
+        ]);
+        $publisher = new RecordingCanonicalUiMessagePublisher();
+        $adapter = $this->newAdapter()->withContainer($container)->withPublisher($publisher);
+
+        $envelope = $this->envelope(
+            $this->prdServiceHandlerCtxWithSub('sse_session_grid'),
+            ['value' => ['q' => 'sse-data']],
+        );
+
+        $result = $adapter->dispatch($envelope, $this->verifyClaims($envelope));
+
+        self::assertSame(200, $result->statusCode);
+        self::assertSame('accepted', $result->status);
+
+        // HTTP body is a bare ack — the row state is gone from debug.
+        self::assertArrayHasKey('debug', $result->body);
+        self::assertArrayNotHasKey('state', $result->body['debug']);
+        self::assertSame(1, $result->body['streamedStateCount']);
+
+        // The frame was published to the page-session channel, addressed
+        // to the component instance, carrying the envelope correlationId.
+        self::assertSame('sse_session_grid', $publisher->lastSessionId);
+        self::assertCount(1, $publisher->published);
+        $msg = $publisher->published[0];
+        self::assertInstanceOf(UiComponentStateMessage::class, $msg);
+        $payload = $msg->toSsePayload();
+        self::assertSame('ui.componentState', $payload['_type']);
+        self::assertSame('uci_prd_service_handler_test_01', $payload['componentInstanceId']);
+        self::assertSame(['from' => 'PrdServiceHandlerHandler'], $payload['state']);
+        self::assertSame($envelope->correlationId, $payload['correlationId'] ?? null);
+
+        // No secret/internal data leaks into the typed message.
+        $encoded = json_encode($payload, JSON_THROW_ON_ERROR);
+        self::assertIsString($encoded);
+        self::assertStringNotContainsString($envelope->signedContext, $encoded);
+        self::assertStringNotContainsString('APP_SECRET', $encoded);
+    }
+
+    #[Test]
+    public function state_publish_failure_falls_back_to_inline_state(): void
+    {
+        // A transport-level publish failure for the state frame must not
+        // escape the dispatcher: the state stays inline in `debug` so the
+        // client can still render via the legacy fallback path, and no
+        // `streamedStateCount` is advertised.
+        UiComponentRegistry::register(
+            (new UiComponentMetadataFactory())->fromClass(PrdServiceHandlerComponent::class),
+        );
+        UiComponentRegistry::registerExternalFromClass(PrdServiceHandlerHandler::class);
+        $container = new PrdServiceHandlerStubContainer([
+            PrdServiceHandlerHandler::class => new PrdServiceHandlerHandler(),
+        ]);
+        $publisher = new ThrowingCanonicalUiMessagePublisher();
+        $adapter = $this->newAdapter()->withContainer($container)->withPublisher($publisher);
+
+        $envelope = $this->envelope(
+            $this->prdServiceHandlerCtxWithSub('sse_session_grid'),
+            ['value' => ['q' => 'sse-data']],
+        );
+
+        $result = $adapter->dispatch($envelope, $this->verifyClaims($envelope));
+
+        self::assertSame('accepted', $result->status);
+        self::assertSame(['from' => 'PrdServiceHandlerHandler'], $result->body['debug']['state']);
+        self::assertArrayNotHasKey('streamedStateCount', $result->body);
+    }
+
+    #[Test]
+    public function service_handler_dispatch_without_container_returns_configuration_error(): void
+    {
+        UiComponentRegistry::register(
+            (new UiComponentMetadataFactory())->fromClass(PrdServiceHandlerComponent::class),
+        );
+        UiComponentRegistry::registerExternalFromClass(PrdServiceHandlerHandler::class);
+
+        // No .withContainer(...) — buildHandlerResolver() returns null;
+        // UiInteractionDispatcher's service-handler branch maps that to
+        // a 422 with reason `ui_handler_resolver_missing`.
+        $adapter = $this->newAdapter();
+        $envelope = $this->envelope($this->prdServiceHandlerCtx(), ['value' => []]);
+
+        $result = $adapter->dispatch($envelope, $this->verifyClaims($envelope));
+
+        // UiInteractionConfigurationException maps to 503 (service-not-ready),
+        // which translateFailure routes to status='error'.
+        self::assertSame(503, $result->statusCode);
+        self::assertSame('error', $result->status);
+        self::assertSame('ui_handler_resolver_missing', $result->reason);
+    }
+
+    #[Test]
     public function invalid_event_id_format_becomes_safe_invalid_dispatch_id_rejection(): void
     {
         // The legacy dispatcher enforces a strict dispatchId pattern
@@ -447,6 +594,27 @@ final class PlatformUiResponseDispatcherTest extends TestCase
         ]);
     }
 
+    private function prdServiceHandlerCtx(): string
+    {
+        return SignedContext::sign([
+            'c' => 'platform.test-prd-service-handler',
+            'i' => 'uci_prd_service_handler_test_01',
+            'p' => 'filters',
+            'e' => 'submit',
+        ]);
+    }
+
+    private function prdServiceHandlerCtxWithSub(string $subscriberChannelId): string
+    {
+        return SignedContext::sign([
+            'c' => 'platform.test-prd-service-handler',
+            'i' => 'uci_prd_service_handler_test_01',
+            'p' => 'filters',
+            'e' => 'submit',
+            'sub' => $subscriberChannelId,
+        ]);
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -518,5 +686,51 @@ final class ThrowingCanonicalUiMessagePublisher implements CanonicalUiMessagePub
     public function publishToUser(string $userId, UiSseMessageInterface $message): int
     {
         throw new \RuntimeException('canonical publisher test failure');
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5 — service-handler resolver propagation fixtures
+// ---------------------------------------------------------------------------
+
+#[AsComponent(name: 'platform.test-prd-service-handler', template: '@platform-ui/components/runtime/field.html.twig')]
+#[UiSlot(name: 'filters', description: 'fixture binding seam for service-handler dispatch')]
+final class PrdServiceHandlerComponent {}
+
+#[HandlesUiEvent(component: PrdServiceHandlerComponent::class, part: 'filters', event: 'submit')]
+final class PrdServiceHandlerHandler implements UiEventHandlerInterface
+{
+    /** @var array<string, mixed>|null */
+    public ?array $capturedPayload = null;
+
+    public function handle(object $payload, UiEventContext $context): UiEventResponse
+    {
+        $arr = (array) $payload;
+        $this->capturedPayload = isset($arr['value']) && is_array($arr['value']) ? $arr['value'] : $arr;
+        return UiEventResponse::patch(state: ['from' => 'PrdServiceHandlerHandler']);
+    }
+}
+
+/**
+ * Minimal PSR-11 container used by the resolver-propagation tests.
+ * Returns configured singletons by FQCN; throws NotFoundException
+ * for unknown keys.
+ */
+final class PrdServiceHandlerStubContainer implements ContainerInterface
+{
+    /** @param array<string, object> $services */
+    public function __construct(private readonly array $services) {}
+
+    public function get(string $id): object
+    {
+        if (!isset($this->services[$id])) {
+            throw new class("Service '$id' not found") extends \RuntimeException implements NotFoundExceptionInterface {};
+        }
+        return $this->services[$id];
+    }
+
+    public function has(string $id): bool
+    {
+        return isset($this->services[$id]);
     }
 }

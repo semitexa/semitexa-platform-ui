@@ -4,13 +4,17 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Event;
 
+use Closure;
+use Psr\Container\ContainerInterface;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
 use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistryInterface;
+use Semitexa\PlatformUi\Contract\UiEventHandlerInterface;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult;
 use Semitexa\Ssr\Application\Service\UiEvent\CanonicalUiMessagePublisherInterface;
+use Semitexa\Ssr\Application\Service\UiEvent\UiComponentStateMessage;
 use Semitexa\Ssr\Application\Service\UiEvent\UiEventEnvelope;
 use Semitexa\Ssr\Application\Service\UiEvent\UiPatchMessage;
 use Semitexa\Ssr\Application\Service\UiEvent\UiResponseDispatcherInterface;
@@ -118,6 +122,21 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
     #[InjectAsReadonly]
     protected CanonicalUiMessagePublisherInterface $publisher;
 
+    /**
+     * PSR-11 container used by {@see self::buildHandlerResolver()} to
+     * resolve class-level #[HandlesUiEvent] service handlers by FQCN
+     * at dispatch time — same seam as
+     * {@see \Semitexa\PlatformUi\Application\Handler\PayloadHandler\UiDispatchHandler}
+     * uses for the legacy `/__ui/dispatch` endpoint. Without this
+     * propagation the canonical `/__ui/event` route would fall back
+     * to the dispatcher's null-resolver branch and emit
+     * `ui_handler_resolver_missing` 422 for every service-handler
+     * dispatch — a divergence between the two endpoints that the
+     * adapter exists specifically to prevent.
+     */
+    #[InjectAsReadonly]
+    protected ContainerInterface $container;
+
     public function dispatch(UiEventEnvelope $envelope, array $verifiedClaims): UiResponseDispatchResult
     {
         // The framework endpoint already verified the signed ctx, and
@@ -127,6 +146,11 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
         // verifier, so the value is byte-identical to what the legacy
         // dispatcher's claims hold.
         $subscriberChannelId = $this->extractSubscriberChannelId($verifiedClaims);
+        // The target component instance id (`i` claim) addresses the
+        // SSE `ui.componentState` frame to a single grid/component on the
+        // page-session channel. Same blob, same deterministic verifier as
+        // the legacy dispatcher reads at step 4 (`stringClaim($claims, 'i')`).
+        $instanceId = $this->extractInstanceId($verifiedClaims);
 
         $dispatcher = $this->resolveLegacyDispatcher();
 
@@ -145,6 +169,7 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
             $envelope->eventId,
             $envelope->correlationId,
             $subscriberChannelId,
+            $instanceId,
         );
     }
 
@@ -168,20 +193,67 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
         return $sub;
     }
 
+    /**
+     * Extract the target component instance id (`i` claim) from verified
+     * claims. Returns `null` when the claim is absent, empty, or has an
+     * unsafe shape — the caller then skips the state-publish branch and
+     * leaves the state inline in `debug` (no instance to address the
+     * `ui.componentState` frame to). The id shares the safe alphabet the
+     * manifest builder mints (`uci_<hex>` matches the channel pattern).
+     *
+     * @param array<string, mixed> $verifiedClaims
+     */
+    private function extractInstanceId(array $verifiedClaims): ?string
+    {
+        $instance = $verifiedClaims['i'] ?? null;
+        if (!is_string($instance) || $instance === '') {
+            return null;
+        }
+        if (preg_match(self::SUBSCRIBER_CHANNEL_ID_PATTERN, $instance) !== 1) {
+            return null;
+        }
+        return $instance;
+    }
+
     private function resolveLegacyDispatcher(): UiInteractionDispatcher
     {
         // Production wiring resolves UiDispatchHandler through the container
         // and inherits the same CacheBackedUiReplayStore / authorizer / rule
         // registry winners via SatisfiesServiceContract. Mirror that here so
         // both inbound endpoints (`/__ui/event` and `/__ui/dispatch`) share
-        // a single dispatcher configuration.
+        // a single dispatcher configuration — including the closure-based
+        // resolver for class-level #[HandlesUiEvent] service handlers
+        // (Phase 5).
         return new UiInteractionDispatcher(
             payloadGuard:   new UiPayloadFieldGuard(),
             patchValidator: new UiPatchValidator(),
             replayStore:    $this->resolveReplayStore(),
             authorizer:     $this->resolveAuthorizer(),
             ruleRegistry:   isset($this->ruleRegistry) ? $this->ruleRegistry : null,
+            handlerResolver: $this->buildHandlerResolver(),
         );
+    }
+
+    /**
+     * @return Closure(class-string<UiEventHandlerInterface>): UiEventHandlerInterface|null
+     */
+    private function buildHandlerResolver(): ?Closure
+    {
+        if (!isset($this->container)) {
+            return null;
+        }
+
+        $container = $this->container;
+        return static function (string $fqcn) use ($container): UiEventHandlerInterface {
+            $service = $container->get($fqcn);
+            if (!$service instanceof UiEventHandlerInterface) {
+                throw new \RuntimeException(sprintf(
+                    'Service %s resolved by the container is not a UiEventHandlerInterface.',
+                    $fqcn,
+                ));
+            }
+            return $service;
+        };
     }
 
     private function resolveReplayStore(): UiReplayStoreInterface
@@ -207,6 +279,7 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
         string $dispatchId,
         string $correlationId,
         ?string $subscriberChannelId,
+        ?string $instanceId,
     ): UiResponseDispatchResult {
         $inlinePatches = [];
         foreach ($result->patches as $patch) {
@@ -263,14 +336,74 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
             }
         }
 
+        // --- State delivery over SSE (Phase 6) ---------------------------
+        // Component handlers that return a whole-state snapshot (e.g. the
+        // grid's resolved row bag) surface it via `debug['state']` rather
+        // than the narrow setText/setValue/setAttribute patch op set
+        // (see UiInteractionDispatchAdapter). When the page opted into the
+        // canonical KISS channel (`sub` claim present) and we know the
+        // target component instance (`i` claim), the state is the data
+        // payload — so we publish it as a typed `ui.componentState` frame
+        // and REMOVE it from the HTTP body. The HTTP response then carries
+        // only the bare ack; the client renders from the SSE frame, matched
+        // by componentInstanceId + correlationId (page-session channel +
+        // correlationId routing). State is semantically a whole-component
+        // replacement, not a DOM patch, so it gets its own branch rather
+        // than being forced through the patch model above.
+        $debug = $result->debug;
+        $streamedStateCount = 0;
+        if ($subscriberChannelId !== null
+            && $instanceId !== null
+            && isset($this->publisher)
+            && isset($debug['state'])
+            && is_array($debug['state'])
+            && $debug['state'] !== []
+        ) {
+            try {
+                $this->publisher->publish(
+                    $subscriberChannelId,
+                    new UiComponentStateMessage(
+                        componentInstanceId: $instanceId,
+                        state:               $debug['state'],
+                        correlationId:       $correlationId !== '' ? $correlationId : null,
+                    ),
+                );
+                // Published successfully — drop the state from the HTTP
+                // body so the wire response is a bare ack. The client
+                // consumes the data exclusively from the SSE frame.
+                unset($debug['state']);
+                $streamedStateCount = 1;
+            } catch (Throwable $publishFailure) {
+                // A publisher failure must NOT escape the dispatcher (the
+                // framework endpoint would map it to a generic
+                // `ui_event_dispatcher_failure`). Operator gets a
+                // breadcrumb; the state stays inline in `debug` so the
+                // client can still render via the legacy fallback path.
+                StaticLoggerBridge::error('platform_ui', 'Canonical UI component-state publish failed', [
+                    'exception_class'    => $publishFailure::class,
+                    'exception_message'  => $publishFailure->getMessage(),
+                    'subscriber_channel' => $subscriberChannelId,
+                    'instance_id'        => $instanceId,
+                    'dispatch_id'        => $dispatchId,
+                ]);
+                $streamedStateCount = 0;
+            }
+        }
+
         $body = [
             'kind'       => $result->kind,
             'patches'    => $inlinePatches,
-            'debug'      => $result->debug,
+            'debug'      => $debug,
             'dispatchId' => $dispatchId,
         ];
         if ($streamedPatchCount > 0) {
             $body['streamedPatchCount'] = $streamedPatchCount;
+        }
+        if ($streamedStateCount > 0) {
+            // Mirrors `streamedPatchCount` — lets the frontend's
+            // drain-on-demand opener know a frame is waiting on the
+            // channel even when no inline patches were produced.
+            $body['streamedStateCount'] = $streamedStateCount;
         }
 
         return new UiResponseDispatchResult(
@@ -320,6 +453,12 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
     public function withPublisher(CanonicalUiMessagePublisherInterface $publisher): self
     {
         $this->publisher = $publisher;
+        return $this;
+    }
+
+    public function withContainer(ContainerInterface $container): self
+    {
+        $this->container = $container;
         return $this;
     }
 }

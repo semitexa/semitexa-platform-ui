@@ -274,6 +274,7 @@ final class PlatformUiTwigExtension
                 string $instanceId,
                 ?int $ttlSeconds = null,
                 array $eventConfig = [],
+                ?string $dp = null,
             ): Markup {
                 if ($instanceId === '') {
                     throw new UiComponentRegistryException(
@@ -306,12 +307,21 @@ final class PlatformUiTwigExtension
                 // never minted a session keep `sub` absent — the
                 // dispatcher then falls back to inline patches,
                 // preserving the pre-canonical-SSE behaviour.
+                //
+                // When the caller passes `dp:`, the FQCN of a class
+                // implementing UiPartDataProviderInterface is folded
+                // into every signed ctx so the dispatcher can resolve
+                // and invoke the read-side data provider for filter /
+                // sort / pagination flows without trusting any client-
+                // supplied class name.
                 $manifest = (new UiEventManifestBuilder())->build(
                     metadata: $metadata,
                     instanceId: $instanceId,
                     ttlSeconds: $ttlSeconds,
                     eventConfig: $eventConfig,
                     subscriberChannelId: PlatformUiSseSessionState::current(),
+                    dataProviderClass: $dp,
+                    externalBindings: UiComponentRegistry::externalBindingsFor($metadata->name),
                 );
 
                 $json = json_encode(

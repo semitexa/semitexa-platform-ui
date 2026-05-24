@@ -12,13 +12,18 @@
  *     current state;
  *   - Next-link (`[data-ui-grid-next]`) click → preventDefault →
  *     fetch with cursor;
- *   - Canonical refresh: listen for the
+ *   - Canonical SSE data delivery (Phase 6): listen for the
  *     `semitexa:ui-sse:component-state` document event dispatched
  *     by event-runtime.js when a canonical `ui.componentState`
  *     frame arrives on the page's KISS stream. Match the frame's
- *     `componentInstanceId` against this grid's instance id and
- *     reload when `state.refresh === true`. event-runtime owns the
- *     EventSource — the grid never opens its own connection.
+ *     `componentInstanceId` against this grid's instance id; when the
+ *     frame carries a row bag (`state.initialRows`), render it directly
+ *     — gated by the dispatch `correlationId` so a stale in-flight
+ *     dispatch never wins. A bare `state.refresh === true` frame still
+ *     triggers a data-URL reload (server-push refresh signal).
+ *     event-runtime owns the EventSource — the grid never opens its own
+ *     connection. The HTTP dispatch response is a bare ack; row data
+ *     never travels over it.
  *
  * Safety boundaries:
  *
@@ -164,6 +169,30 @@
         };
         var latestRequestId = 0;
 
+        // --- Canonical dispatch correlation tracking ---------------------
+        // Phase 6 moved the grid's row data OFF the HTTP response and onto
+        // the SSE `ui.componentState` frame. POST /__ui/event now returns
+        // only a bare ack (no `debug.state`); the data arrives over the
+        // page-session KISS channel and is rendered by the
+        // `semitexa:ui-sse:component-state` listener below.
+        //
+        // event-runtime emits `semitexa:ui-event:dispatching` synchronously
+        // before each POST, carrying the per-attempt `correlationId`. We
+        // record the latest correlationId for THIS grid instance so the SSE
+        // listener can reject a stale in-flight dispatch's frame: if the
+        // user clicks Next twice, both dispatches publish to the shared
+        // channel and only the frame matching the most recent dispatch's
+        // correlationId should win.
+        var latestCorrelationId = null;
+        document.addEventListener('semitexa:ui-event:dispatching', function (ev) {
+            var detail = ev && ev.detail;
+            if (!detail || !detail.captured) return;
+            if (detail.captured.instanceId !== instanceId) return;
+            if (typeof detail.correlationId === 'string' && detail.correlationId !== '') {
+                latestCorrelationId = detail.correlationId;
+            }
+        });
+
         // --- Filter form -------------------------------------------------
         if (formEl) {
             formEl.addEventListener('submit', function (event) {
@@ -209,7 +238,17 @@
                 state.sort = submittedSort;
             }
             resetPaginationHistory();
-            reload();
+            reload({ part: 'filters', event: 'submit', value: currentCriteriaPayload() });
+        }
+
+        function currentCriteriaPayload() {
+            var p = {};
+            if (state.q !== null && state.q !== undefined && state.q !== '')                p.q      = state.q;
+            if (state.action !== null && state.action !== undefined && state.action !== '') p.action = state.action;
+            if (state.limit !== null && state.limit !== undefined && state.limit !== '')    p.limit  = state.limit;
+            if (state.sort !== null && state.sort !== undefined && state.sort !== '')       p.sort   = state.sort;
+            if (state.cursor !== null && state.cursor !== undefined && state.cursor !== '') p.cursor = state.cursor;
+            return p;
         }
 
         function resetPaginationHistory() {
@@ -268,7 +307,7 @@
                     sortInput.value = state.sort;
                 }
             }
-            reload();
+            reload({ part: 'rows', event: 'sort', value: currentCriteriaPayload() });
         });
 
         // --- Next-page link ----------------------------------------------
@@ -322,14 +361,14 @@
             }
             state.page   = nextPage;
             state.cursor = nextCursor;
-            reload();
+            reload({ part: 'rows', event: 'paginate', value: currentCriteriaPayload() });
         }
 
         function navigateBackward() {
             if (state.page <= 1) return;
             state.page--;
             state.cursor = state.cursors[state.page - 1] || null;
-            reload();
+            reload({ part: 'rows', event: 'paginate', value: currentCriteriaPayload() });
         }
 
         function navigateToPage(targetPage) {
@@ -339,7 +378,7 @@
             if (targetPage < 1 || targetPage > state.cursors.length) return;
             state.page   = targetPage;
             state.cursor = state.cursors[targetPage - 1] || null;
-            reload();
+            reload({ part: 'rows', event: 'paginate', value: currentCriteriaPayload() });
         }
 
         // --- Canonical refresh signal ------------------------------------
@@ -362,8 +401,36 @@
                 if (!detail || !detail.message) return;
                 var msg = detail.message;
                 if (msg.componentInstanceId !== instanceId) return;
-                if (!msg.state || msg.state.refresh !== true) return;
-                reload();
+                var sseState = msg.state;
+                if (!sseState || typeof sseState !== 'object') return;
+
+                // Phase 6 data delivery: the frame carries this grid's
+                // resolved row state (the data provider's prop bag). Render
+                // it directly — this is the real SSE data channel, not a
+                // refresh ping. Gate on correlationId so a stale earlier
+                // dispatch's frame can never overwrite a newer request's
+                // result: the page-session channel is shared across this
+                // grid's dispatches, correlationId multiplexes it. A frame
+                // with no correlationId is a server-pushed snapshot (no
+                // client dispatch to correlate against) and is accepted.
+                if (Array.isArray(sseState.initialRows)) {
+                    if (msg.correlationId && latestCorrelationId &&
+                        msg.correlationId !== latestCorrelationId) {
+                        return;
+                    }
+                    renderPage({
+                        rows: sseState.initialRows,
+                        pagination: sseState.initialPagination || {},
+                    });
+                    return;
+                }
+
+                // Legacy refresh signal: a bare `{ refresh: true }` snapshot
+                // tells the grid to re-pull via its data URL. Used by
+                // server-side pushes that do not carry a full row bag.
+                if (sseState.refresh === true) {
+                    reload();
+                }
             });
         }
 
@@ -404,8 +471,45 @@
             }
         }
 
-        // --- Core fetch + render ------------------------------------------
-        function reload() {
+        // --- Core reload: dispatch via /__ui/event, fall back to fetch ----
+        //
+        // Phase 5 cutover: when the grid was rendered with a signed
+        // UI-event manifest, every filter/sort/paginate gesture
+        // dispatches through `window.SemitexaUi.dispatch()` and the
+        // response is consumed via the `semitexa:ui-event:dispatched`
+        // listener registered at boot. The legacy `fetch(dataUrl)`
+        // path is preserved as a deterministic fallback for:
+        //
+        //   - grids whose host page never emits a manifest (e.g.
+        //     demo-submissions);
+        //   - `reload()` calls with no `gesture` (the SSE
+        //     componentState.refresh=true signal — just refresh,
+        //     no manifest gesture);
+        //   - any dispatch that returns false (unknown manifest
+        //     entry, missing event-runtime).
+        function reload(gesture) {
+            if (gesture && typeof gesture === 'object' && gesture.part && gesture.event &&
+                window.SemitexaUi && typeof window.SemitexaUi.dispatch === 'function' &&
+                instanceId !== '') {
+                clearError();
+                var sent = window.SemitexaUi.dispatch({
+                    instanceId: instanceId,
+                    part:       gesture.part,
+                    event:      gesture.event,
+                    value:      gesture.value
+                });
+                if (sent) {
+                    // Response will land on the
+                    // `semitexa:ui-event:dispatched` listener, which
+                    // calls renderPage(). Nothing more to do here.
+                    return;
+                }
+                // Dispatch found no matching manifest entry — fall through.
+            }
+            fetchLegacyAndRender();
+        }
+
+        function fetchLegacyAndRender() {
             var requestId = ++latestRequestId;
             clearError();
             var url = composeUrl(dataUrl, state, sortParam);
@@ -748,4 +852,35 @@
             : document;
         bootAll(el);
     });
+
+    // Defence in depth — MutationObserver-driven late-attach. The
+    // semitexa:component:rendered listener above covers the documented
+    // deferred-SSR path, but some delivery surfaces (e.g. canonical KISS
+    // streaming the rendered HTML directly into a deferred placeholder
+    // before the runtime listener attaches) drop grid roots into the
+    // DOM without firing that event in time. The MutationObserver
+    // catches every `[data-ui-grid]` node added under document.body
+    // post-DOMContentLoaded and runs bootGrid idempotently — the
+    // `__uiGridBooted` flag already guards against double-init.
+    if (typeof MutationObserver !== 'undefined' && document.body) {
+        var observer = new MutationObserver(function (mutations) {
+            for (var i = 0; i < mutations.length; i++) {
+                var added = mutations[i].addedNodes;
+                if (!added || !added.length) continue;
+                for (var j = 0; j < added.length; j++) {
+                    var node = added[j];
+                    if (!node || node.nodeType !== 1) continue;
+                    if (node.matches && node.matches('[data-ui-grid]')) {
+                        bootGrid(node);
+                    } else if (node.querySelectorAll) {
+                        var gridRoots = node.querySelectorAll('[data-ui-grid]');
+                        for (var k = 0; k < gridRoots.length; k++) {
+                            bootGrid(gridRoots[k]);
+                        }
+                    }
+                }
+            }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+    }
 })();

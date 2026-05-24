@@ -484,6 +484,10 @@ final class UiDispatchHandlerTest extends TestCase
             {
                 return false;
             }
+            public function authorizeExternal(UiInteractionEvent $event, UiComponentMetadata $component, \Semitexa\PlatformUi\Domain\Model\Component\UiExternalHandlerMetadata $externalMeta): bool
+            {
+                return false;
+            }
         };
 
         $dispatchId = $this->freshDispatchId();

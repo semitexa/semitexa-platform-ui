@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Event;
 
+use Closure;
 use ReflectionClass;
 use Semitexa\Core\Environment;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistry;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistryInterface;
 use Semitexa\PlatformUi\Application\Service\Validation\UsesUiFieldRuleRegistry;
+use Semitexa\PlatformUi\Contract\UiEventHandlerInterface;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionBadRequestException;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionConfigurationException;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionConflictException;
@@ -17,7 +19,9 @@ use Semitexa\PlatformUi\Domain\Exception\UiInteractionException;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionForbiddenException;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionNotFoundException;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionUnprocessableException;
+use Semitexa\PlatformUi\Domain\Model\Component\UiExternalHandlerMetadata;
 use Semitexa\PlatformUi\Domain\Model\Component\UiValuePath;
+use Semitexa\PlatformUi\Domain\Model\Event\UiEventContext;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionEvent;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult;
 use Semitexa\Ssr\Application\Service\UiEvent\SignedContext;
@@ -105,6 +109,25 @@ final class UiInteractionDispatcher
      */
     private readonly ?UiFieldRuleRegistryInterface $ruleRegistry;
 
+    /**
+     * Container-aware resolver for class-level #[HandlesUiEvent] service
+     * handlers. Takes the handler FQCN and returns a fully-constructed
+     * UiEventHandlerInterface instance (typically via the application
+     * container so the handler can declare its own DI dependencies).
+     *
+     * Null when the dispatcher is constructed without a resolver — in
+     * that case any signed ctx targeting an external #[HandlesUiEvent]
+     * binding fails with a configuration-style 422 rather than silently
+     * 404'ing the event. Production wiring binds the closure in
+     * UiDispatchHandler; tests pass an explicit closure to drive the
+     * service-handler path.
+     *
+     * @var Closure(class-string<UiEventHandlerInterface>): UiEventHandlerInterface|null
+     */
+    private readonly ?Closure $handlerResolver;
+
+    private readonly UiInteractionDispatchAdapter $responseAdapter;
+
     public function __construct(
         private readonly UiPayloadFieldGuard $payloadGuard = new UiPayloadFieldGuard(),
         private readonly UiPatchValidator $patchValidator = new UiPatchValidator(),
@@ -112,9 +135,13 @@ final class UiInteractionDispatcher
         private readonly UiInteractionAuthorizerInterface $authorizer = new AllowAllUiInteractionAuthorizer(),
         ?bool $productionLike = null,
         ?UiFieldRuleRegistryInterface $ruleRegistry = null,
+        ?Closure $handlerResolver = null,
+        ?UiInteractionDispatchAdapter $responseAdapter = null,
     ) {
         $this->productionLike = $productionLike ?? self::detectProductionLikeFromEnv();
         $this->ruleRegistry = $ruleRegistry;
+        $this->handlerResolver = $handlerResolver;
+        $this->responseAdapter = $responseAdapter ?? new UiInteractionDispatchAdapter();
     }
 
     private static function detectProductionLikeFromEnv(): bool
@@ -180,35 +207,60 @@ final class UiInteractionDispatcher
             );
         }
 
+        // Accept either a #[UiPart] or a #[UiSlot] as the binding target:
+        // class-level #[HandlesUiEvent] is allowed to bind a service handler
+        // to a slot when the interaction happens on caller-provided content
+        // (e.g. Grid's "filters" slot owns the filter form submit).
         $part = $metadata->part($partName);
-        if ($part === null) {
+        if ($part === null && $metadata->slot($partName) === null) {
             throw new UiInteractionNotFoundException(
                 'unknown_part',
                 'Signed part does not exist on the component.',
             );
         }
 
-        $eventMeta = $metadata->event($partName, $eventName);
-        if ($eventMeta === null) {
+        $methodBinding   = $metadata->event($partName, $eventName);
+        $externalBinding = UiComponentRegistry::getExternalBinding($componentName, $partName, $eventName);
+
+        // Defensive: the registry enforces no-collision across method-level
+        // #[UiOn] and class-level #[HandlesUiEvent], so this should never
+        // fire — but the dispatcher refuses to guess if it ever does.
+        if ($methodBinding !== null && $externalBinding !== null) {
+            throw new UiInteractionUnprocessableException(
+                'binding_collision',
+                'Both a method-level and a class-level handler are bound to this (part, event) pair.',
+            );
+        }
+
+        if ($methodBinding === null && $externalBinding === null) {
             throw new UiInteractionNotFoundException(
                 'unknown_event',
-                'Signed (part, event) pair has no #[UiOn] declaration on the component.',
+                'Signed (part, event) pair has no #[UiOn] or #[HandlesUiEvent] binding on the component.',
             );
         }
 
         $signedUpdates = isset($claims['u']) && is_string($claims['u']) && $claims['u'] !== ''
             ? $claims['u']
             : null;
-        $expectedUpdates = $eventMeta->updatesPath !== null
-            ? (string) $eventMeta->updatesPath
-            : null;
 
-        if ($signedUpdates !== $expectedUpdates) {
-            throw new UiInteractionForbiddenException(
-                'updates_path_mismatch',
-                'Signed updates path does not match the registered #[UiOn] handler.',
-            );
+        if ($methodBinding !== null) {
+            $expectedUpdates = $methodBinding->updatesPath !== null
+                ? (string) $methodBinding->updatesPath
+                : null;
+
+            if ($signedUpdates !== $expectedUpdates) {
+                throw new UiInteractionForbiddenException(
+                    'updates_path_mismatch',
+                    'Signed updates path does not match the registered #[UiOn] handler.',
+                );
+            }
         }
+        // Service-handler path: no updates-path check. The updates field on
+        // #[UiOn] is a UX hint that pairs a handler with a part's bind path
+        // — class-level #[HandlesUiEvent] handlers don't declare one, and
+        // the signed ctx is the security boundary (HMAC-verified, audience-
+        // bound by sub/dp/cfg). Skipping the UX-only mismatch check here is
+        // intentional, not an oversight.
 
         // Runtime configuration guard. In production-like environments
         // a non-shared replay store cannot detect duplicates that land
@@ -238,7 +290,9 @@ final class UiInteractionDispatcher
             );
         }
 
-        $updatesPath = $expectedUpdates !== null ? UiValuePath::parse($expectedUpdates) : null;
+        $updatesPath = $methodBinding !== null && $methodBinding->updatesPath !== null
+            ? $methodBinding->updatesPath
+            : null;
 
         // Extract the optional `cfg` claim — server-trusted per-event
         // configuration the component signed into the manifest at
@@ -277,14 +331,40 @@ final class UiInteractionDispatcher
         // Authorization hook. Runs AFTER replay claim so a denied attempt
         // still consumes its dispatchId — the client must mint a fresh id
         // before retrying with a different (or richer) credential set.
-        if (!$this->authorizer->authorize($event, $metadata, $eventMeta)) {
+        $authorized = $methodBinding !== null
+            ? $this->authorizer->authorize($event, $metadata, $methodBinding)
+            : $this->authorizer->authorizeExternal($event, $metadata, $externalBinding);
+        if (!$authorized) {
             throw new UiInteractionForbiddenException(
                 'interaction_forbidden',
                 'Authorization policy denied this UI interaction.',
             );
         }
 
-        $instance = $this->instantiate($eventMeta->class);
+        if ($methodBinding !== null) {
+            $rawResult = $this->invokeMethodBinding($methodBinding, $event);
+        } else {
+            $rawResult = $this->invokeExternalBinding($externalBinding, $event, $payload, $claims);
+        }
+
+        return $this->normaliseResult(
+            $rawResult,
+            $instanceId,
+            $this->collectSignedAuxInstances($config, $instanceId),
+        );
+    }
+
+    /**
+     * Method-level #[UiOn] handler invocation — instantiate the component
+     * class reflectively and call the declared method with the
+     * UiInteractionEvent. Preserves the pre-Phase-5 behaviour for every
+     * existing #[UiOn] handler.
+     */
+    private function invokeMethodBinding(
+        \Semitexa\PlatformUi\Domain\Model\Component\UiOnMetadata $binding,
+        UiInteractionEvent $event,
+    ): mixed {
+        $instance = $this->instantiate($binding->class);
 
         // Components that opt into rule-registry-aware validation
         // (via UsesUiFieldRuleRegistry) receive the active registry
@@ -300,26 +380,83 @@ final class UiInteractionDispatcher
         }
 
         try {
-            /** @var mixed $rawResult */
-            $rawResult = $instance->{$eventMeta->methodName}($event);
+            return $instance->{$binding->methodName}($event);
         } catch (UiInteractionException $e) {
-            // Handlers may opt to raise a typed UiInteractionException —
-            // propagate as-is so the endpoint maps to the chosen HTTP status.
             throw $e;
         } catch (Throwable $e) {
-            // Any other handler-side throwable is wrapped as 422 with a
-            // safe message — the endpoint MUST NOT leak details.
+            throw new UiInteractionUnprocessableException(
+                'handler_error',
+                'The declared handler threw while processing this event.',
+            );
+        }
+    }
+
+    /**
+     * Class-level #[HandlesUiEvent] handler invocation — resolve the
+     * handler service via the injected container resolver, build a
+     * canonical UiEventContext from the verified claims, invoke
+     * UiEventHandlerInterface::handle(), and map the UiEventResponse
+     * back through the adapter to a UiInteractionResult.
+     *
+     * @param array<string, mixed> $payload
+     * @param array<string, mixed> $claims
+     */
+    private function invokeExternalBinding(
+        UiExternalHandlerMetadata $binding,
+        UiInteractionEvent $event,
+        array $payload,
+        array $claims,
+    ): UiInteractionResult {
+        if ($this->handlerResolver === null) {
+            throw new UiInteractionConfigurationException(
+                'ui_handler_resolver_missing',
+                'A class-level #[HandlesUiEvent] handler was bound, but the dispatcher was constructed without a handler resolver. The application must pass a Closure(class-string<UiEventHandlerInterface>): UiEventHandlerInterface into UiInteractionDispatcher::__construct.',
+            );
+        }
+
+        if ($binding->payloadClass !== null) {
+            throw new UiInteractionUnprocessableException(
+                'typed_payload_not_supported_yet',
+                'Typed #[HandlesUiEvent(payload: …)] decoding is not implemented in this slice; pass payload=null on the binding and read the request from UiEventContext::$request.',
+            );
+        }
+
+        try {
+            $handler = ($this->handlerResolver)($binding->handlerClass);
+        } catch (Throwable $e) {
+            throw new UiInteractionUnprocessableException(
+                'ui_handler_resolution_failed',
+                'The container could not resolve the bound #[HandlesUiEvent] handler.',
+            );
+        }
+
+        if (!$handler instanceof UiEventHandlerInterface) {
+            throw new UiInteractionUnprocessableException(
+                'ui_handler_resolution_failed',
+                'The container produced a value that is not a UiEventHandlerInterface instance.',
+            );
+        }
+
+        $context = new UiEventContext(
+            eventId: $event->dispatchId,
+            correlationId: $event->dispatchId,
+            semanticEvent: $event->partName . '.' . $event->eventName,
+            signedClaims: $claims,
+            request: $payload,
+        );
+
+        try {
+            $response = $handler->handle((object) $payload, $context);
+        } catch (UiInteractionException $e) {
+            throw $e;
+        } catch (Throwable $e) {
             throw new UiInteractionUnprocessableException(
                 'handler_error',
                 'The declared handler threw while processing this event.',
             );
         }
 
-        return $this->normaliseResult(
-            $rawResult,
-            $instanceId,
-            $this->collectSignedAuxInstances($config, $instanceId),
-        );
+        return $this->responseAdapter->toInteractionResult($response);
     }
 
     /**

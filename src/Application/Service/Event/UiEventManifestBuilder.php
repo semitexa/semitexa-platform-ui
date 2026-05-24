@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Event;
 
+use Semitexa\PlatformUi\Contract\UiPartDataProviderInterface;
 use Semitexa\PlatformUi\Domain\Exception\UiComponentRegistryException;
 use Semitexa\PlatformUi\Domain\Model\Component\UiComponentMetadata;
+use Semitexa\PlatformUi\Domain\Model\Component\UiExternalHandlerMetadata;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventManifest;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventManifestEntry;
 use Semitexa\Ssr\Application\Service\UiEvent\SignedContext;
+use Semitexa\Ssr\Domain\Contract\DataProviderInterface;
 
 /**
  * Builds a render-time signed UI event manifest from a component's
@@ -74,6 +77,33 @@ final class UiEventManifestBuilder
      *        on that channel. Old ctxs minted without this argument
      *        remain valid — the dispatcher falls back to inline
      *        response patches when `sub` is absent.
+     * @param string|null $dataProviderClass Optional FQCN of a class
+     *        implementing **either** {@see UiPartDataProviderInterface}
+     *        (the platform-ui part-data contract) **or**
+     *        {@see DataProviderInterface} (the semitexa-ssr smart-
+     *        component contract). Both shapes are accepted because the
+     *        canonical UI Interaction layer needs to integrate with
+     *        smart-components already built on the SSR data-provider
+     *        contract (e.g. LeadsGridComponent's LeadGridDataProvider)
+     *        without forcing a contract migration. When set, every
+     *        signed entry carries an additive `dp` claim — the
+     *        downstream handler reads it to resolve and invoke the
+     *        read-side data provider for filter / sort / pagination
+     *        flows without trusting any client-supplied class name.
+     *        Caller is responsible for passing the FQCN of a class
+     *        the application actually authorises to expose as a UI
+     *        data source.
+     * @param list<UiExternalHandlerMetadata> $externalBindings Optional
+     *        list of class-level #[HandlesUiEvent] bindings that target
+     *        the component, typically obtained from
+     *        {@see \Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry::externalBindingsFor()}.
+     *        Each binding produces one additional manifest entry with a
+     *        signed ctx carrying c/i/p/e (no `u` — external bindings do
+     *        not own an updates path) plus the same cfg/sub/dp claims as
+     *        method-level entries. The builder treats them as a parallel
+     *        binding source: the registry already enforces no-collision
+     *        across the two sources, so the rendered manifest never
+     *        emits two entries for the same (part, event).
      */
     public function build(
         UiComponentMetadata $metadata,
@@ -81,6 +111,8 @@ final class UiEventManifestBuilder
         ?int $ttlSeconds = null,
         array $eventConfig = [],
         ?string $subscriberChannelId = null,
+        ?string $dataProviderClass = null,
+        array $externalBindings = [],
     ): UiEventManifest {
         if ($instanceId === '') {
             throw new UiComponentRegistryException(
@@ -96,6 +128,27 @@ final class UiEventManifestBuilder
                 );
             }
             $normalisedSub = $subscriberChannelId;
+        }
+
+        $normalisedDp = null;
+        if ($dataProviderClass !== null && $dataProviderClass !== '') {
+            if (!class_exists($dataProviderClass) && !interface_exists($dataProviderClass)) {
+                throw new UiComponentRegistryException(sprintf(
+                    'UiEventManifestBuilder dataProviderClass "%s" is not a loadable class.',
+                    $dataProviderClass,
+                ));
+            }
+            $implementsUiPart = is_subclass_of($dataProviderClass, UiPartDataProviderInterface::class);
+            $implementsSsr    = is_subclass_of($dataProviderClass, DataProviderInterface::class);
+            if (!$implementsUiPart && !$implementsSsr) {
+                throw new UiComponentRegistryException(sprintf(
+                    'UiEventManifestBuilder dataProviderClass "%s" must implement %s or %s.',
+                    $dataProviderClass,
+                    UiPartDataProviderInterface::class,
+                    DataProviderInterface::class,
+                ));
+            }
+            $normalisedDp = $dataProviderClass;
         }
 
         $entries = [];
@@ -119,6 +172,10 @@ final class UiEventManifestBuilder
                 $claims['sub'] = $normalisedSub;
             }
 
+            if ($normalisedDp !== null) {
+                $claims['dp'] = $normalisedDp;
+            }
+
             $blob = SignedContext::sign($claims, $ttlSeconds);
 
             $entries[] = new UiEventManifestEntry(
@@ -126,6 +183,37 @@ final class UiEventManifestBuilder
                 event: $event->eventName,
                 signedContext: $blob,
                 updatesPath: $event->updatesPath !== null ? (string) $event->updatesPath : null,
+            );
+        }
+
+        foreach ($externalBindings as $external) {
+            $claims = [
+                'c' => $metadata->name,
+                'i' => $instanceId,
+                'p' => $external->partName,
+                'e' => $external->eventName,
+            ];
+
+            $configKey = $external->partName . '.' . $external->eventName;
+            if (isset($eventConfig[$configKey]) && $eventConfig[$configKey] !== []) {
+                $claims['cfg'] = $eventConfig[$configKey];
+            }
+
+            if ($normalisedSub !== null) {
+                $claims['sub'] = $normalisedSub;
+            }
+
+            if ($normalisedDp !== null) {
+                $claims['dp'] = $normalisedDp;
+            }
+
+            $blob = SignedContext::sign($claims, $ttlSeconds);
+
+            $entries[] = new UiEventManifestEntry(
+                part: $external->partName,
+                event: $external->eventName,
+                signedContext: $blob,
+                updatesPath: null,
             );
         }
 

@@ -11,7 +11,9 @@ use Semitexa\PlatformUi\Application\Service\Component\UiComponentMetadataFactory
 use Semitexa\PlatformUi\Application\Service\Event\UiEventManifestBuilder;
 use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\InputPrimitive;
 use Semitexa\PlatformUi\Attribute\UiPart;
+use Semitexa\PlatformUi\Contract\UiPartDataProviderInterface;
 use Semitexa\PlatformUi\Domain\Exception\UiComponentRegistryException;
+use Semitexa\PlatformUi\Domain\Model\Component\UiPartContext;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventManifest;
 use Semitexa\Ssr\Application\Service\UiEvent\SignedContext;
 use Semitexa\Ssr\Attribute\AsComponent;
@@ -237,6 +239,132 @@ final class UiEventManifestBuilderTest extends TestCase
         self::assertSame('change', $event['e']);
         self::assertSame('value', $event['u']);
         self::assertStringStartsWith('sc1.', $event['ctx']);
+    }
+
+    #[Test]
+    public function data_provider_class_when_set_lands_in_signed_dp_claim(): void
+    {
+        $metadata = $this->factory->fromClass(FieldComponent::class);
+        $manifest = $this->builder->build(
+            metadata: $metadata,
+            instanceId: 'uci_dp_001',
+            dataProviderClass: FakeDpProvider::class,
+        );
+
+        $claims = SignedContext::verify($manifest->entries[0]->signedContext);
+
+        self::assertNotNull($claims);
+        self::assertSame(FakeDpProvider::class, $claims['dp']);
+    }
+
+    #[Test]
+    public function data_provider_class_omitted_when_null_or_empty(): void
+    {
+        $metadata = $this->factory->fromClass(FieldComponent::class);
+
+        $manifestNull = $this->builder->build(
+            metadata: $metadata,
+            instanceId: 'uci_no_dp_001',
+            dataProviderClass: null,
+        );
+        $manifestEmpty = $this->builder->build(
+            metadata: $metadata,
+            instanceId: 'uci_no_dp_002',
+            dataProviderClass: '',
+        );
+
+        $claimsNull = SignedContext::verify($manifestNull->entries[0]->signedContext);
+        $claimsEmpty = SignedContext::verify($manifestEmpty->entries[0]->signedContext);
+
+        self::assertNotNull($claimsNull);
+        self::assertNotNull($claimsEmpty);
+        self::assertArrayNotHasKey('dp', $claimsNull);
+        self::assertArrayNotHasKey('dp', $claimsEmpty);
+    }
+
+    #[Test]
+    public function data_provider_class_that_does_not_exist_is_rejected(): void
+    {
+        $metadata = $this->factory->fromClass(FieldComponent::class);
+
+        $this->expectException(UiComponentRegistryException::class);
+        $this->expectExceptionMessageMatches('/is not a loadable class/');
+
+        $this->builder->build(
+            metadata: $metadata,
+            instanceId: 'uci_bad_dp_001',
+            dataProviderClass: 'No\\Such\\Provider',
+        );
+    }
+
+    #[Test]
+    public function data_provider_class_not_implementing_either_interface_is_rejected(): void
+    {
+        $metadata = $this->factory->fromClass(FieldComponent::class);
+
+        $this->expectException(UiComponentRegistryException::class);
+        $this->expectExceptionMessageMatches('/must implement .*UiPartDataProviderInterface or .*DataProviderInterface/');
+
+        $this->builder->build(
+            metadata: $metadata,
+            instanceId: 'uci_wrong_dp_001',
+            dataProviderClass: \stdClass::class,
+        );
+    }
+
+    #[Test]
+    public function data_provider_class_implementing_ssr_data_provider_interface_is_accepted(): void
+    {
+        $metadata = $this->factory->fromClass(FieldComponent::class);
+
+        $manifest = $this->builder->build(
+            metadata: $metadata,
+            instanceId: 'uci_ssr_dp_001',
+            dataProviderClass: FakeSsrDpProvider::class,
+        );
+
+        $claims = SignedContext::verify($manifest->entries[0]->signedContext);
+        self::assertNotNull($claims);
+        self::assertSame(FakeSsrDpProvider::class, $claims['dp']);
+    }
+
+    #[Test]
+    public function dp_claim_coexists_with_sub_cfg_and_updates(): void
+    {
+        $metadata = $this->factory->fromClass(FieldComponent::class);
+        $manifest = $this->builder->build(
+            metadata: $metadata,
+            instanceId: 'uci_dp_combo_001',
+            eventConfig: ['input.change' => ['rules' => [['type' => 'email']]]],
+            subscriberChannelId: 'sse_combo01',
+            dataProviderClass: FakeDpProvider::class,
+        );
+
+        $claims = SignedContext::verify($manifest->entries[0]->signedContext);
+
+        self::assertNotNull($claims);
+        self::assertSame('input', $claims['p']);
+        self::assertSame('change', $claims['e']);
+        self::assertSame('value', $claims['u']);
+        self::assertSame('sse_combo01', $claims['sub']);
+        self::assertSame(FakeDpProvider::class, $claims['dp']);
+        self::assertArrayHasKey('cfg', $claims);
+    }
+}
+
+final class FakeDpProvider implements UiPartDataProviderInterface
+{
+    public function provide(UiPartContext $context): array
+    {
+        return [];
+    }
+}
+
+final class FakeSsrDpProvider implements \Semitexa\Ssr\Domain\Contract\DataProviderInterface
+{
+    public function resolve(\Semitexa\Ssr\Domain\Model\DataProviderContext $context, array $hint = []): array
+    {
+        return [];
     }
 }
 
