@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Event;
 
 use Semitexa\PlatformUi\Domain\Model\Component\UiComponentMetadata;
+use Semitexa\PlatformUi\Domain\Model\Component\UiExternalHandlerMetadata;
 use Semitexa\PlatformUi\Domain\Model\Component\UiOnMetadata;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionEvent;
 
@@ -42,5 +43,18 @@ interface UiInteractionAuthorizerInterface
         UiInteractionEvent $event,
         UiComponentMetadata $component,
         UiOnMetadata $eventMeta,
+    ): bool;
+
+    /**
+     * Counterpart for class-level #[HandlesUiEvent] service handlers.
+     * Same guarantees and rules as {@see self::authorize()}; the third
+     * argument carries the external binding's discovered metadata
+     * (handler class, optional payload class) instead of a method-level
+     * UiOnMetadata.
+     */
+    public function authorizeExternal(
+        UiInteractionEvent $event,
+        UiComponentMetadata $component,
+        UiExternalHandlerMetadata $externalMeta,
     ): bool;
 }

@@ -6,6 +6,7 @@ namespace Semitexa\PlatformUi\Application\Service\Event;
 
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
 use Semitexa\PlatformUi\Domain\Model\Component\UiComponentMetadata;
+use Semitexa\PlatformUi\Domain\Model\Component\UiExternalHandlerMetadata;
 use Semitexa\PlatformUi\Domain\Model\Component\UiOnMetadata;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionEvent;
 
@@ -36,6 +37,14 @@ final class AllowAllUiInteractionAuthorizer implements UiInteractionAuthorizerIn
         UiInteractionEvent $event,
         UiComponentMetadata $component,
         UiOnMetadata $eventMeta,
+    ): bool {
+        return true;
+    }
+
+    public function authorizeExternal(
+        UiInteractionEvent $event,
+        UiComponentMetadata $component,
+        UiExternalHandlerMetadata $externalMeta,
     ): bool {
         return true;
     }

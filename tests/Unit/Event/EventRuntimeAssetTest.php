@@ -524,13 +524,17 @@ final class EventRuntimeAssetTest extends TestCase
             'Auto-attach must target DEFAULT_TRANSPORT_ENDPOINT (/__ui/event).',
         );
         // The hook must fire from both readyState branches in the
-        // DOMContentLoaded / synchronous init paths. The match looks
-        // for the call form (with trailing `;`) so the function
-        // definition isn't counted.
+        // DOMContentLoaded / synchronous init paths, plus the late-
+        // manifest MutationObserver branch (Phase 5: deferred SSR
+        // components deliver their manifest script after the initial
+        // DOMContentLoaded auto-attach has already short-circuited on
+        // an empty parsedManifests array). The match looks for the
+        // call form (with trailing `;`) so the function definition
+        // isn't counted.
         self::assertSame(
-            2,
+            3,
             substr_count($code, 'maybeAutoAttachTransport();'),
-            'Auto-attach must be called from both DOM-loading and synchronous-init branches.',
+            'Auto-attach must be called from DOM-loading branch, synchronous-init branch, and late-manifest MutationObserver branch.',
         );
     }
 

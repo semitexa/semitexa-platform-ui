@@ -378,6 +378,10 @@ final class UiInteractionDispatcherTest extends TestCase
                 $this->calls++;
                 return false;
             }
+            public function authorizeExternal(UiInteractionEvent $event, UiComponentMetadata $component, \Semitexa\PlatformUi\Domain\Model\Component\UiExternalHandlerMetadata $externalMeta): bool
+            {
+                return false;
+            }
         };
 
         $dispatcher = $this->newDispatcher($deny);
@@ -397,6 +401,10 @@ final class UiInteractionDispatcherTest extends TestCase
     {
         $deny = new class implements UiInteractionAuthorizerInterface {
             public function authorize(UiInteractionEvent $event, UiComponentMetadata $component, UiOnMetadata $eventMeta): bool
+            {
+                return false;
+            }
+            public function authorizeExternal(UiInteractionEvent $event, UiComponentMetadata $component, \Semitexa\PlatformUi\Domain\Model\Component\UiExternalHandlerMetadata $externalMeta): bool
             {
                 return false;
             }
@@ -428,6 +436,10 @@ final class UiInteractionDispatcherTest extends TestCase
             public function authorize(UiInteractionEvent $event, UiComponentMetadata $component, UiOnMetadata $eventMeta): bool
             {
                 $this->event = $event;
+                return true;
+            }
+            public function authorizeExternal(UiInteractionEvent $event, UiComponentMetadata $component, \Semitexa\PlatformUi\Domain\Model\Component\UiExternalHandlerMetadata $externalMeta): bool
+            {
                 return true;
             }
         };

@@ -164,6 +164,41 @@
         };
         var latestRequestId = 0;
 
+        // --- /__ui/event dispatch response listener ----------------------
+        // event-runtime emits `semitexa:ui-event:dispatched` after every
+        // successful round-trip. When the response targets THIS grid
+        // instance AND carries a `debug.state` prop bag with row data,
+        // re-render directly from it — that's the canonical Phase-5
+        // grid cutover path. Responses for other grids / components
+        // are ignored. Responses without a state payload (e.g. a bare
+        // ack with no rows) are also ignored — the legacy fetch
+        // fallback handles those cases when invoked separately.
+        document.addEventListener('semitexa:ui-event:dispatched', function (ev) {
+            var detail = ev && ev.detail;
+            if (!detail || !detail.captured) return;
+            if (detail.captured.instanceId !== instanceId) return;
+            var response = detail.response;
+            if (!response || typeof response !== 'object') return;
+            // Both endpoints surface the handler's UiEventResponse state
+            // under `debug.state` (UiInteractionDispatchAdapter ->
+            // UiInteractionResult::ack(debug). The canonical /__ui/event
+            // envelope folds the legacy body's `debug` key into the
+            // top-level canonical response per
+            // UiEventEndpointHandler::encodeEnvelope; the legacy
+            // /__ui/dispatch endpoint surfaces `debug` directly).
+            var debug = response.debug;
+            if (!debug || typeof debug !== 'object') return;
+            var state2 = debug.state;
+            if (!state2 || typeof state2 !== 'object') return;
+            if (!Array.isArray(state2.initialRows)) return;
+            // Adapt the data provider's prop-bag shape into renderPage's
+            // expected envelope.
+            renderPage({
+                rows: state2.initialRows,
+                pagination: state2.initialPagination || {},
+            });
+        });
+
         // --- Filter form -------------------------------------------------
         if (formEl) {
             formEl.addEventListener('submit', function (event) {
@@ -209,7 +244,17 @@
                 state.sort = submittedSort;
             }
             resetPaginationHistory();
-            reload();
+            reload({ part: 'filters', event: 'submit', value: currentCriteriaPayload() });
+        }
+
+        function currentCriteriaPayload() {
+            var p = {};
+            if (state.q !== null && state.q !== undefined && state.q !== '')                p.q      = state.q;
+            if (state.action !== null && state.action !== undefined && state.action !== '') p.action = state.action;
+            if (state.limit !== null && state.limit !== undefined && state.limit !== '')    p.limit  = state.limit;
+            if (state.sort !== null && state.sort !== undefined && state.sort !== '')       p.sort   = state.sort;
+            if (state.cursor !== null && state.cursor !== undefined && state.cursor !== '') p.cursor = state.cursor;
+            return p;
         }
 
         function resetPaginationHistory() {
@@ -268,7 +313,7 @@
                     sortInput.value = state.sort;
                 }
             }
-            reload();
+            reload({ part: 'rows', event: 'sort', value: currentCriteriaPayload() });
         });
 
         // --- Next-page link ----------------------------------------------
@@ -322,14 +367,14 @@
             }
             state.page   = nextPage;
             state.cursor = nextCursor;
-            reload();
+            reload({ part: 'rows', event: 'paginate', value: currentCriteriaPayload() });
         }
 
         function navigateBackward() {
             if (state.page <= 1) return;
             state.page--;
             state.cursor = state.cursors[state.page - 1] || null;
-            reload();
+            reload({ part: 'rows', event: 'paginate', value: currentCriteriaPayload() });
         }
 
         function navigateToPage(targetPage) {
@@ -339,7 +384,7 @@
             if (targetPage < 1 || targetPage > state.cursors.length) return;
             state.page   = targetPage;
             state.cursor = state.cursors[targetPage - 1] || null;
-            reload();
+            reload({ part: 'rows', event: 'paginate', value: currentCriteriaPayload() });
         }
 
         // --- Canonical refresh signal ------------------------------------
@@ -404,8 +449,45 @@
             }
         }
 
-        // --- Core fetch + render ------------------------------------------
-        function reload() {
+        // --- Core reload: dispatch via /__ui/event, fall back to fetch ----
+        //
+        // Phase 5 cutover: when the grid was rendered with a signed
+        // UI-event manifest, every filter/sort/paginate gesture
+        // dispatches through `window.SemitexaUi.dispatch()` and the
+        // response is consumed via the `semitexa:ui-event:dispatched`
+        // listener registered at boot. The legacy `fetch(dataUrl)`
+        // path is preserved as a deterministic fallback for:
+        //
+        //   - grids whose host page never emits a manifest (e.g.
+        //     demo-submissions);
+        //   - `reload()` calls with no `gesture` (the SSE
+        //     componentState.refresh=true signal — just refresh,
+        //     no manifest gesture);
+        //   - any dispatch that returns false (unknown manifest
+        //     entry, missing event-runtime).
+        function reload(gesture) {
+            if (gesture && typeof gesture === 'object' && gesture.part && gesture.event &&
+                window.SemitexaUi && typeof window.SemitexaUi.dispatch === 'function' &&
+                instanceId !== '') {
+                clearError();
+                var sent = window.SemitexaUi.dispatch({
+                    instanceId: instanceId,
+                    part:       gesture.part,
+                    event:      gesture.event,
+                    value:      gesture.value
+                });
+                if (sent) {
+                    // Response will land on the
+                    // `semitexa:ui-event:dispatched` listener, which
+                    // calls renderPage(). Nothing more to do here.
+                    return;
+                }
+                // Dispatch found no matching manifest entry — fall through.
+            }
+            fetchLegacyAndRender();
+        }
+
+        function fetchLegacyAndRender() {
             var requestId = ++latestRequestId;
             clearError();
             var url = composeUrl(dataUrl, state, sortParam);
@@ -748,4 +830,35 @@
             : document;
         bootAll(el);
     });
+
+    // Defence in depth — MutationObserver-driven late-attach. The
+    // semitexa:component:rendered listener above covers the documented
+    // deferred-SSR path, but some delivery surfaces (e.g. canonical KISS
+    // streaming the rendered HTML directly into a deferred placeholder
+    // before the runtime listener attaches) drop grid roots into the
+    // DOM without firing that event in time. The MutationObserver
+    // catches every `[data-ui-grid]` node added under document.body
+    // post-DOMContentLoaded and runs bootGrid idempotently — the
+    // `__uiGridBooted` flag already guards against double-init.
+    if (typeof MutationObserver !== 'undefined' && document.body) {
+        var observer = new MutationObserver(function (mutations) {
+            for (var i = 0; i < mutations.length; i++) {
+                var added = mutations[i].addedNodes;
+                if (!added || !added.length) continue;
+                for (var j = 0; j < added.length; j++) {
+                    var node = added[j];
+                    if (!node || node.nodeType !== 1) continue;
+                    if (node.matches && node.matches('[data-ui-grid]')) {
+                        bootGrid(node);
+                    } else if (node.querySelectorAll) {
+                        var gridRoots = node.querySelectorAll('[data-ui-grid]');
+                        for (var k = 0; k < gridRoots.length; k++) {
+                            bootGrid(gridRoots[k]);
+                        }
+                    }
+                }
+            }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+    }
 })();

@@ -325,6 +325,7 @@
             return;
         }
         var observer = new MutationObserver(function (mutations) {
+            var addedAny = 0;
             for (var i = 0; i < mutations.length; i++) {
                 var added = mutations[i].addedNodes;
                 if (!added || !added.length) {
@@ -338,11 +339,27 @@
                     if (node.matches && node.matches(
                         'script[type="application/json"][data-ui-event-manifest]'
                     )) {
-                        scanRoot(node.parentNode || document);
+                        addedAny += scanRoot(node.parentNode || document);
                     } else if (node.querySelector && node.querySelector(
                         'script[type="application/json"][data-ui-event-manifest]'
                     )) {
-                        scanRoot(node);
+                        addedAny += scanRoot(node);
+                    }
+                }
+            }
+            // A late-arriving manifest (typical case: SSR-deferred
+            // component delivered via the canonical KISS stream) means
+            // the initial-load auto-attach skipped this page entirely
+            // because parsedManifests was empty at DOMContentLoaded.
+            // Re-trigger the auto-attach now that manifests exist;
+            // maybeAutoAttachTransport is idempotent — it bails when a
+            // transport is already attached.
+            if (addedAny > 0 && typeof maybeAutoAttachTransport === 'function') {
+                try {
+                    maybeAutoAttachTransport();
+                } catch (e) {
+                    if (typeof console !== 'undefined' && console.warn) {
+                        console.warn('[semitexa-ui] late-manifest auto-attach failed', e);
                     }
                 }
             }
@@ -1427,11 +1444,97 @@
         }
     }
 
+    /**
+     * Programmatic dispatch API for non-native gestures.
+     *
+     * The standard capture path (handleNativeEvent) only fires for DOM
+     * events whose name matches a manifest entry (e.g. `submit`,
+     * `change`, `click`). Component runtimes that synthesise their own
+     * gesture vocabulary — grid sort, paginate, etc. — can publish
+     * captures programmatically via this API. The synthesised capture
+     * runs through the same notifyListeners pipeline as a native event,
+     * so the auto-attached transport, custom-event observers, and form-
+     * aggregate logic all behave identically.
+     *
+     * Caller responsibilities:
+     *   - The instance MUST have a parsed manifest. Pages that omit the
+     *     manifest script tag get a `false` return.
+     *   - The (part, event) pair MUST match a manifest entry. Unknown
+     *     pairs return `false` without firing anything.
+     *   - `value` is forwarded verbatim into the captured object's
+     *     `value` field. The transport wraps it as `payload.value`. Pass
+     *     a structured object (`{col, dir}` for sort, `{cursor}` for
+     *     paginate) when the gesture carries multi-key intent.
+     *
+     * Returns `true` when a captured object was published, `false`
+     * otherwise. The boolean lets callers fall back to a legacy
+     * transport (e.g. `fetch(/grid-data)`) when the new path is not
+     * available for the current instance.
+     */
+    function dispatchProgrammatic(opts) {
+        if (typeof opts !== 'object' || opts === null) {
+            return false;
+        }
+        var instanceId = typeof opts.instanceId === 'string' ? opts.instanceId : '';
+        var partName   = typeof opts.part === 'string' ? opts.part : '';
+        var eventName  = typeof opts.event === 'string' ? opts.event : '';
+        if (instanceId === '' || partName === '' || eventName === '') {
+            return false;
+        }
+        var manifest = findManifestForInstance(instanceId);
+        if (!manifest) {
+            return false;
+        }
+        var entry = null;
+        for (var i = 0; i < manifest.events.length; i++) {
+            if (manifest.events[i].p === partName && manifest.events[i].e === eventName) {
+                entry = manifest.events[i];
+                break;
+            }
+        }
+        if (entry === null) {
+            return false;
+        }
+        var captured = {
+            component: manifest.c,
+            instanceId: manifest.i,
+            part: entry.p,
+            event: entry.e,
+            updates: entry.u || null,
+            ctx: entry.ctx,
+            value: 'value' in opts ? opts.value : null,
+            originalEvent: null,
+            manifestVersion: manifest.v
+        };
+        if (typeof console !== 'undefined' && console.debug) {
+            console.debug(
+                '[semitexa-ui] dispatch (programmatic)',
+                captured.component + '#' + captured.instanceId,
+                captured.part + '.' + captured.event,
+                captured
+            );
+        }
+        try {
+            document.dispatchEvent(new CustomEvent('semitexa:ui-event:captured', {
+                detail: captured,
+                bubbles: false,
+                cancelable: false
+            }));
+        } catch (err) {
+            if (typeof console !== 'undefined' && console.warn) {
+                console.warn('[semitexa-ui] CustomEvent dispatch failed', err);
+            }
+        }
+        notifyListeners(captured);
+        return true;
+    }
+
     window.SemitexaUi = {
         version: '1.0',
         scan: scan,
         manifests: manifests,
         onCapture: onCapture,
+        dispatch: dispatchProgrammatic,
         transport: {
             attach: attachTransport
         },

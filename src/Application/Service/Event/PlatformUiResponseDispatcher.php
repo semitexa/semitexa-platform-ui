@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Event;
 
+use Closure;
+use Psr\Container\ContainerInterface;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
 use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistryInterface;
+use Semitexa\PlatformUi\Contract\UiEventHandlerInterface;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult;
 use Semitexa\Ssr\Application\Service\UiEvent\CanonicalUiMessagePublisherInterface;
@@ -118,6 +121,21 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
     #[InjectAsReadonly]
     protected CanonicalUiMessagePublisherInterface $publisher;
 
+    /**
+     * PSR-11 container used by {@see self::buildHandlerResolver()} to
+     * resolve class-level #[HandlesUiEvent] service handlers by FQCN
+     * at dispatch time — same seam as
+     * {@see \Semitexa\PlatformUi\Application\Handler\PayloadHandler\UiDispatchHandler}
+     * uses for the legacy `/__ui/dispatch` endpoint. Without this
+     * propagation the canonical `/__ui/event` route would fall back
+     * to the dispatcher's null-resolver branch and emit
+     * `ui_handler_resolver_missing` 422 for every service-handler
+     * dispatch — a divergence between the two endpoints that the
+     * adapter exists specifically to prevent.
+     */
+    #[InjectAsReadonly]
+    protected ContainerInterface $container;
+
     public function dispatch(UiEventEnvelope $envelope, array $verifiedClaims): UiResponseDispatchResult
     {
         // The framework endpoint already verified the signed ctx, and
@@ -174,14 +192,39 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
         // and inherits the same CacheBackedUiReplayStore / authorizer / rule
         // registry winners via SatisfiesServiceContract. Mirror that here so
         // both inbound endpoints (`/__ui/event` and `/__ui/dispatch`) share
-        // a single dispatcher configuration.
+        // a single dispatcher configuration — including the closure-based
+        // resolver for class-level #[HandlesUiEvent] service handlers
+        // (Phase 5).
         return new UiInteractionDispatcher(
             payloadGuard:   new UiPayloadFieldGuard(),
             patchValidator: new UiPatchValidator(),
             replayStore:    $this->resolveReplayStore(),
             authorizer:     $this->resolveAuthorizer(),
             ruleRegistry:   isset($this->ruleRegistry) ? $this->ruleRegistry : null,
+            handlerResolver: $this->buildHandlerResolver(),
         );
+    }
+
+    /**
+     * @return Closure(class-string<UiEventHandlerInterface>): UiEventHandlerInterface|null
+     */
+    private function buildHandlerResolver(): ?Closure
+    {
+        if (!isset($this->container)) {
+            return null;
+        }
+
+        $container = $this->container;
+        return static function (string $fqcn) use ($container): UiEventHandlerInterface {
+            $service = $container->get($fqcn);
+            if (!$service instanceof UiEventHandlerInterface) {
+                throw new \RuntimeException(sprintf(
+                    'Service %s resolved by the container is not a UiEventHandlerInterface.',
+                    $fqcn,
+                ));
+            }
+            return $service;
+        };
     }
 
     private function resolveReplayStore(): UiReplayStoreInterface
@@ -320,6 +363,12 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
     public function withPublisher(CanonicalUiMessagePublisherInterface $publisher): self
     {
         $this->publisher = $publisher;
+        return $this;
+    }
+
+    public function withContainer(ContainerInterface $container): self
+    {
+        $this->container = $container;
         return $this;
     }
 }

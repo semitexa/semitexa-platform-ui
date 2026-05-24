@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Handler\PayloadHandler;
 
+use Closure;
+use Psr\Container\ContainerInterface;
 use Semitexa\Core\Attribute\AsPayloadHandler;
 use Semitexa\Core\Attribute\InjectAsMutable;
 use Semitexa\Core\Attribute\InjectAsReadonly;
@@ -19,6 +21,7 @@ use Semitexa\PlatformUi\Application\Service\Event\UiPatchValidator;
 use Semitexa\PlatformUi\Application\Service\Event\UiPayloadFieldGuard;
 use Semitexa\PlatformUi\Application\Service\Event\UiReplayStoreInterface;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistryInterface;
+use Semitexa\PlatformUi\Contract\UiEventHandlerInterface;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionBadRequestException;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult;
@@ -64,6 +67,22 @@ final class UiDispatchHandler implements TypedHandlerInterface
     #[InjectAsReadonly]
     protected UiFieldRuleRegistryInterface $ruleRegistry;
 
+    /**
+     * PSR-11 container used by {@see self::buildHandlerResolver()} to
+     * resolve class-level #[HandlesUiEvent] handler FQCNs (e.g. the
+     * GridLeadEventHandler service) at dispatch time.
+     *
+     * Container access is the documented seam for dynamic FQCN-based
+     * resolution that #[InjectAsReadonly] can't express on its own —
+     * the dispatcher needs to look up an arbitrary service class
+     * carried in a verified signed-ctx binding, which is exactly the
+     * shape PSR-11 was designed for. Static container access is still
+     * forbidden by semitexa.staticContainerAccess; injecting the
+     * container as a typed property here is the canonical alternative.
+     */
+    #[InjectAsReadonly]
+    protected ContainerInterface $container;
+
     public function handle(UiDispatchPayload $_payload, ResourceResponse $resource): ResourceResponse
     {
         $dispatchId = '';
@@ -91,7 +110,30 @@ final class UiDispatchHandler implements TypedHandlerInterface
             replayStore: $this->resolveReplayStore(),
             authorizer: $this->resolveAuthorizer(),
             ruleRegistry: isset($this->ruleRegistry) ? $this->ruleRegistry : null,
+            handlerResolver: $this->buildHandlerResolver(),
         );
+    }
+
+    /**
+     * @return Closure(class-string<UiEventHandlerInterface>): UiEventHandlerInterface|null
+     */
+    private function buildHandlerResolver(): ?Closure
+    {
+        if (!isset($this->container)) {
+            return null;
+        }
+
+        $container = $this->container;
+        return static function (string $fqcn) use ($container): UiEventHandlerInterface {
+            $service = $container->get($fqcn);
+            if (!$service instanceof UiEventHandlerInterface) {
+                throw new \RuntimeException(sprintf(
+                    'Service %s resolved by the container is not a UiEventHandlerInterface.',
+                    $fqcn,
+                ));
+            }
+            return $service;
+        };
     }
 
     private function resolveReplayStore(): UiReplayStoreInterface
