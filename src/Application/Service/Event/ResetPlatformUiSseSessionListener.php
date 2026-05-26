@@ -10,14 +10,20 @@ use Semitexa\Core\Pipeline\PipelineListenerInterface;
 use Semitexa\Core\Pipeline\RequestPipelineContext;
 
 /**
- * Clears {@see PlatformUiSseSessionState} at the start of every request.
+ * Clears platform-ui per-request render holders at the start of every
+ * request: {@see PlatformUiSseSessionState} (the canonical SSE
+ * subscriber channel id) and {@see PlatformUiAuthState} (the
+ * auth-derived transport-mode hint).
  *
  * Swoole workers persist between requests; without an explicit reset, a
  * session id minted by request A would survive into request B (different
  * user, potentially different page) and let B unknowingly publish patches
- * to A's subscriber stream. Resetting on the AuthCheck phase guarantees a
- * fresh canvas before any handler runs and any template renders a
- * platform-ui manifest.
+ * to A's subscriber stream — and, equally, A's authenticated state would
+ * leak into a later guest request B and silently upgrade it to a live
+ * stream. Resetting on the AuthCheck phase guarantees a fresh canvas
+ * before any handler runs and any template renders a platform-ui
+ * manifest. The auth holder is reset to its "unknown" (null) state, so a
+ * request whose app bridge does not run falls back to the drain default.
  *
  * Why AuthCheck (not WorkerStart, not a TenantResolved listener):
  *
@@ -38,5 +44,6 @@ final class ResetPlatformUiSseSessionListener implements PipelineListenerInterfa
     public function handle(RequestPipelineContext $context): void
     {
         PlatformUiSseSessionState::reset();
+        PlatformUiAuthState::reset();
     }
 }

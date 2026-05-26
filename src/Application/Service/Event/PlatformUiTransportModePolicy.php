@@ -25,11 +25,22 @@ use Semitexa\PlatformUi\Domain\Exception\UiTransportModeException;
  *      `SEMITEXA_UI_TRANSPORT_MODE=live` so every page on the trusted
  *      surface gets live streaming without per-template plumbing.
  *      Public/guest deployments leave this unset.
- *   3. **Hard fallback** — {@see PlatformUiTransportMode::default()}
- *      (drain). Chosen so a brand-new platform-ui page with no
- *      explicit option, on a deployment with no env opt-in, is safe
- *      for public/guest traffic: the runtime never opens a long-lived
- *      EventSource on DOMContentLoaded.
+ *   3. **Auth-derived default** — when neither an explicit page mode
+ *      nor an env override is present, the request's authentication
+ *      state (pushed in per request via {@see PlatformUiAuthState})
+ *      picks the default: an authenticated request gets `live`, a
+ *      guest gets `drain`. This is what lets a single public route
+ *      (e.g. an admin listing reachable by both) serve guests a cheap
+ *      drain-on-demand stream while authenticated operators get a
+ *      persistent live stream — without the template hard-coding
+ *      either mode. The bit is OPTIONAL: platform-ui is auth-agnostic
+ *      and the consuming app supplies it through an AuthCheck bridge.
+ *   4. **Hard fallback** — {@see PlatformUiTransportMode::default()}
+ *      (drain). Reached when there is no explicit option, no env
+ *      opt-in, and the auth state is unknown (`null` — no app bridge,
+ *      or auth not installed) or a guest. Chosen so a brand-new
+ *      platform-ui page is safe for public/guest traffic: the runtime
+ *      never opens a long-lived EventSource on DOMContentLoaded.
  *
  * Invalid values fail fast at render time on both surfaces. An
  * explicit `$mode` outside the allow-list raises
@@ -53,7 +64,7 @@ final class PlatformUiTransportModePolicy
 {
     public const ENV_VAR_NAME = 'SEMITEXA_UI_TRANSPORT_MODE';
 
-    public function resolve(?string $explicitMode): PlatformUiTransportMode
+    public function resolve(?string $explicitMode, ?bool $isAuthenticated = null): PlatformUiTransportMode
     {
         if ($explicitMode !== null) {
             return self::parseOrThrow($explicitMode, 'ui_page_sse_session_meta() explicit transport mode');
@@ -62,6 +73,19 @@ final class PlatformUiTransportModePolicy
         $envRaw = (string) (\getenv(self::ENV_VAR_NAME) ?: '');
         if ($envRaw !== '') {
             return self::parseOrThrow($envRaw, self::ENV_VAR_NAME);
+        }
+
+        // Auth-derived default. With no explicit page mode and no env
+        // override, an authenticated request upgrades to live — a
+        // persistent stream for the trusted surface. A guest (false) OR
+        // an unknown state (null: no app bridge ran, or auth is not
+        // installed) keeps the hard drain default below, so a page that
+        // is never told about auth behaves exactly as it did before this
+        // feature existed. The auth bit is pushed in per request via
+        // {@see PlatformUiAuthState}; the policy itself stays auth-
+        // agnostic and pure (argument + env read only).
+        if ($isAuthenticated === true) {
+            return PlatformUiTransportMode::Live;
         }
 
         return PlatformUiTransportMode::default();
