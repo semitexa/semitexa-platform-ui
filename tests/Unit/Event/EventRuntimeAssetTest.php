@@ -577,9 +577,9 @@ final class EventRuntimeAssetTest extends TestCase
         // Live mode routes through attachSse with the shared builder —
         // the runtime never inlines a URL behind attachSse's back.
         self::assertMatchesRegularExpression(
-            '/attachSse\(\s*\{\s*url:\s*buildKissUrl\(\s*sessionId\s*,\s*SSE_TRANSPORT_MODE_LIVE\s*\)\s*\}\s*\)/',
+            '/attachSse\(\s*\{\s*url:\s*buildKissUrl\(\s*sessionId\s*,\s*mode\s*\)\s*\}\s*\)/',
             $code,
-            'Live mode must attach via attachSse({url: buildKissUrl(sessionId, SSE_TRANSPORT_MODE_LIVE)}).',
+            'Live mode must attach via attachSse({url: buildKissUrl(sessionId, mode)}) — the resolved mode (live, or the actual mode in the deferred case) is passed through, never a hard-coded literal.',
         );
     }
 
