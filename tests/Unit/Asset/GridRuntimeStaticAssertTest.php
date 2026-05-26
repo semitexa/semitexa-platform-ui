@@ -454,4 +454,62 @@ final class GridRuntimeStaticAssertTest extends TestCase
             'buildEllipsisNode() must NOT set data-ui-grid-page — the ellipsis must never be a navigation target.',
         );
     }
+
+    #[Test]
+    public function runtime_arms_lost_frame_watchdog_with_http_fallback(): void
+    {
+        // Live-mode gestures await a `ui.componentState` SSE frame; if it
+        // is lost (stream dropped during a reconnect) nothing re-renders.
+        // A bounded watchdog falls back to the deterministic HTTP path and
+        // the awaited frame disarms it.
+        $body = $this->strippedRuntime();
+        self::assertMatchesRegularExpression(
+            '/function\s+armFrameWatchdog\s*\(/',
+            $body,
+            'grid-runtime.js must define armFrameWatchdog() so a lost SSE frame self-heals.',
+        );
+        self::assertMatchesRegularExpression(
+            '/setTimeout\s*\(/',
+            $body,
+            'armFrameWatchdog must use setTimeout to bound the wait for the SSE frame.',
+        );
+        self::assertStringContainsString(
+            'fetchLegacyAndRender();',
+            $body,
+            'the watchdog timeout must fall back to fetchLegacyAndRender().',
+        );
+        self::assertStringContainsString(
+            'clearFrameWatchdog();',
+            $body,
+            'the component-state render path must clear the watchdog when the frame arrives.',
+        );
+    }
+
+    #[Test]
+    public function runtime_self_heals_on_sse_reconnect(): void
+    {
+        $source = $this->loadRuntime();
+        self::assertStringContainsString(
+            "addEventListener('semitexa:ui-sse:reconnected'",
+            $source,
+            'grid-runtime.js must re-pull the current view when the shared SSE stream reconnects.',
+        );
+    }
+
+    #[Test]
+    public function runtime_does_not_reference_nonexistent_dispatched_listener(): void
+    {
+        // Historical bug: a comment claimed a `semitexa:ui-event:dispatched`
+        // listener consumed the dispatch response and called renderPage().
+        // No such listener ever existed — the row data arrives over the
+        // ui.componentState SSE frame. Pin the removal so the misleading
+        // claim cannot creep back. (The distinct `dispatching` event the
+        // runtime does listen to is unaffected — it is a different name.)
+        $source = $this->loadRuntime();
+        self::assertStringNotContainsString(
+            'semitexa:ui-event:dispatched',
+            $source,
+            'grid-runtime.js must not reference a semitexa:ui-event:dispatched listener — it does not exist.',
+        );
+    }
 }

@@ -1162,6 +1162,14 @@
      */
     var ATTACHED_SSE_CONNECTIONS = [];
     var SSE_MESSAGE_VERSION = 1;
+    // url -> last `connected` timestamp (ms). A second `connected` for the
+    // same url means the stream re-established after a drop (native
+    // EventSource reconnect, or an explicit visibility revive) — used to
+    // emit `semitexa:ui-sse:reconnected` so page consumers (e.g. the grid)
+    // can re-sync state that may have been published while the socket was
+    // down. Keyed by url so two distinct streams do not cross-trigger.
+    var SSE_LAST_CONNECTED_AT = {};
+    var SSE_RECONNECT_MIN_GAP_MS = 2000;
 
     function attachSse(options) {
         if (typeof options !== 'object' || options === null) {
@@ -1220,6 +1228,19 @@
                 detail: parsed,
                 url: url
             });
+            // Reconnect detection: the FIRST `connected` for this url is the
+            // initial open; a later one (after a gap) means the stream came
+            // back from a drop. Signal consumers to re-sync any state lost
+            // while the socket was down.
+            var nowTs = (typeof Date !== 'undefined' && Date.now) ? Date.now() : 0;
+            var prevTs = SSE_LAST_CONNECTED_AT[url] || 0;
+            SSE_LAST_CONNECTED_AT[url] = nowTs;
+            if (prevTs !== 0 && (nowTs - prevTs) >= SSE_RECONNECT_MIN_GAP_MS) {
+                emitTransportEvent('semitexa:ui-sse:reconnected', {
+                    url: url,
+                    sincePreviousMs: nowTs - prevTs
+                });
+            }
         });
 
         source.addEventListener('ui.patch', function (ev) {
@@ -1826,6 +1847,51 @@
         // handler below tears the EventSource down, so there is no long-lived
         // connection for public/guest pages.
         armDrainOnDemand(sessionId);
+    }
+
+    /**
+     * Revive any non-OPEN canonical SSE connection when the tab regains
+     * focus. Background tabs are throttled by the browser, so a stream that
+     * died while hidden may be stuck in CONNECTING (slow native reconnect)
+     * or CLOSED. On `visible` we deterministically close and re-open each
+     * attached connection that is not OPEN, through the same attachSse path
+     * — the server answers with a fresh `connected` frame, which the
+     * listener above turns into a `semitexa:ui-sse:reconnected` signal.
+     *
+     * Healthy (OPEN) connections are left untouched. Cleanly-drained
+     * one-shot streams are already removed from ATTACHED_SSE_CONNECTIONS by
+     * their `close` handler, so they are never revived here.
+     */
+    function reviveSseConnections() {
+        if (typeof EventSource !== 'function') {
+            return;
+        }
+        var OPEN = (typeof EventSource.OPEN === 'number') ? EventSource.OPEN : 1;
+        // Snapshot — we mutate ATTACHED_SSE_CONNECTIONS while iterating.
+        var entries = ATTACHED_SSE_CONNECTIONS.slice();
+        for (var i = 0; i < entries.length; i++) {
+            var entry = entries[i];
+            var readyState = (entry && entry.source) ? entry.source.readyState : 2;
+            if (readyState === OPEN) {
+                continue;
+            }
+            try { entry.source.close(); } catch (e) { /* ignore */ }
+            var idx = ATTACHED_SSE_CONNECTIONS.indexOf(entry);
+            if (idx >= 0) {
+                ATTACHED_SSE_CONNECTIONS.splice(idx, 1);
+            }
+            // attachSse de-dupes by url; we removed the dead entry first, so
+            // a fresh EventSource opens for the same url.
+            attachSse({ url: entry.url });
+        }
+    }
+
+    if (typeof document.addEventListener === 'function') {
+        document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'visible') {
+                reviveSseConnections();
+            }
+        });
     }
 
     if (document.readyState === 'loading') {

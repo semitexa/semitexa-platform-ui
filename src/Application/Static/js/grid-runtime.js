@@ -193,6 +193,37 @@
             }
         });
 
+        // --- Lost-frame watchdog -----------------------------------------
+        // A live-mode gesture dispatch returns only a bare ack; the row
+        // data arrives later over the SSE `ui.componentState` frame. If
+        // that frame is lost (e.g. the shared stream dropped during a
+        // reconnect), nothing would re-render and the grid would sit stale
+        // forever. After a successful dispatch we arm a short watchdog
+        // keyed to the dispatch's correlationId; the component-state
+        // listener disarms it on a matching render, otherwise we fall back
+        // to the deterministic HTTP fetch path. dataUrl is always present
+        // here (bootGrid bails when it is empty), so the fallback is safe.
+        var FRAME_WATCHDOG_MS = 5000;
+        var frameWatchdogTimer = null;
+
+        function clearFrameWatchdog() {
+            if (frameWatchdogTimer !== null) {
+                clearTimeout(frameWatchdogTimer);
+                frameWatchdogTimer = null;
+            }
+        }
+
+        function armFrameWatchdog() {
+            clearFrameWatchdog();
+            frameWatchdogTimer = setTimeout(function () {
+                frameWatchdogTimer = null;
+                if (typeof console !== 'undefined' && console.warn) {
+                    console.warn('[semitexa-ui] grid: SSE frame timeout, fell back to HTTP');
+                }
+                fetchLegacyAndRender();
+            }, FRAME_WATCHDOG_MS);
+        }
+
         // --- Filter form -------------------------------------------------
         if (formEl) {
             formEl.addEventListener('submit', function (event) {
@@ -418,6 +449,9 @@
                         msg.correlationId !== latestCorrelationId) {
                         return;
                     }
+                    // The awaited frame arrived — disarm the watchdog so it
+                    // does not redundantly re-pull over HTTP.
+                    clearFrameWatchdog();
                     renderPage({
                         rows: sseState.initialRows,
                         pagination: sseState.initialPagination || {},
@@ -431,6 +465,15 @@
                 if (sseState.refresh === true) {
                     reload();
                 }
+            });
+
+            // Self-heal: the shared stream re-established after a drop. Any
+            // `ui.componentState` frame published while the socket was down
+            // may have been lost, so re-pull the current view over HTTP.
+            // reload() with no gesture routes to fetchLegacyAndRender(),
+            // which composes the URL from the grid's current `state`.
+            document.addEventListener('semitexa:ui-sse:reconnected', function () {
+                reload();
             });
         }
 
@@ -473,17 +516,20 @@
 
         // --- Core reload: dispatch via /__ui/event, fall back to fetch ----
         //
-        // Phase 5 cutover: when the grid was rendered with a signed
-        // UI-event manifest, every filter/sort/paginate gesture
-        // dispatches through `window.SemitexaUi.dispatch()` and the
-        // response is consumed via the `semitexa:ui-event:dispatched`
-        // listener registered at boot. The legacy `fetch(dataUrl)`
-        // path is preserved as a deterministic fallback for:
+        // Phase 5/6: when the grid was rendered with a signed UI-event
+        // manifest, every filter/sort/paginate gesture dispatches through
+        // `window.SemitexaUi.dispatch()`. POST /__ui/event returns only a
+        // bare ack; the row data arrives later as a `ui.componentState`
+        // SSE frame, rendered by the listener above. A short watchdog
+        // (armFrameWatchdog) falls back to the legacy `fetch(dataUrl)` path
+        // when that frame never arrives (e.g. the stream dropped during a
+        // reconnect). The legacy `fetch(dataUrl)` path is also used for:
         //
         //   - grids whose host page never emits a manifest (e.g.
         //     demo-submissions);
         //   - `reload()` calls with no `gesture` (the SSE
-        //     componentState.refresh=true signal — just refresh,
+        //     componentState.refresh=true signal and the
+        //     semitexa:ui-sse:reconnected self-heal — just refresh,
         //     no manifest gesture);
         //   - any dispatch that returns false (unknown manifest
         //     entry, missing event-runtime).
@@ -499,9 +545,12 @@
                     value:      gesture.value
                 });
                 if (sent) {
-                    // Response will land on the
-                    // `semitexa:ui-event:dispatched` listener, which
-                    // calls renderPage(). Nothing more to do here.
+                    // POST /__ui/event returns only a bare ack; the row
+                    // data arrives later as a `ui.componentState` SSE frame
+                    // handled by the listener above. Arm a watchdog so a
+                    // lost frame falls back to the HTTP path instead of
+                    // leaving the grid stale.
+                    armFrameWatchdog();
                     return;
                 }
                 // Dispatch found no matching manifest entry — fall through.
