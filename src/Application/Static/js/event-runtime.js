@@ -1322,6 +1322,24 @@
             }
         });
 
+        // Forward default (unnamed) SSE frames so a consumer can subscribe to
+        // the SINGLE shared stream instead of opening its own EventSource. The
+        // deferred-SSR runtime (semitexa-twig.js) carries its deferred_block /
+        // deferred_component / done frames in the JSON body with no `event:`
+        // line, so they land here on `message` rather than on the typed
+        // listeners above (ui.patch / ui.componentState / ui.error / connected
+        // / close), which are dispatched by name and never reach this handler.
+        source.onmessage = function (ev) {
+            var parsed = parseSseFrame(ev);
+            if (parsed === null) {
+                return;
+            }
+            emitTransportEvent('semitexa:ui-sse:frame', {
+                message: parsed,
+                url: url
+            });
+        };
+
         source.onerror = function (err) {
             emitTransportEvent('semitexa:ui-sse:error', {
                 phase: 'transport',
@@ -1786,6 +1804,16 @@
             // drain page with deferred drains the deferred slots then closes
             // (server keepChannelOpen=false in drain). attachSse de-dupes by
             // URL so a second attach to the same unified URL is a no-op.
+            if (hasDeferred && typeof deferred.bindToken === 'string' && deferred.bindToken !== '') {
+                // The server's deferred admit (bind-token gate) requires this
+                // cookie whenever deferred_request_id is sent — set it before
+                // opening so the unified connection is admitted. Previously the
+                // deferred-SSR runtime (semitexa-twig.js) set it, but it no
+                // longer opens its own stream when this runtime owns the page.
+                document.cookie = 'semitexa_ssr_bind='
+                    + encodeURIComponent(deferred.bindToken)
+                    + '; Path=/; SameSite=Lax';
+            }
             attachSse({
                 url: buildKissUrl(sessionId, mode)
             });
