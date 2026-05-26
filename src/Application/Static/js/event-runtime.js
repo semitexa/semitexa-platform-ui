@@ -1702,8 +1702,20 @@
     }
 
     function buildKissUrl(sessionId, mode) {
-        return '/__semitexa_kiss?session_id=' + encodeURIComponent(sessionId)
+        var url = '/__semitexa_kiss?session_id=' + encodeURIComponent(sessionId)
             + '&mode=' + encodeURIComponent(mode);
+        // Unify the deferred-SSR stream into this connection: when the page
+        // emitted deferred placeholders, append the one-shot deferred request
+        // id so the server streams the deferred slots over the SAME connection
+        // (regardless of mode) before it drains/holds per the transport mode.
+        // The id is consumed server-side, so it only ever rides the initial
+        // open; pages with no deferred content (the drain-on-demand case) have
+        // no window.__SSR_DEFERRED and get a plain session+mode URL.
+        var deferred = (typeof window !== 'undefined') ? window.__SSR_DEFERRED : null;
+        if (deferred && typeof deferred.requestId === 'string' && deferred.requestId !== '') {
+            url += '&deferred_request_id=' + encodeURIComponent(deferred.requestId);
+        }
+        return url;
     }
 
     // De-dupe state for the drain-on-demand listener. Without this
@@ -1761,23 +1773,30 @@
             return;
         }
         var mode = readPageTransportMode();
-        if (mode === SSE_TRANSPORT_MODE_LIVE) {
-            // Live pages hold the stream open for the lifetime of the
-            // view — same EventSource the page was opening before the
-            // policy split, now with explicit mode=live so the server
-            // resolver enters the long-lived branch deterministically.
+        var deferred = (typeof window !== 'undefined') ? window.__SSR_DEFERRED : null;
+        var hasDeferred = !!(deferred
+            && typeof deferred.requestId === 'string'
+            && deferred.requestId !== '');
+        if (mode === SSE_TRANSPORT_MODE_LIVE || hasDeferred) {
+            // Single EventSource owner per page. Open eagerly when the page is
+            // live (holds the stream open for the lifetime of the view) OR has
+            // deferred placeholders to fill (buildKissUrl appends the deferred
+            // request id, so the deferred slots stream over this connection).
+            // A live page drains deferred then stays open for UI events; a
+            // drain page with deferred drains the deferred slots then closes
+            // (server keepChannelOpen=false in drain). attachSse de-dupes by
+            // URL so a second attach to the same unified URL is a no-op.
             attachSse({
-                url: buildKissUrl(sessionId, SSE_TRANSPORT_MODE_LIVE)
+                url: buildKissUrl(sessionId, mode)
             });
             return;
         }
-        // Drain mode (or any value the safe-shape guard fell back to
-        // drain on): do NOT open an EventSource on DOMContentLoaded.
-        // Arm a one-shot listener that opens the drain stream only
-        // when a canonical UI event reports streamedPatchCount > 0.
-        // The server flushes the queue + emits `event: close`, and
-        // the close-event handler below tears the EventSource down,
-        // so there is no long-lived connection for public/guest pages.
+        // Drain mode with NO deferred content: do NOT open an EventSource on
+        // DOMContentLoaded. Arm a one-shot listener that opens the drain stream
+        // only when a canonical UI event reports streamedPatchCount > 0. The
+        // server flushes the queue + emits `event: close`, and the close-event
+        // handler below tears the EventSource down, so there is no long-lived
+        // connection for public/guest pages.
         armDrainOnDemand(sessionId);
     }
 
