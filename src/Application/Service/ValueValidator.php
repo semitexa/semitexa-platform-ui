@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Support;
+namespace Semitexa\PlatformUi\Application\Service;
 
 use Semitexa\PlatformUi\Css\Slice\SliceCatalog;
 

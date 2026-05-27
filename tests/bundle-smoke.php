@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../../vendor/autoload.php';
 
-use Semitexa\PlatformUi\Asset\SliceRegistry;
+use Semitexa\PlatformUi\Application\Service\Asset\SliceRegistry;
 use Semitexa\PlatformUi\Css\Compiler\BundleCompiler;
 use Semitexa\PlatformUi\Css\Extractor\TwigExtractor;
 use Semitexa\PlatformUi\Css\Safelist;

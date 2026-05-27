@@ -5,7 +5,7 @@ declare(strict_types=1);
 require __DIR__ . '/../../../vendor/autoload.php';
 
 use Semitexa\PlatformUi\Css\Slice\SliceCatalog;
-use Semitexa\PlatformUi\Support\ValueValidator;
+use Semitexa\PlatformUi\Application\Service\ValueValidator;
 
 $errors = [];
 $ok = static function (string $label, callable $fn) use (&$errors): void {

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Console\Css;
+namespace Semitexa\PlatformUi\Application\Console\Command\Css;
 
 use Semitexa\Core\Attribute\AsCommand;
 use Semitexa\PlatformUi\Css\Slice\SliceCatalog;

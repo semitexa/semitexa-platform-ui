@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Css;
 
-use Semitexa\PlatformUi\Asset\SliceRegistry;
+use Semitexa\PlatformUi\Application\Service\Asset\SliceRegistry;
 
 /**
  * Allow-list of slices that extraction cannot see (dynamic Twig values, JS-set attrs).

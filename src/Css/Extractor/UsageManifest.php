@@ -18,7 +18,7 @@ final readonly class UsageManifest
     ) {
     }
 
-    public function applyTo(\Semitexa\PlatformUi\Asset\SliceRegistry $registry): void
+    public function applyTo(\Semitexa\PlatformUi\Application\Service\Asset\SliceRegistry $registry): void
     {
         foreach ($this->attrs as $pair) {
             $registry->registerGrammar($pair['attr'], $pair['value']);

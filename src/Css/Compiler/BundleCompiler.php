@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Css\Compiler;
 
-use Semitexa\PlatformUi\Asset\CompiledBundle;
-use Semitexa\PlatformUi\Asset\SliceRegistry;
+use Semitexa\PlatformUi\Application\Service\Asset\CompiledBundle;
+use Semitexa\PlatformUi\Application\Service\Asset\SliceRegistry;
 use Semitexa\PlatformUi\Css\Slice\SliceCatalog;
 use Semitexa\PlatformUi\Primitive\PrimitiveRegistry;
 
