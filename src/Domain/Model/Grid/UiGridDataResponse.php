@@ -72,14 +72,14 @@ final class UiGridDataResponse
      *   ok: true,
      *   gridId: string,
      *   rows: list<array<string, mixed>>,
-     *   pagination: array{limit:int, hasMore:bool, nextCursor:?string},
+     *   pagination: array<string, mixed>,
      *   filters: array{q:?string, action:?string},
      * }
      */
     public static function success(
         string $gridId,
         array $rows,
-        UiGridPaginationData $pagination,
+        UiGridPaginationPayload $pagination,
         UiGridFilterState $filters,
     ): array {
         return [

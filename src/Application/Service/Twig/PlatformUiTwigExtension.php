@@ -6,6 +6,7 @@ namespace Semitexa\PlatformUi\Application\Service\Twig;
 
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
 use Semitexa\PlatformUi\Application\Service\Component\UiPartPropResolver;
+use Semitexa\PlatformUi\Application\Service\Event\PlatformUiAuthState;
 use Semitexa\PlatformUi\Application\Service\Event\PlatformUiSseSessionState;
 use Semitexa\PlatformUi\Application\Service\Event\PlatformUiTransportModePolicy;
 use Semitexa\PlatformUi\Application\Service\Event\UiEventManifestBuilder;
@@ -691,7 +692,10 @@ final class PlatformUiTwigExtension
          *
          *   1. explicit $mode argument (string `'drain'` | `'live'`)
          *   2. env default SEMITEXA_UI_TRANSPORT_MODE (same allow-list)
-         *   3. hard fallback drain (safe for public/guest pages)
+         *   3. auth-derived default — authenticated → live, guest → drain
+         *      (auth bit supplied per request via PlatformUiAuthState; an
+         *      app with no AuthCheck bridge stays on the drain fallback)
+         *   4. hard fallback drain (safe for public/guest pages)
          *
          * Drain pages do NOT auto-open an EventSource on
          * DOMContentLoaded — the runtime opens
@@ -719,7 +723,13 @@ final class PlatformUiTwigExtension
         TwigExtensionRegistry::registerFunction(
             'ui_page_sse_session_meta',
             static function (?string $mode = null): Markup {
-                $resolved = (new PlatformUiTransportModePolicy())->resolve($mode);
+                // The auth bit is OPTIONAL request-scoped state pushed in
+                // by the consuming app's AuthCheck bridge; null (no bridge)
+                // leaves the policy on its drain default. Reading it here —
+                // at the request-scoped render boundary — keeps
+                // PlatformUiTransportModePolicy itself pure and auth-agnostic.
+                $resolved = (new PlatformUiTransportModePolicy())
+                    ->resolve($mode, PlatformUiAuthState::current());
                 $id = PlatformUiSseSessionState::mintIfAbsent();
                 $idAttr = htmlspecialchars($id, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
                 $modeAttr = htmlspecialchars($resolved->value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');

@@ -166,8 +166,22 @@
             // the sort.
             cursors: [null],
             page:    1,
+            // Resolved pagination strategy for the CURRENT view, set
+            // from each response's `pagination.mode`. 'cursor' keeps the
+            // keyset/visited-pages behaviour; 'count'/'offset' switch the
+            // footer to a windowed page-number strip with arbitrary
+            // page-N jumps (the server reports an exact `totalCount`).
+            mode:       'cursor',
+            totalCount: null,
+            totalPages: null,
         };
         var latestRequestId = 0;
+
+        // True when the active view pages by offset (windowed page
+        // numbers) rather than by opaque keyset cursor.
+        function isOffsetMode() {
+            return state.mode === 'count' || state.mode === 'offset';
+        }
 
         // --- Canonical dispatch correlation tracking ---------------------
         // Phase 6 moved the grid's row data OFF the HTTP response and onto
@@ -192,6 +206,37 @@
                 latestCorrelationId = detail.correlationId;
             }
         });
+
+        // --- Lost-frame watchdog -----------------------------------------
+        // A live-mode gesture dispatch returns only a bare ack; the row
+        // data arrives later over the SSE `ui.componentState` frame. If
+        // that frame is lost (e.g. the shared stream dropped during a
+        // reconnect), nothing would re-render and the grid would sit stale
+        // forever. After a successful dispatch we arm a short watchdog
+        // keyed to the dispatch's correlationId; the component-state
+        // listener disarms it on a matching render, otherwise we fall back
+        // to the deterministic HTTP fetch path. dataUrl is always present
+        // here (bootGrid bails when it is empty), so the fallback is safe.
+        var FRAME_WATCHDOG_MS = 5000;
+        var frameWatchdogTimer = null;
+
+        function clearFrameWatchdog() {
+            if (frameWatchdogTimer !== null) {
+                clearTimeout(frameWatchdogTimer);
+                frameWatchdogTimer = null;
+            }
+        }
+
+        function armFrameWatchdog() {
+            clearFrameWatchdog();
+            frameWatchdogTimer = setTimeout(function () {
+                frameWatchdogTimer = null;
+                if (typeof console !== 'undefined' && console.warn) {
+                    console.warn('[semitexa-ui] grid: SSE frame timeout, fell back to HTTP');
+                }
+                fetchLegacyAndRender();
+            }, FRAME_WATCHDOG_MS);
+        }
 
         // --- Filter form -------------------------------------------------
         if (formEl) {
@@ -247,7 +292,13 @@
             if (state.action !== null && state.action !== undefined && state.action !== '') p.action = state.action;
             if (state.limit !== null && state.limit !== undefined && state.limit !== '')    p.limit  = state.limit;
             if (state.sort !== null && state.sort !== undefined && state.sort !== '')       p.sort   = state.sort;
-            if (state.cursor !== null && state.cursor !== undefined && state.cursor !== '') p.cursor = state.cursor;
+            if (isOffsetMode()) {
+                // Windowed mode pages by 1-indexed number, never a
+                // cursor. The server clamps out-of-range pages.
+                if (state.page > 1) p.page = String(state.page);
+            } else if (state.cursor !== null && state.cursor !== undefined && state.cursor !== '') {
+                p.cursor = state.cursor;
+            }
             return p;
         }
 
@@ -313,6 +364,12 @@
         // --- Next-page link ----------------------------------------------
         if (nextLinkEl) {
             nextLinkEl.addEventListener('click', function (event) {
+                if (isOffsetMode()) {
+                    // Windowed mode advances by page number — no cursor.
+                    event.preventDefault();
+                    navigateForward(null);
+                    return;
+                }
                 var cursor = nextLinkEl.getAttribute('data-ui-grid-next-cursor');
                 if (typeof cursor !== 'string' || cursor === '') {
                     // No JS-set cursor yet → fall back to the
@@ -348,6 +405,13 @@
         });
 
         function navigateForward(nextCursor) {
+            if (isOffsetMode()) {
+                // Windowed mode: advance by page number, no cursor.
+                if (state.totalPages !== null && state.page >= state.totalPages) return;
+                state.page += 1;
+                reload({ part: 'rows', event: 'paginate', value: currentCriteriaPayload() });
+                return;
+            }
             // Push the new cursor onto the history stack only if we
             // haven't already visited this page. If the user clicks
             // Next while there's already a known forward entry (e.g.
@@ -367,14 +431,26 @@
         function navigateBackward() {
             if (state.page <= 1) return;
             state.page--;
-            state.cursor = state.cursors[state.page - 1] || null;
+            if (!isOffsetMode()) {
+                state.cursor = state.cursors[state.page - 1] || null;
+            }
             reload({ part: 'rows', event: 'paginate', value: currentCriteriaPayload() });
         }
 
         function navigateToPage(targetPage) {
-            // Visited-page buttons are only rendered for pages whose
-            // cursor we've actually seen, so a click on a button
-            // should always resolve. We still bound-check defensively.
+            if (isOffsetMode()) {
+                // Windowed mode: any page in [1, totalPages] is a valid
+                // jump — the offset read goes straight there. The server
+                // re-clamps defensively.
+                var max = state.totalPages !== null ? state.totalPages : targetPage;
+                if (targetPage < 1 || targetPage > max) return;
+                state.page = targetPage;
+                reload({ part: 'rows', event: 'paginate', value: currentCriteriaPayload() });
+                return;
+            }
+            // Cursor mode: visited-page buttons are only rendered for
+            // pages whose cursor we've actually seen, so a click should
+            // always resolve. We still bound-check defensively.
             if (targetPage < 1 || targetPage > state.cursors.length) return;
             state.page   = targetPage;
             state.cursor = state.cursors[targetPage - 1] || null;
@@ -418,6 +494,9 @@
                         msg.correlationId !== latestCorrelationId) {
                         return;
                     }
+                    // The awaited frame arrived — disarm the watchdog so it
+                    // does not redundantly re-pull over HTTP.
+                    clearFrameWatchdog();
                     renderPage({
                         rows: sseState.initialRows,
                         pagination: sseState.initialPagination || {},
@@ -431,6 +510,15 @@
                 if (sseState.refresh === true) {
                     reload();
                 }
+            });
+
+            // Self-heal: the shared stream re-established after a drop. Any
+            // `ui.componentState` frame published while the socket was down
+            // may have been lost, so re-pull the current view over HTTP.
+            // reload() with no gesture routes to fetchLegacyAndRender(),
+            // which composes the URL from the grid's current `state`.
+            document.addEventListener('semitexa:ui-sse:reconnected', function () {
+                reload();
             });
         }
 
@@ -473,17 +561,20 @@
 
         // --- Core reload: dispatch via /__ui/event, fall back to fetch ----
         //
-        // Phase 5 cutover: when the grid was rendered with a signed
-        // UI-event manifest, every filter/sort/paginate gesture
-        // dispatches through `window.SemitexaUi.dispatch()` and the
-        // response is consumed via the `semitexa:ui-event:dispatched`
-        // listener registered at boot. The legacy `fetch(dataUrl)`
-        // path is preserved as a deterministic fallback for:
+        // Phase 5/6: when the grid was rendered with a signed UI-event
+        // manifest, every filter/sort/paginate gesture dispatches through
+        // `window.SemitexaUi.dispatch()`. POST /__ui/event returns only a
+        // bare ack; the row data arrives later as a `ui.componentState`
+        // SSE frame, rendered by the listener above. A short watchdog
+        // (armFrameWatchdog) falls back to the legacy `fetch(dataUrl)` path
+        // when that frame never arrives (e.g. the stream dropped during a
+        // reconnect). The legacy `fetch(dataUrl)` path is also used for:
         //
         //   - grids whose host page never emits a manifest (e.g.
         //     demo-submissions);
         //   - `reload()` calls with no `gesture` (the SSE
-        //     componentState.refresh=true signal — just refresh,
+        //     componentState.refresh=true signal and the
+        //     semitexa:ui-sse:reconnected self-heal — just refresh,
         //     no manifest gesture);
         //   - any dispatch that returns false (unknown manifest
         //     entry, missing event-runtime).
@@ -499,9 +590,12 @@
                     value:      gesture.value
                 });
                 if (sent) {
-                    // Response will land on the
-                    // `semitexa:ui-event:dispatched` listener, which
-                    // calls renderPage(). Nothing more to do here.
+                    // POST /__ui/event returns only a bare ack; the row
+                    // data arrives later as a `ui.componentState` SSE frame
+                    // handled by the listener above. Arm a watchdog so a
+                    // lost frame falls back to the HTTP path instead of
+                    // leaving the grid stale.
+                    armFrameWatchdog();
                     return;
                 }
                 // Dispatch found no matching manifest entry — fall through.
@@ -574,6 +668,30 @@
             if (typeof pagination.limit === 'number' && pagination.limit > 0) {
                 state.limit = String(pagination.limit);
             }
+            // Sync the resolved strategy from the response. A server-side
+            // `auto` resolution may flip mode between requests (e.g. once
+            // a filter shrinks the result set under the threshold), so we
+            // trust the response, not a cached assumption.
+            if (typeof pagination.mode === 'string' && pagination.mode !== '') {
+                state.mode = pagination.mode;
+            }
+            if (typeof pagination.totalCount === 'number' && pagination.totalCount >= 0) {
+                state.totalCount = pagination.totalCount;
+                var perPage = (typeof pagination.limit === 'number' && pagination.limit > 0)
+                    ? pagination.limit
+                    : (parseInt(state.limit, 10) || 1);
+                state.totalPages = Math.max(1, Math.ceil(pagination.totalCount / perPage));
+            } else {
+                state.totalCount = null;
+                state.totalPages = null;
+            }
+            // Offset mode: trust the server's clamped currentPage (it may
+            // have clamped an out-of-range jump to the last page). Cursor
+            // mode keeps its client-tracked page (the cursor envelope's
+            // currentPage is always 1 and must not reset our position).
+            if (isOffsetMode() && typeof pagination.currentPage === 'number' && pagination.currentPage >= 1) {
+                state.page = pagination.currentPage;
+            }
             var sizeEl  = rootEl.querySelector('[data-ui-grid-pagination-size]');
             var countEl = rootEl.querySelector('[data-ui-grid-pagination-count]');
             var labelEl = rootEl.querySelector('[data-ui-grid-pagination-label]');
@@ -586,7 +704,25 @@
             if (lastEl)  lastEl.hidden = !!pagination.hasMore;
 
             var nextWrap = rootEl.querySelector('[data-ui-grid-next-wrap]');
-            if (pagination.hasMore &&
+            if (isOffsetMode()) {
+                // Windowed mode: a "next" affordance is shown while more
+                // pages remain, but it carries no cursor — navigation is
+                // by page number (the click handler routes to
+                // navigateForward()).
+                if (nextWrap) nextWrap.hidden = !pagination.hasMore;
+                if (nextLinkEl) {
+                    nextLinkEl.removeAttribute('data-ui-grid-next-cursor');
+                    if (pageFallbackUrl !== '') {
+                        nextLinkEl.setAttribute('href', composePageUrl(pageFallbackUrl, {
+                            q:      state.q,
+                            action: state.action,
+                            limit:  state.limit,
+                            sort:   state.sort,
+                            page:   String(state.page + 1),
+                        }, sortParam));
+                    }
+                }
+            } else if (pagination.hasMore &&
                 typeof pagination.nextCursor === 'string' && pagination.nextCursor !== '') {
                 if (nextWrap) nextWrap.hidden = false;
                 if (nextLinkEl) {
@@ -631,6 +767,38 @@
         // unknown future pages because the cursor model has no total-
         // count or page-N support.
         function renderPagination(pagination) {
+            if (isOffsetMode()) {
+                renderWindowedPagination();
+                return;
+            }
+            renderCursorPagination(pagination);
+        }
+
+        // One page-number button. Shared by both footers so the safe-DOM
+        // (createElement + textContent) construction lives in one place.
+        function buildPageButton(p, currentPage) {
+            var btn = document.createElement('button');
+            btn.setAttribute('type', 'button');
+            btn.setAttribute('data-ui-grid-page', String(p));
+            if (p === currentPage) {
+                btn.setAttribute('aria-current', 'page');
+                btn.setAttribute('style',
+                    'padding:0.25rem 0.5rem;border:1px solid var(--ui-action-primary);background:var(--ui-action-primary);color:var(--ui-action-on-primary);border-radius:var(--ui-radius-sm);font-size:0.8125rem;cursor:default;');
+            } else {
+                btn.setAttribute('style',
+                    'padding:0.25rem 0.5rem;border:1px solid var(--ui-border-subtle);background:var(--ui-surface-raised);color:inherit;border-radius:var(--ui-radius-sm);font-size:0.8125rem;cursor:pointer;');
+            }
+            btn.textContent = String(p);
+            return btn;
+        }
+
+        // Cursor mode — visited-page window. Numbered buttons are
+        // visited-page-only: we render them for pages whose cursor we
+        // have actually seen (page 1 always counts because its cursor
+        // is the implicit `null`); we do NOT fabricate buttons for
+        // unknown future pages because the cursor model has no total-
+        // count or page-N support.
+        function renderCursorPagination(pagination) {
             var prevEl = rootEl.querySelector('[data-ui-grid-prev]');
             if (prevEl) {
                 prevEl.hidden = !(state.page > 1);
@@ -664,20 +832,7 @@
                 }
 
                 for (var p = range.start; p <= range.end; p++) {
-                    var btn = document.createElement('button');
-                    btn.setAttribute('type', 'button');
-                    btn.setAttribute('data-ui-grid-page', String(p));
-                    var isActive = (p === state.page);
-                    if (isActive) {
-                        btn.setAttribute('aria-current', 'page');
-                        btn.setAttribute('style',
-                            'padding:0.25rem 0.5rem;border:1px solid var(--ui-action-primary);background:var(--ui-action-primary);color:var(--ui-action-on-primary);border-radius:var(--ui-radius-sm);font-size:0.8125rem;cursor:default;');
-                    } else {
-                        btn.setAttribute('style',
-                            'padding:0.25rem 0.5rem;border:1px solid var(--ui-border-subtle);background:var(--ui-surface-raised);color:inherit;border-radius:var(--ui-radius-sm);font-size:0.8125rem;cursor:pointer;');
-                    }
-                    btn.textContent = String(p);
-                    pagesContainer.appendChild(btn);
+                    pagesContainer.appendChild(buildPageButton(p, state.page));
                 }
 
                 // Trailing ellipsis — same rules as the leading one.
@@ -693,6 +848,59 @@
             }
         }
 
+        // Count/offset mode — full windowed page-number strip. Because
+        // the server reports an exact totalCount we know the real page
+        // count up front: render a centered sliding window plus first/
+        // last anchors and ellipses, and let every button jump straight
+        // to its page. This is what makes [1,2,3,4,5] appear on first
+        // load and recenter (e.g. [2,3,4,5,6]) when the user clicks 3.
+        function renderWindowedPagination() {
+            var totalPages = state.totalPages !== null ? state.totalPages : 1;
+            var current = state.page;
+
+            var prevEl = rootEl.querySelector('[data-ui-grid-prev]');
+            if (prevEl) {
+                prevEl.hidden = !(current > 1);
+            }
+
+            var indicatorEl = rootEl.querySelector('[data-ui-grid-page-indicator]');
+            if (indicatorEl) {
+                indicatorEl.textContent = 'Page ' + current + ' of ' + totalPages;
+            }
+
+            var pagesContainer = rootEl.querySelector('[data-ui-grid-pages]');
+            if (!pagesContainer) return;
+            while (pagesContainer.firstChild) {
+                pagesContainer.removeChild(pagesContainer.firstChild);
+            }
+
+            var range = computePageWindow(current, totalPages, paginationWindowSize);
+
+            // Leading first-page anchor + ellipsis when the window does
+            // not start at page 1.
+            if (range.start > 1) {
+                pagesContainer.appendChild(buildPageButton(1, current));
+                if (range.start > 2) {
+                    pagesContainer.appendChild(buildEllipsisNode());
+                }
+            }
+
+            for (var p = range.start; p <= range.end; p++) {
+                pagesContainer.appendChild(buildPageButton(p, current));
+            }
+
+            // Trailing ellipsis + last-page anchor when the window does
+            // not reach the final page.
+            if (range.end < totalPages) {
+                if (range.end < totalPages - 1) {
+                    pagesContainer.appendChild(buildEllipsisNode());
+                }
+                pagesContainer.appendChild(buildPageButton(totalPages, current));
+            }
+
+            pagesContainer.hidden = (totalPages <= 0);
+        }
+
         function buildEllipsisNode() {
             var span = document.createElement('span');
             span.setAttribute('aria-hidden', 'true');
@@ -702,15 +910,50 @@
             return span;
         }
 
-        // Initial paint — server rendered the static table fallback
-        // but cannot know our client-side history shape. Hydrate the
-        // pagination footer once on boot using whatever pagination
-        // info is encoded in the DOM (the Next link's
-        // data-ui-grid-next-cursor + whether the Next wrap is
-        // hidden). This keeps the no-JS server fallback intact while
-        // making sure Previous / Page 1 / visited-page button 1 are
-        // wired before the first click.
+        // Initial paint — the server rendered the static table fallback
+        // plus a cursor-style footer (it cannot windowed-render without
+        // running JS). Hydrate the real footer once on boot.
+        //
+        // Count/offset mode: the boot bundle carries the resolved
+        // `initialPagination` (mode + totalCount + currentPage), so we
+        // sync state and paint the windowed page-number strip + Next
+        // affordance immediately — without this the windowed buttons
+        // would not appear until the user's first gesture.
+        //
+        // Cursor mode (or no bundle pagination): fall back to scraping
+        // the DOM (the Next link's data-ui-grid-next-cursor + whether
+        // the Next wrap is hidden), preserving the no-JS server fallback.
         (function hydrateInitialPagination() {
+            var initialPag = (bundle && bundle.initialPagination && typeof bundle.initialPagination === 'object')
+                ? bundle.initialPagination
+                : null;
+
+            if (initialPag && typeof initialPag.mode === 'string' && initialPag.mode !== '') {
+                state.mode = initialPag.mode;
+                if (typeof initialPag.limit === 'number' && initialPag.limit > 0) {
+                    state.limit = String(initialPag.limit);
+                }
+                if (typeof initialPag.totalCount === 'number' && initialPag.totalCount >= 0) {
+                    state.totalCount = initialPag.totalCount;
+                    var per = (typeof initialPag.limit === 'number' && initialPag.limit > 0)
+                        ? initialPag.limit
+                        : (parseInt(state.limit, 10) || 1);
+                    state.totalPages = Math.max(1, Math.ceil(initialPag.totalCount / per));
+                }
+                if (isOffsetMode()) {
+                    if (typeof initialPag.currentPage === 'number' && initialPag.currentPage >= 1) {
+                        state.page = initialPag.currentPage;
+                    }
+                    // Offset mode pages by number — reveal the Next
+                    // affordance (no cursor) while more pages remain.
+                    var offNextWrap = rootEl.querySelector('[data-ui-grid-next-wrap]');
+                    if (offNextWrap) offNextWrap.hidden = !initialPag.hasMore;
+                    if (nextLinkEl) nextLinkEl.removeAttribute('data-ui-grid-next-cursor');
+                }
+                renderPagination(initialPag);
+                return;
+            }
+
             var initialHasMore = false;
             var initialCursor  = '';
             if (nextLinkEl) {

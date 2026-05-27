@@ -16,11 +16,15 @@ use Semitexa\PlatformUi\Domain\Exception\UiTransportModeException;
  *
  *   1. explicit page/component option wins
  *   2. env default SEMITEXA_UI_TRANSPORT_MODE is honoured next
- *   3. hard fallback is drain — the public/guest-safe default
+ *   3. auth-derived default — authenticated → live, guest → drain
+ *   4. hard fallback is drain — the public/guest-safe default
  *
  * Invalid explicit AND invalid env both fail fast. Public/guest
  * safety hinges on no silent drift into `live`, so the policy refuses
- * to guess.
+ * to guess. The auth-derived step sits BELOW env so an existing
+ * `SEMITEXA_UI_TRANSPORT_MODE=live` deployment keeps forcing live for
+ * everyone (guests included) — preserving prior behaviour — and only
+ * applies when neither an explicit mode nor an env override is set.
  */
 final class PlatformUiTransportModePolicyTest extends TestCase
 {
@@ -142,5 +146,50 @@ final class PlatformUiTransportModePolicyTest extends TestCase
         putenv(PlatformUiTransportModePolicy::ENV_VAR_NAME . '=');
         $policy = new PlatformUiTransportModePolicy();
         self::assertSame(PlatformUiTransportMode::Drain, $policy->resolve(null));
+    }
+
+    #[Test]
+    public function authenticated_resolves_live_when_no_explicit_or_env(): void
+    {
+        // The auth-derived default: with no page mode and no env
+        // override, an authenticated request upgrades to live.
+        $policy = new PlatformUiTransportModePolicy();
+        self::assertSame(PlatformUiTransportMode::Live, $policy->resolve(null, true));
+    }
+
+    #[Test]
+    public function guest_resolves_drain_when_no_explicit_or_env(): void
+    {
+        $policy = new PlatformUiTransportModePolicy();
+        self::assertSame(PlatformUiTransportMode::Drain, $policy->resolve(null, false));
+    }
+
+    #[Test]
+    public function unknown_auth_state_resolves_drain(): void
+    {
+        // null = no app bridge ran (or auth not installed). Backward-
+        // compatible: same drain default as before this feature.
+        $policy = new PlatformUiTransportModePolicy();
+        self::assertSame(PlatformUiTransportMode::Drain, $policy->resolve(null, null));
+    }
+
+    #[Test]
+    public function explicit_mode_overrides_auth_state(): void
+    {
+        // A page that explicitly downgrades to drain must win even for
+        // an authenticated request (e.g. embedded in a public iframe).
+        $policy = new PlatformUiTransportModePolicy();
+        self::assertSame(PlatformUiTransportMode::Drain, $policy->resolve('drain', true));
+    }
+
+    #[Test]
+    public function env_overrides_auth_state(): void
+    {
+        // Deployment-wide env=live forces live even for a guest —
+        // preserving the prior env semantics. Auth-derived only fills
+        // the gap when no explicit mode and no env are set.
+        putenv(PlatformUiTransportModePolicy::ENV_VAR_NAME . '=live');
+        $policy = new PlatformUiTransportModePolicy();
+        self::assertSame(PlatformUiTransportMode::Live, $policy->resolve(null, false));
     }
 }

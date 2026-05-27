@@ -454,4 +454,153 @@ final class GridRuntimeStaticAssertTest extends TestCase
             'buildEllipsisNode() must NOT set data-ui-grid-page — the ellipsis must never be a navigation target.',
         );
     }
+
+    #[Test]
+    public function runtime_arms_lost_frame_watchdog_with_http_fallback(): void
+    {
+        // Live-mode gestures await a `ui.componentState` SSE frame; if it
+        // is lost (stream dropped during a reconnect) nothing re-renders.
+        // A bounded watchdog falls back to the deterministic HTTP path and
+        // the awaited frame disarms it.
+        $body = $this->strippedRuntime();
+        self::assertMatchesRegularExpression(
+            '/function\s+armFrameWatchdog\s*\(/',
+            $body,
+            'grid-runtime.js must define armFrameWatchdog() so a lost SSE frame self-heals.',
+        );
+        self::assertMatchesRegularExpression(
+            '/setTimeout\s*\(/',
+            $body,
+            'armFrameWatchdog must use setTimeout to bound the wait for the SSE frame.',
+        );
+        self::assertStringContainsString(
+            'fetchLegacyAndRender();',
+            $body,
+            'the watchdog timeout must fall back to fetchLegacyAndRender().',
+        );
+        self::assertStringContainsString(
+            'clearFrameWatchdog();',
+            $body,
+            'the component-state render path must clear the watchdog when the frame arrives.',
+        );
+    }
+
+    #[Test]
+    public function runtime_self_heals_on_sse_reconnect(): void
+    {
+        $source = $this->loadRuntime();
+        self::assertStringContainsString(
+            "addEventListener('semitexa:ui-sse:reconnected'",
+            $source,
+            'grid-runtime.js must re-pull the current view when the shared SSE stream reconnects.',
+        );
+    }
+
+    // ----------------------------------------------------------------
+    // Windowed (count/offset) pagination mode — page-N navigation
+    // ----------------------------------------------------------------
+
+    #[Test]
+    public function runtime_defines_offset_mode_predicate(): void
+    {
+        // The runtime branches cursor vs offset/count rendering on a
+        // single predicate driven by the response's pagination.mode.
+        $body = $this->strippedRuntime();
+        self::assertMatchesRegularExpression(
+            '/function\s+isOffsetMode\s*\(/',
+            $body,
+            'grid-runtime.js must define isOffsetMode() to branch the footer between cursor and windowed rendering.',
+        );
+        self::assertMatchesRegularExpression(
+            "/state\.mode\s*===\s*'count'/",
+            $body,
+            'isOffsetMode() must treat count as an offset (windowed) mode.',
+        );
+        self::assertMatchesRegularExpression(
+            "/state\.mode\s*===\s*'offset'/",
+            $body,
+            'isOffsetMode() must treat offset as an offset (windowed) mode.',
+        );
+    }
+
+    #[Test]
+    public function runtime_windowed_mode_sends_page_param_not_cursor(): void
+    {
+        // In count/offset mode the criteria payload pages by 1-indexed
+        // number, never a cursor. Pin that the page param is emitted
+        // under the isOffsetMode() branch.
+        $body = $this->strippedRuntime();
+        self::assertMatchesRegularExpression(
+            '/p\.page\s*=\s*String\(\s*state\.page\s*\)/',
+            $body,
+            'grid-runtime.js must send the page query param in windowed (count/offset) mode.',
+        );
+    }
+
+    #[Test]
+    public function runtime_defines_windowed_pagination_renderer(): void
+    {
+        // The full windowed strip (first/last anchors + ellipses +
+        // centered window over the KNOWN total page count) is its own
+        // renderer, driven by computePageWindow over totalPages.
+        $body = $this->strippedRuntime();
+        self::assertMatchesRegularExpression(
+            '/function\s+renderWindowedPagination\s*\(/',
+            $body,
+            'grid-runtime.js must define renderWindowedPagination() for count/offset mode.',
+        );
+        self::assertMatchesRegularExpression(
+            '/computePageWindow\s*\(\s*current\s*,\s*totalPages\s*,\s*paginationWindowSize\s*\)/',
+            $body,
+            'the windowed renderer must center the window over the known totalPages, not the visited-page count.',
+        );
+        // Page buttons are built via the shared safe-DOM helper.
+        self::assertMatchesRegularExpression(
+            '/function\s+buildPageButton\s*\(/',
+            $body,
+            'grid-runtime.js must build page-number buttons via a shared buildPageButton() helper (createElement + textContent).',
+        );
+        self::assertMatchesRegularExpression(
+            "/'Page '\s*\+\s*current\s*\+\s*' of '\s*\+\s*totalPages/",
+            $body,
+            'the windowed indicator must read "Page <n> of <total>".',
+        );
+    }
+
+    #[Test]
+    public function runtime_windowed_mode_allows_arbitrary_page_jumps(): void
+    {
+        // The defining behaviour: in offset mode a click on ANY page in
+        // [1, totalPages] jumps straight there (not limited to visited
+        // pages as cursor mode is). Pin the offset branch in
+        // navigateToPage that bounds against totalPages.
+        $body = $this->strippedRuntime();
+        self::assertMatchesRegularExpression(
+            '/function\s+navigateToPage\s*\(/',
+            $body,
+            'grid-runtime.js must define navigateToPage().',
+        );
+        self::assertMatchesRegularExpression(
+            '/targetPage\s*>\s*max/',
+            $body,
+            'navigateToPage() must bound an offset-mode jump against the total page count (max), allowing any in-range page.',
+        );
+    }
+
+    #[Test]
+    public function runtime_does_not_reference_nonexistent_dispatched_listener(): void
+    {
+        // Historical bug: a comment claimed a `semitexa:ui-event:dispatched`
+        // listener consumed the dispatch response and called renderPage().
+        // No such listener ever existed — the row data arrives over the
+        // ui.componentState SSE frame. Pin the removal so the misleading
+        // claim cannot creep back. (The distinct `dispatching` event the
+        // runtime does listen to is unaffected — it is a different name.)
+        $source = $this->loadRuntime();
+        self::assertStringNotContainsString(
+            'semitexa:ui-event:dispatched',
+            $source,
+            'grid-runtime.js must not reference a semitexa:ui-event:dispatched listener — it does not exist.',
+        );
+    }
 }
