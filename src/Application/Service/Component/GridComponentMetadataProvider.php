@@ -94,13 +94,24 @@ final class GridComponentMetadataProvider implements ComponentMetadataProviderIn
 
     /**
      * @param ReflectionClass<object> $class
-     * @return array{defaultLimit: int, limitOptions: list<int>}
+     * @return array{
+     *     defaultLimit: int, limitOptions: list<int>, mode: string,
+     *     windowSize: int, autoCountThreshold: int
+     * }
      */
     private function resolvePagination(ReflectionClass $class): array
     {
         $attrs = $class->getAttributes(WithPagination::class);
         if ($attrs === []) {
-            return ['defaultLimit' => 25, 'limitOptions' => [10, 25, 50]];
+            // No attribute → cursor-mode defaults, matching the prior
+            // implicit behaviour for grids that only declare columns.
+            return [
+                'defaultLimit'       => 25,
+                'limitOptions'       => [10, 25, 50],
+                'mode'               => WithPagination::MODE_CURSOR,
+                'windowSize'         => 5,
+                'autoCountThreshold' => 1000,
+            ];
         }
         /** @var WithPagination $attr */
         $attr = $attrs[0]->newInstance();
@@ -112,9 +123,16 @@ final class GridComponentMetadataProvider implements ComponentMetadataProviderIn
                 implode(', ', $attr->limitOptions),
             ));
         }
+        // Single-field invariants (mode enum, odd windowSize >= 3,
+        // non-negative threshold) are enforced in the attribute's
+        // constructor; they have already fired by the time newInstance()
+        // returns above.
         return [
-            'defaultLimit' => $attr->defaultLimit,
-            'limitOptions' => $attr->limitOptions,
+            'defaultLimit'       => $attr->defaultLimit,
+            'limitOptions'       => $attr->limitOptions,
+            'mode'               => $attr->mode,
+            'windowSize'         => $attr->windowSize,
+            'autoCountThreshold' => $attr->autoCountThreshold,
         ];
     }
 }

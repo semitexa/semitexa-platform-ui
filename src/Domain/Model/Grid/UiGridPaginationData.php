@@ -15,7 +15,7 @@ namespace Semitexa\PlatformUi\Domain\Model\Grid;
  *
  * Wire keys (exact order): `limit`, `hasMore`, `nextCursor`.
  */
-final readonly class UiGridPaginationData
+final readonly class UiGridPaginationData implements UiGridPaginationPayload
 {
     public function __construct(
         public int $limit,

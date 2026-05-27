@@ -78,7 +78,13 @@ final class GridComponentMetadataProviderTest extends TestCase
         $props = $provider->getProps(new ReflectionClass(GridWithColumnsFixture::class));
 
         self::assertSame(
-            ['defaultLimit' => 25, 'limitOptions' => [10, 25, 50]],
+            [
+                'defaultLimit'       => 25,
+                'limitOptions'       => [10, 25, 50],
+                'mode'               => 'cursor',
+                'windowSize'         => 5,
+                'autoCountThreshold' => 1000,
+            ],
             $props['pagination'],
         );
     }
@@ -90,8 +96,34 @@ final class GridComponentMetadataProviderTest extends TestCase
 
         $props = $provider->getProps(new ReflectionClass(GridWithPaginationOnlyFixture::class));
 
+        // No mode declared → cursor defaults preserved (backward compat).
         self::assertSame(
-            ['defaultLimit' => 50, 'limitOptions' => [25, 50, 100]],
+            [
+                'defaultLimit'       => 50,
+                'limitOptions'       => [25, 50, 100],
+                'mode'               => 'cursor',
+                'windowSize'         => 5,
+                'autoCountThreshold' => 1000,
+            ],
+            $props['pagination'],
+        );
+    }
+
+    #[Test]
+    public function pagination_surfaces_mode_window_size_and_threshold(): void
+    {
+        $provider = new GridComponentMetadataProvider();
+
+        $props = $provider->getProps(new ReflectionClass(GridWithAutoPaginationFixture::class));
+
+        self::assertSame(
+            [
+                'defaultLimit'       => 25,
+                'limitOptions'       => [10, 25, 50],
+                'mode'               => 'auto',
+                'windowSize'         => 7,
+                'autoCountThreshold' => 500,
+            ],
             $props['pagination'],
         );
     }
@@ -128,7 +160,13 @@ final class GridComponentMetadataProviderTest extends TestCase
             $props['filters'],
         );
         self::assertSame(
-            ['defaultLimit' => 25, 'limitOptions' => [10, 25, 50, 100]],
+            [
+                'defaultLimit'       => 25,
+                'limitOptions'       => [10, 25, 50, 100],
+                'mode'               => 'cursor',
+                'windowSize'         => 5,
+                'autoCountThreshold' => 1000,
+            ],
             $props['pagination'],
         );
     }
@@ -159,6 +197,11 @@ final class GridWithFiltersFixture
 
 #[WithPagination(defaultLimit: 50, limitOptions: [25, 50, 100])]
 final class GridWithPaginationOnlyFixture
+{
+}
+
+#[WithPagination(defaultLimit: 25, limitOptions: [10, 25, 50], mode: 'auto', windowSize: 7, autoCountThreshold: 500)]
+final class GridWithAutoPaginationFixture
 {
 }
 

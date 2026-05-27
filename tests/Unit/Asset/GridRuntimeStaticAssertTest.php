@@ -496,6 +496,97 @@ final class GridRuntimeStaticAssertTest extends TestCase
         );
     }
 
+    // ----------------------------------------------------------------
+    // Windowed (count/offset) pagination mode — page-N navigation
+    // ----------------------------------------------------------------
+
+    #[Test]
+    public function runtime_defines_offset_mode_predicate(): void
+    {
+        // The runtime branches cursor vs offset/count rendering on a
+        // single predicate driven by the response's pagination.mode.
+        $body = $this->strippedRuntime();
+        self::assertMatchesRegularExpression(
+            '/function\s+isOffsetMode\s*\(/',
+            $body,
+            'grid-runtime.js must define isOffsetMode() to branch the footer between cursor and windowed rendering.',
+        );
+        self::assertMatchesRegularExpression(
+            "/state\.mode\s*===\s*'count'/",
+            $body,
+            'isOffsetMode() must treat count as an offset (windowed) mode.',
+        );
+        self::assertMatchesRegularExpression(
+            "/state\.mode\s*===\s*'offset'/",
+            $body,
+            'isOffsetMode() must treat offset as an offset (windowed) mode.',
+        );
+    }
+
+    #[Test]
+    public function runtime_windowed_mode_sends_page_param_not_cursor(): void
+    {
+        // In count/offset mode the criteria payload pages by 1-indexed
+        // number, never a cursor. Pin that the page param is emitted
+        // under the isOffsetMode() branch.
+        $body = $this->strippedRuntime();
+        self::assertMatchesRegularExpression(
+            '/p\.page\s*=\s*String\(\s*state\.page\s*\)/',
+            $body,
+            'grid-runtime.js must send the page query param in windowed (count/offset) mode.',
+        );
+    }
+
+    #[Test]
+    public function runtime_defines_windowed_pagination_renderer(): void
+    {
+        // The full windowed strip (first/last anchors + ellipses +
+        // centered window over the KNOWN total page count) is its own
+        // renderer, driven by computePageWindow over totalPages.
+        $body = $this->strippedRuntime();
+        self::assertMatchesRegularExpression(
+            '/function\s+renderWindowedPagination\s*\(/',
+            $body,
+            'grid-runtime.js must define renderWindowedPagination() for count/offset mode.',
+        );
+        self::assertMatchesRegularExpression(
+            '/computePageWindow\s*\(\s*current\s*,\s*totalPages\s*,\s*paginationWindowSize\s*\)/',
+            $body,
+            'the windowed renderer must center the window over the known totalPages, not the visited-page count.',
+        );
+        // Page buttons are built via the shared safe-DOM helper.
+        self::assertMatchesRegularExpression(
+            '/function\s+buildPageButton\s*\(/',
+            $body,
+            'grid-runtime.js must build page-number buttons via a shared buildPageButton() helper (createElement + textContent).',
+        );
+        self::assertMatchesRegularExpression(
+            "/'Page '\s*\+\s*current\s*\+\s*' of '\s*\+\s*totalPages/",
+            $body,
+            'the windowed indicator must read "Page <n> of <total>".',
+        );
+    }
+
+    #[Test]
+    public function runtime_windowed_mode_allows_arbitrary_page_jumps(): void
+    {
+        // The defining behaviour: in offset mode a click on ANY page in
+        // [1, totalPages] jumps straight there (not limited to visited
+        // pages as cursor mode is). Pin the offset branch in
+        // navigateToPage that bounds against totalPages.
+        $body = $this->strippedRuntime();
+        self::assertMatchesRegularExpression(
+            '/function\s+navigateToPage\s*\(/',
+            $body,
+            'grid-runtime.js must define navigateToPage().',
+        );
+        self::assertMatchesRegularExpression(
+            '/targetPage\s*>\s*max/',
+            $body,
+            'navigateToPage() must bound an offset-mode jump against the total page count (max), allowing any in-range page.',
+        );
+    }
+
     #[Test]
     public function runtime_does_not_reference_nonexistent_dispatched_listener(): void
     {
