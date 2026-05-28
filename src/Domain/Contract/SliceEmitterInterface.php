@@ -1,0 +1,17 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Semitexa\PlatformUi\Domain\Contract;
+
+use Semitexa\PlatformUi\Application\Service\Css\Slice\Slice;
+
+interface SliceEmitterInterface
+{
+    public function attribute(): string;
+
+    /** @return list<string> */
+    public function allowedValues(): array;
+
+    public function emit(string $value): Slice;
+}

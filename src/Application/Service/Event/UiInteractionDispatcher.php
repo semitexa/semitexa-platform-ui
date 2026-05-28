@@ -11,7 +11,7 @@ use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistry;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistryInterface;
 use Semitexa\PlatformUi\Application\Service\Validation\UsesUiFieldRuleRegistry;
-use Semitexa\PlatformUi\Contract\UiEventHandlerInterface;
+use Semitexa\PlatformUi\Domain\Contract\UiEventHandlerInterface;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionBadRequestException;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionConfigurationException;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionConflictException;

@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../../vendor/autoload.php';
 
-use Semitexa\PlatformUi\Asset\SliceRegistry;
-use Semitexa\PlatformUi\Css\Compiler\BundleCompiler;
-use Semitexa\PlatformUi\Css\Extractor\TwigExtractor;
-use Semitexa\PlatformUi\Css\Safelist;
-use Semitexa\PlatformUi\Css\Slice\SliceCatalog;
-use Semitexa\PlatformUi\Primitive\PrimitiveRegistry;
+use Semitexa\PlatformUi\Application\Service\Asset\SliceRegistry;
+use Semitexa\PlatformUi\Application\Service\Css\Compiler\BundleCompiler;
+use Semitexa\PlatformUi\Application\Service\Css\Extractor\TwigExtractor;
+use Semitexa\PlatformUi\Application\Service\Css\Safelist;
+use Semitexa\PlatformUi\Application\Service\Css\Slice\SliceCatalog;
+use Semitexa\PlatformUi\Application\Service\Css\PrimitiveRegistry;
 
 $errors = [];
 $ok = static function (string $label, callable $fn) use (&$errors): void {

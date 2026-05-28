@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Domain\Model\Component;
 
 /**
- * Typed read-only context handed to a {@see \Semitexa\PlatformUi\Contract\UiPartDataProviderInterface}
+ * Typed read-only context handed to a {@see \Semitexa\PlatformUi\Domain\Contract\UiPartDataProviderInterface}
  * when resolving props for a single {@see UiPartMetadata} declaration.
  *
  * Carries the rendered component instance, the part name being resolved, and

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Tests\Unit\Component;
 
 use PHPUnit\Framework\TestCase;
-use Semitexa\PlatformUi\Contract\UiPartDataProviderInterface;
+use Semitexa\PlatformUi\Domain\Contract\UiPartDataProviderInterface;
 use Semitexa\PlatformUi\Domain\Model\Component\UiPartContext;
 use stdClass;
 

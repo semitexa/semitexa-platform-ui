@@ -6,7 +6,7 @@ namespace Semitexa\PlatformUi\Domain\Model\Event;
 
 /**
  * Typed read-only context handed to a
- * {@see \Semitexa\PlatformUi\Contract\UiEventHandlerInterface} when the
+ * {@see \Semitexa\PlatformUi\Domain\Contract\UiEventHandlerInterface} when the
  * Framework Layer dispatches a verified UI event (technical-design.md §7.6.2
  * + §12.9).
  *
@@ -38,7 +38,7 @@ final readonly class UiEventContext
     ) {}
 
     /**
-     * FQCN of the read-side {@see \Semitexa\PlatformUi\Contract\UiPartDataProviderInterface}
+     * FQCN of the read-side {@see \Semitexa\PlatformUi\Domain\Contract\UiPartDataProviderInterface}
      * the page handler signed into this event's context via
      * `ui_event_manifest(..., dp:)`. Returns null when no `dp` claim is
      * present.

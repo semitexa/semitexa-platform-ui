@@ -21,7 +21,7 @@ use Semitexa\PlatformUi\Application\Service\Event\UiPatchValidator;
 use Semitexa\PlatformUi\Application\Service\Event\UiPayloadFieldGuard;
 use Semitexa\PlatformUi\Application\Service\Event\UiReplayStoreInterface;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistryInterface;
-use Semitexa\PlatformUi\Contract\UiEventHandlerInterface;
+use Semitexa\PlatformUi\Domain\Contract\UiEventHandlerInterface;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionBadRequestException;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult;

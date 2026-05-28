@@ -10,7 +10,7 @@ namespace Semitexa\PlatformUi\Domain\Model\Component;
  *
  * Where UiOnMetadata wraps an inline method on the component class,
  * this DTO wraps a separate service class that implements
- * {@see \Semitexa\PlatformUi\Contract\UiEventHandlerInterface}.
+ * {@see \Semitexa\PlatformUi\Domain\Contract\UiEventHandlerInterface}.
  * The dispatcher resolves the handler service from the container at
  * dispatch time and invokes its `handle(payload, context)` method.
  *

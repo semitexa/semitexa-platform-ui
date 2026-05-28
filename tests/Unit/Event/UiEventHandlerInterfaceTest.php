@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Tests\Unit\Event;
 
 use PHPUnit\Framework\TestCase;
-use Semitexa\PlatformUi\Contract\UiEventHandlerInterface;
+use Semitexa\PlatformUi\Domain\Contract\UiEventHandlerInterface;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventContext;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventResponse;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventResponseStatus;

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Event;
 
-use Semitexa\PlatformUi\Contract\UiPartDataProviderInterface;
+use Semitexa\PlatformUi\Domain\Contract\UiPartDataProviderInterface;
 use Semitexa\PlatformUi\Domain\Exception\UiComponentRegistryException;
 use Semitexa\PlatformUi\Domain\Model\Component\UiComponentMetadata;
 use Semitexa\PlatformUi\Domain\Model\Component\UiExternalHandlerMetadata;
