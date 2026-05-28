@@ -6,7 +6,7 @@ namespace Semitexa\PlatformUi\Application\Service\SkinResolver\Llm;
 
 use Semitexa\Llm\Domain\Contract\LlmProviderInterface;
 use Semitexa\Llm\Domain\Model\LlmRequest;
-use Semitexa\Theme\Contract\SkinAlgorithm;
+use Semitexa\Theme\Domain\Contract\SkinAlgorithmInterface;
 
 /**
  * LLM-assisted refinement of an existing skin's knobs.
@@ -41,7 +41,7 @@ final class RefinementResolver
      * @return array{deltas: array<string, string>, rationale: string, attempts: int, latency_ms: ?float}
      */
     public function resolve(
-        SkinAlgorithm $algorithm,
+        SkinAlgorithmInterface $algorithm,
         array $currentKnobs,
         string $userPrompt,
     ): array {
@@ -85,7 +85,7 @@ final class RefinementResolver
     }
 
     /** @param array<string, string> $currentKnobs */
-    private function buildSystemPrompt(SkinAlgorithm $algorithm, array $currentKnobs): string
+    private function buildSystemPrompt(SkinAlgorithmInterface $algorithm, array $currentKnobs): string
     {
         $lines = [];
         $lines[] = "You refine an existing UI skin by adjusting its tunable knobs.";
@@ -113,7 +113,7 @@ final class RefinementResolver
      * @return array{deltas: array<string, string>, rationale: string}
      * @throws \InvalidArgumentException
      */
-    private function validate(string $raw, SkinAlgorithm $algorithm): array
+    private function validate(string $raw, SkinAlgorithmInterface $algorithm): array
     {
         $json = $this->extractJson($raw);
         $data = json_decode($json, true);

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\SkinResolver\Llm;
 
 use Semitexa\Llm\Domain\Contract\LlmProviderInterface;
-use Semitexa\Theme\Contract\SkinAlgorithm;
+use Semitexa\Theme\Domain\Contract\SkinAlgorithmInterface;
 use Semitexa\Theme\Application\Service\Skin\SkinAlgorithmRegistry;
 
 /**
@@ -72,7 +72,7 @@ final class PromptResolverFactory
         return str_replace('{{ALGORITHM_SECTIONS}}', $block, $template);
     }
 
-    private function renderAlgorithmSection(SkinAlgorithm $algorithm): string
+    private function renderAlgorithmSection(SkinAlgorithmInterface $algorithm): string
     {
         $lines = [];
         $lines[] = "## `{$algorithm->id()}`";
