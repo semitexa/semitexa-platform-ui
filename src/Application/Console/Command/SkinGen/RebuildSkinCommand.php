@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\SkinGen\Console;
+namespace Semitexa\PlatformUi\Application\Console\Command\SkinGen;
 
 use Semitexa\Core\Attribute\AsCommand;
 use Semitexa\Core\Support\ProjectRoot;

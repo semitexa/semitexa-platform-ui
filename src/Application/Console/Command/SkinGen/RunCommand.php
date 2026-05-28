@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\SkinGen\Console\Eval;
+namespace Semitexa\PlatformUi\Application\Console\Command\SkinGen;
 
 use ReflectionClass;
 use Semitexa\Core\Attribute\AsCommand;
 use Semitexa\Llm\Contract\LlmProviderInterface;
-use Semitexa\PlatformUi\SkinGen\Eval\ResolverScorer;
-use Semitexa\PlatformUi\SkinGen\Llm\PromptResolverFactory;
-use Semitexa\PlatformUi\SkinGen\Llm\ValidationException;
+use Semitexa\PlatformUi\Application\Service\SkinGen\Eval\ResolverScorer;
+use Semitexa\PlatformUi\Application\Service\SkinGen\Llm\PromptResolverFactory;
+use Semitexa\PlatformUi\Application\Service\SkinGen\Llm\ValidationException;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -30,7 +30,7 @@ final class RunCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('fixtures', null, InputOption::VALUE_REQUIRED, 'Fixtures JSON path', 'eval/fixtures/skin-prompts.json')
+            ->addOption('fixtures', null, InputOption::VALUE_REQUIRED, 'Fixtures JSON path', 'tests/Fixtures/skin-prompts.json')
             ->addOption('json', null, InputOption::VALUE_NONE, 'JSON envelope output')
             ->addOption('fail-threshold', null, InputOption::VALUE_REQUIRED, 'Min hit rate 0..1 to exit 0', '0.8');
     }
@@ -142,7 +142,7 @@ final class RunCommand extends Command
             'results' => $results,
         ];
 
-        $reportPath = $packageRoot . '/eval/last-report.json';
+        $reportPath = $packageRoot . '/var/last-report.json';
         @mkdir(dirname($reportPath), 0755, true);
         file_put_contents($reportPath, json_encode($summary, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
@@ -175,6 +175,7 @@ final class RunCommand extends Command
 
     private function packageRoot(): string
     {
-        return dirname((new ReflectionClass($this))->getFileName(), 4);
+        // File lives at src/Application/Console/Command/SkinGen/RunCommand.php → 6 levels up reaches the package root.
+        return dirname((new ReflectionClass($this))->getFileName(), 6);
     }
 }

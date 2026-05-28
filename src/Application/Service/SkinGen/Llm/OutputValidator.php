@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\SkinGen\Llm;
+namespace Semitexa\PlatformUi\Application\Service\SkinGen\Llm;
 
 use Semitexa\Theme\Skin\Oklch\ContrastScore;
 use Semitexa\Theme\Skin\Oklch\Converter;

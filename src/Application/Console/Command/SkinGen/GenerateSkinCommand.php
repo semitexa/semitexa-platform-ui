@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\SkinGen\Console;
+namespace Semitexa\PlatformUi\Application\Console\Command\SkinGen;
 
 use Semitexa\Core\Attribute\AsCommand;
 use Semitexa\Core\Support\ProjectRoot;
@@ -12,8 +12,8 @@ use Semitexa\Llm\Policy\AiArgumentPolicy;
 use Semitexa\Llm\Policy\AiConfirmationMode;
 use Semitexa\Llm\Policy\AiExecutionKind;
 use Semitexa\Llm\Policy\AiRiskLevel;
-use Semitexa\PlatformUi\SkinGen\Llm\PromptResolverFactory;
-use Semitexa\PlatformUi\SkinGen\Llm\ResolutionResult;
+use Semitexa\PlatformUi\Application\Service\SkinGen\Llm\PromptResolverFactory;
+use Semitexa\PlatformUi\Application\Service\SkinGen\Llm\ResolutionResult;
 use Semitexa\Theme\Skin\KnobResolver;
 use Semitexa\Theme\Skin\SkinAlgorithmRegistry;
 use Semitexa\Theme\Skin\SkinBuilder;

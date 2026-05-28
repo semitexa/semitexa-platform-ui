@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\SkinGen\Eval;
+namespace Semitexa\PlatformUi\Application\Service\SkinGen\Eval;
 
-use Semitexa\PlatformUi\SkinGen\Llm\ResolvedSkinParams;
+use Semitexa\PlatformUi\Application\Service\SkinGen\Llm\ResolvedSkinParams;
 use Semitexa\Theme\Skin\Oklch\ContrastScore;
 use Semitexa\Theme\Skin\Oklch\Converter;
 

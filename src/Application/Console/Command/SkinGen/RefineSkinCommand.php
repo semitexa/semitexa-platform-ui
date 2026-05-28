@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\SkinGen\Console;
+namespace Semitexa\PlatformUi\Application\Console\Command\SkinGen;
 
 use Semitexa\Core\Attribute\AsCommand;
 use Semitexa\Core\Support\ProjectRoot;
 use Semitexa\Llm\Contract\LlmProviderInterface;
-use Semitexa\PlatformUi\SkinGen\Llm\RefinementResolver;
+use Semitexa\PlatformUi\Application\Service\SkinGen\Llm\RefinementResolver;
 use Semitexa\Theme\Skin\KnobResolver;
 use Semitexa\Theme\Skin\SkinAlgorithmRegistry;
 use Semitexa\Theme\Skin\SkinBuilder;
