@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Css\Extractor;
+namespace Semitexa\PlatformUi\Application\Service\Css\Extractor;
 
 final readonly class UsageManifest
 {

@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Css\Compiler;
+namespace Semitexa\PlatformUi\Application\Service\Css\Compiler;
 
 use Semitexa\PlatformUi\Application\Service\Asset\CompiledBundle;
 use Semitexa\PlatformUi\Application\Service\Asset\SliceRegistry;
-use Semitexa\PlatformUi\Css\Slice\SliceCatalog;
-use Semitexa\PlatformUi\Primitive\PrimitiveRegistry;
+use Semitexa\PlatformUi\Application\Service\Css\Slice\SliceCatalog;
+use Semitexa\PlatformUi\Application\Service\Css\PrimitiveRegistry;
 
 /**
  * Compiles a CSS bundle from a SliceRegistry.

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Css;
+namespace Semitexa\PlatformUi\Application\Service\Css;
 
 use Semitexa\PlatformUi\Application\Service\Asset\SliceRegistry;
 

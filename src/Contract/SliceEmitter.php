@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Contract;
 
-use Semitexa\PlatformUi\Css\Slice\Slice;
+use Semitexa\PlatformUi\Application\Service\Css\Slice\Slice;
 
 interface SliceEmitter
 {

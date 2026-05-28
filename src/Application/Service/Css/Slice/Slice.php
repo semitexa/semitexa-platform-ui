@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Css\Slice;
+namespace Semitexa\PlatformUi\Application\Service\Css\Slice;
 
 final readonly class Slice
 {

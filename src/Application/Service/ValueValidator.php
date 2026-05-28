@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service;
 
-use Semitexa\PlatformUi\Css\Slice\SliceCatalog;
+use Semitexa\PlatformUi\Application\Service\Css\Slice\SliceCatalog;
 
 final class ValueValidator
 {

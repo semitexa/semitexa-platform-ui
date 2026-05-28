@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Css\Emitter;
+namespace Semitexa\PlatformUi\Application\Service\Css\Emitter;
 
 use Semitexa\PlatformUi\Contract\SliceEmitter;
-use Semitexa\PlatformUi\Css\Slice\Slice;
+use Semitexa\PlatformUi\Application\Service\Css\Slice\Slice;
 
 final class SurfaceEmitter implements SliceEmitter
 {

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Primitive;
+namespace Semitexa\PlatformUi\Application\Service\Css;
 
 final class PrimitiveRegistry
 {
@@ -37,7 +37,7 @@ final class PrimitiveRegistry
     /** @return list<Primitive> */
     private static function defaults(): array
     {
-        $base = dirname(__DIR__, 2) . '/resources';
+        $base = dirname(__DIR__, 4) . '/resources';
         return [
             new Primitive(
                 id: 'button',

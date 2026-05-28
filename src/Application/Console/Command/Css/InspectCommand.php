@@ -6,11 +6,11 @@ namespace Semitexa\PlatformUi\Application\Console\Command\Css;
 
 use ReflectionClass;
 use Semitexa\Core\Attribute\AsCommand;
-use Semitexa\PlatformUi\Css\Compiler\BundleCompiler;
-use Semitexa\PlatformUi\Css\Extractor\TwigExtractor;
-use Semitexa\PlatformUi\Css\Slice\SliceCatalog;
+use Semitexa\PlatformUi\Application\Service\Css\Compiler\BundleCompiler;
+use Semitexa\PlatformUi\Application\Service\Css\Extractor\TwigExtractor;
+use Semitexa\PlatformUi\Application\Service\Css\Slice\SliceCatalog;
 use Semitexa\PlatformUi\Application\Service\Asset\SliceRegistry;
-use Semitexa\PlatformUi\Primitive\PrimitiveRegistry;
+use Semitexa\PlatformUi\Application\Service\Css\PrimitiveRegistry;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;

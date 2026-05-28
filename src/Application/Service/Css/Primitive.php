@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Primitive;
+namespace Semitexa\PlatformUi\Application\Service\Css;
 
 final readonly class Primitive
 {

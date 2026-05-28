@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Css\Extractor;
+namespace Semitexa\PlatformUi\Application\Service\Css\Extractor;
 
-use Semitexa\PlatformUi\Css\Slice\SliceCatalog;
-use Semitexa\PlatformUi\Primitive\PrimitiveRegistry;
+use Semitexa\PlatformUi\Application\Service\Css\Slice\SliceCatalog;
+use Semitexa\PlatformUi\Application\Service\Css\PrimitiveRegistry;
 
 final class TwigExtractor
 {

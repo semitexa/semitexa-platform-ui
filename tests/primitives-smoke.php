@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../../vendor/autoload.php';
 
-use Semitexa\PlatformUi\Primitive\PrimitiveRegistry;
+use Semitexa\PlatformUi\Application\Service\Css\PrimitiveRegistry;
 
 $errors = [];
 $ok = static function (string $label, callable $fn) use (&$errors): void {
@@ -85,7 +85,7 @@ if (is_file(__DIR__ . '/grammar-demo.css')) {
 }
 
 // Re-emit grammar slices inline for a complete bundle
-$catalog = \Semitexa\PlatformUi\Css\Slice\SliceCatalog::withDefaults();
+$catalog = \Semitexa\PlatformUi\Application\Service\Css\Slice\SliceCatalog::withDefaults();
 $grammarRules = [];
 foreach ($catalog->emitAll() as $slice) {
     $grammarRules[] = $slice->css;

@@ -2,18 +2,18 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Css\Slice;
+namespace Semitexa\PlatformUi\Application\Service\Css\Slice;
 
 use Semitexa\PlatformUi\Contract\SliceEmitter;
-use Semitexa\PlatformUi\Css\Emitter\AlignEmitter;
-use Semitexa\PlatformUi\Css\Emitter\GapEmitter;
-use Semitexa\PlatformUi\Css\Emitter\JustifyEmitter;
-use Semitexa\PlatformUi\Css\Emitter\LayoutEmitter;
-use Semitexa\PlatformUi\Css\Emitter\PaddingEmitter;
-use Semitexa\PlatformUi\Css\Emitter\RadiusEmitter;
-use Semitexa\PlatformUi\Css\Emitter\SurfaceEmitter;
-use Semitexa\PlatformUi\Css\Emitter\TextEmitter;
-use Semitexa\PlatformUi\Css\Emitter\ToneEmitter;
+use Semitexa\PlatformUi\Application\Service\Css\Emitter\AlignEmitter;
+use Semitexa\PlatformUi\Application\Service\Css\Emitter\GapEmitter;
+use Semitexa\PlatformUi\Application\Service\Css\Emitter\JustifyEmitter;
+use Semitexa\PlatformUi\Application\Service\Css\Emitter\LayoutEmitter;
+use Semitexa\PlatformUi\Application\Service\Css\Emitter\PaddingEmitter;
+use Semitexa\PlatformUi\Application\Service\Css\Emitter\RadiusEmitter;
+use Semitexa\PlatformUi\Application\Service\Css\Emitter\SurfaceEmitter;
+use Semitexa\PlatformUi\Application\Service\Css\Emitter\TextEmitter;
+use Semitexa\PlatformUi\Application\Service\Css\Emitter\ToneEmitter;
 
 final class SliceCatalog
 {
