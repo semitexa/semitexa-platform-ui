@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Application\Service\SkinGen\Eval;
+namespace Semitexa\PlatformUi\Application\Service\SkinResolver\Eval;
 
 final readonly class ScoreReport
 {

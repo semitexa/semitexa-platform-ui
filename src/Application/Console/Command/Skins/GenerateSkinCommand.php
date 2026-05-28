@@ -2,23 +2,23 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Application\Console\Command\SkinGen;
+namespace Semitexa\PlatformUi\Application\Console\Command\Skins;
 
 use Semitexa\Core\Attribute\AsCommand;
 use Semitexa\Core\Support\ProjectRoot;
 use Semitexa\Llm\Attribute\AsAiSkill;
-use Semitexa\Llm\Contract\LlmProviderInterface;
+use Semitexa\Llm\Domain\Contract\LlmProviderInterface;
 use Semitexa\Llm\Policy\AiArgumentPolicy;
 use Semitexa\Llm\Policy\AiConfirmationMode;
-use Semitexa\Llm\Policy\AiExecutionKind;
+use Semitexa\Llm\Domain\Enum\AiExecutionKind;
 use Semitexa\Llm\Policy\AiRiskLevel;
-use Semitexa\PlatformUi\Application\Service\SkinGen\Llm\PromptResolverFactory;
-use Semitexa\PlatformUi\Application\Service\SkinGen\Llm\ResolutionResult;
-use Semitexa\Theme\Skin\KnobResolver;
-use Semitexa\Theme\Skin\SkinAlgorithmRegistry;
-use Semitexa\Theme\Skin\SkinBuilder;
-use Semitexa\Theme\Skin\SkinManifest;
-use Semitexa\Theme\Skin\TokenEmitter;
+use Semitexa\PlatformUi\Application\Service\SkinResolver\Llm\PromptResolverFactory;
+use Semitexa\PlatformUi\Application\Service\SkinResolver\Llm\ResolutionResult;
+use Semitexa\Theme\Application\Service\Skin\KnobResolver;
+use Semitexa\Theme\Application\Service\Skin\SkinAlgorithmRegistry;
+use Semitexa\Theme\Application\Service\Skin\SkinBuilder;
+use Semitexa\Theme\Application\Service\Skin\SkinManifest;
+use Semitexa\Theme\Application\Service\Skin\TokenEmitter;
 use Semitexa\Theme\Discovery\SkinDiscovery;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;

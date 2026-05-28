@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Application\Service\SkinGen\Llm;
+namespace Semitexa\PlatformUi\Application\Service\SkinResolver\Llm;
 
-use Semitexa\Theme\Skin\Oklch\ContrastScore;
-use Semitexa\Theme\Skin\Oklch\Converter;
-use Semitexa\Theme\Skin\SkinAlgorithmRegistry;
+use Semitexa\Theme\Application\Service\Skin\Oklch\ContrastScore;
+use Semitexa\Theme\Application\Service\Skin\Oklch\Converter;
+use Semitexa\Theme\Application\Service\Skin\SkinAlgorithmRegistry;
 
 final class OutputValidator
 {

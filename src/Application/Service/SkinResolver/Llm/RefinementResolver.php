@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Application\Service\SkinGen\Llm;
+namespace Semitexa\PlatformUi\Application\Service\SkinResolver\Llm;
 
-use Semitexa\Llm\Contract\LlmProviderInterface;
-use Semitexa\Llm\Data\LlmRequest;
+use Semitexa\Llm\Domain\Contract\LlmProviderInterface;
+use Semitexa\Llm\Domain\Model\LlmRequest;
 use Semitexa\Theme\Contract\SkinAlgorithm;
 
 /**

@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Application\Console\Command\SkinGen;
+namespace Semitexa\PlatformUi\Application\Console\Command\Skins;
 
 use Semitexa\Core\Attribute\AsCommand;
 use Semitexa\Core\Support\ProjectRoot;
 use Semitexa\Theme\Discovery\SkinDiscovery;
-use Semitexa\Theme\Skin\SkinManifest;
-use Semitexa\Theme\Skin\TokenEmitter;
+use Semitexa\Theme\Application\Service\Skin\SkinManifest;
+use Semitexa\Theme\Application\Service\Skin\TokenEmitter;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;

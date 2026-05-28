@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Application\Service\SkinGen\Llm;
+namespace Semitexa\PlatformUi\Application\Service\SkinResolver\Llm;
 
 final readonly class RetryPolicy
 {

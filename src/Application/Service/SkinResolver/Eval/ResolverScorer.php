@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Application\Service\SkinGen\Eval;
+namespace Semitexa\PlatformUi\Application\Service\SkinResolver\Eval;
 
-use Semitexa\PlatformUi\Application\Service\SkinGen\Llm\ResolvedSkinParams;
-use Semitexa\Theme\Skin\Oklch\ContrastScore;
-use Semitexa\Theme\Skin\Oklch\Converter;
+use Semitexa\PlatformUi\Application\Service\SkinResolver\Llm\ResolvedSkinParams;
+use Semitexa\Theme\Application\Service\Skin\Oklch\ContrastScore;
+use Semitexa\Theme\Application\Service\Skin\Oklch\Converter;
 
 final class ResolverScorer
 {

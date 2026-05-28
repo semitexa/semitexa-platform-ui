@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Application\Console\Command\SkinGen;
+namespace Semitexa\PlatformUi\Application\Console\Command\Skins;
 
 use Semitexa\Core\Attribute\AsCommand;
 use Semitexa\Llm\Attribute\AsAiSkill;
-use Semitexa\Llm\Contract\LlmProviderInterface;
+use Semitexa\Llm\Domain\Contract\LlmProviderInterface;
 use Semitexa\Llm\Policy\AiArgumentPolicy;
 use Semitexa\Llm\Policy\AiConfirmationMode;
-use Semitexa\Llm\Policy\AiExecutionKind;
+use Semitexa\Llm\Domain\Enum\AiExecutionKind;
 use Semitexa\Llm\Policy\AiRiskLevel;
-use Semitexa\PlatformUi\Application\Service\SkinGen\Llm\PromptResolverFactory;
+use Semitexa\PlatformUi\Application\Service\SkinResolver\Llm\PromptResolverFactory;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;

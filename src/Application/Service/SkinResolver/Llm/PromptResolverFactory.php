@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Application\Service\SkinGen\Llm;
+namespace Semitexa\PlatformUi\Application\Service\SkinResolver\Llm;
 
-use Semitexa\Llm\Contract\LlmProviderInterface;
+use Semitexa\Llm\Domain\Contract\LlmProviderInterface;
 use Semitexa\Theme\Contract\SkinAlgorithm;
-use Semitexa\Theme\Skin\SkinAlgorithmRegistry;
+use Semitexa\Theme\Application\Service\Skin\SkinAlgorithmRegistry;
 
 /**
  * Builds a PromptResolver whose system prompt is assembled at construction
@@ -30,10 +30,10 @@ final class PromptResolverFactory
         private readonly SkinAlgorithmRegistry $algorithms = new SkinAlgorithmRegistry(),
     ) {
         // Default to the resources/ directory at the package root.
-        // __DIR__ is src/SkinGen/Llm → go up 3 to reach the package root,
+        // __DIR__ is src/Application/Service/SkinResolver/Llm → go up 5 to reach the package root,
         // then into resources/. Callers outside platform-ui can still pass
         // a custom path.
-        $this->resourcesPath = $resourcesPath ?? dirname(__DIR__, 3) . '/resources';
+        $this->resourcesPath = $resourcesPath ?? dirname(__DIR__, 5) . '/resources';
     }
 
     public function create(RetryPolicy $retry = new RetryPolicy()): PromptResolver

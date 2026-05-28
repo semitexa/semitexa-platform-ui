@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Application\Console\Command\SkinGen;
+namespace Semitexa\PlatformUi\Application\Console\Command\Skins;
 
 use ReflectionClass;
 use Semitexa\Core\Attribute\AsCommand;
-use Semitexa\Llm\Contract\LlmProviderInterface;
-use Semitexa\PlatformUi\Application\Service\SkinGen\Eval\ResolverScorer;
-use Semitexa\PlatformUi\Application\Service\SkinGen\Llm\PromptResolverFactory;
-use Semitexa\PlatformUi\Application\Service\SkinGen\Llm\ValidationException;
+use Semitexa\Llm\Domain\Contract\LlmProviderInterface;
+use Semitexa\PlatformUi\Application\Service\SkinResolver\Eval\ResolverScorer;
+use Semitexa\PlatformUi\Application\Service\SkinResolver\Llm\PromptResolverFactory;
+use Semitexa\PlatformUi\Application\Service\SkinResolver\Llm\ValidationException;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -175,7 +175,7 @@ final class RunCommand extends Command
 
     private function packageRoot(): string
     {
-        // File lives at src/Application/Console/Command/SkinGen/RunCommand.php → 6 levels up reaches the package root.
+        // File lives at src/Application/Console/Command/Skins/RunCommand.php → 6 levels up reaches the package root.
         return dirname((new ReflectionClass($this))->getFileName(), 6);
     }
 }
