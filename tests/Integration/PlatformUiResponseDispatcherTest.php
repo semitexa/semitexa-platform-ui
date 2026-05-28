@@ -22,7 +22,7 @@ use Semitexa\PlatformUi\Application\Service\Submit\SignedContextOnlyUiFormSubmit
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitSecurityPolicy;
 use Semitexa\PlatformUi\Attribute\HandlesUiEvent;
 use Semitexa\PlatformUi\Attribute\UiSlot;
-use Semitexa\PlatformUi\Contract\UiEventHandlerInterface;
+use Semitexa\PlatformUi\Domain\Contract\UiEventHandlerInterface;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventContext;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventResponse;
 use Semitexa\Ssr\Attribute\AsComponent;

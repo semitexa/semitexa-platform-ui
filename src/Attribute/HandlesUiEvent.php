@@ -16,7 +16,7 @@ use Attribute;
  *     belongs to the component itself.
  *   - #[HandlesUiEvent] on a separate service class (typically marked
  *     #[AsService] and implementing
- *     {@see \Semitexa\PlatformUi\Contract\UiEventHandlerInterface})
+ *     {@see \Semitexa\PlatformUi\Domain\Contract\UiEventHandlerInterface})
  *     binds that service to a (component, part, event) triple — used
  *     when the handler has dependencies, lives in a different module, or
  *     should not bloat a deliberately-thin component class.

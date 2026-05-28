@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Contract;
+namespace Semitexa\PlatformUi\Domain\Contract;
 
 use Semitexa\PlatformUi\Domain\Model\Component\UiPartContext;
 

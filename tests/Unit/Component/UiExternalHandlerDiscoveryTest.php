@@ -13,7 +13,7 @@ use Semitexa\PlatformUi\Attribute\HandlesUiEvent;
 use Semitexa\PlatformUi\Attribute\UiOn;
 use Semitexa\PlatformUi\Attribute\UiPart;
 use Semitexa\PlatformUi\Attribute\UiSlot;
-use Semitexa\PlatformUi\Contract\UiEventHandlerInterface;
+use Semitexa\PlatformUi\Domain\Contract\UiEventHandlerInterface;
 use Semitexa\PlatformUi\Domain\Exception\UiComponentRegistryException;
 use Semitexa\PlatformUi\Domain\Model\Component\UiExternalHandlerMetadata;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventContext;

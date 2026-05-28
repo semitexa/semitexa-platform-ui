@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Css\Emitter;
 
-use Semitexa\PlatformUi\Contract\SliceEmitter;
+use Semitexa\PlatformUi\Domain\Contract\SliceEmitterInterface;
 use Semitexa\PlatformUi\Application\Service\Css\Slice\Slice;
 
-final class ToneEmitter implements SliceEmitter
+final class ToneEmitter implements SliceEmitterInterface
 {
     private const TOKEN_MAP = [
         'neutral' => 'var(--ui-text-muted)',

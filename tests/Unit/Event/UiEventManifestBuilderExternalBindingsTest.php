@@ -11,7 +11,7 @@ use Semitexa\PlatformUi\Application\Service\Component\UiComponentMetadataFactory
 use Semitexa\PlatformUi\Application\Service\Event\UiEventManifestBuilder;
 use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\InputPrimitive;
 use Semitexa\PlatformUi\Attribute\UiPart;
-use Semitexa\PlatformUi\Contract\UiPartDataProviderInterface;
+use Semitexa\PlatformUi\Domain\Contract\UiPartDataProviderInterface;
 use Semitexa\PlatformUi\Domain\Model\Component\UiExternalHandlerMetadata;
 use Semitexa\PlatformUi\Domain\Model\Component\UiPartContext;
 use Semitexa\Ssr\Application\Service\UiEvent\SignedContext;

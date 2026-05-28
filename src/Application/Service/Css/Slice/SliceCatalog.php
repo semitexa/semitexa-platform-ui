@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Css\Slice;
 
-use Semitexa\PlatformUi\Contract\SliceEmitter;
+use Semitexa\PlatformUi\Domain\Contract\SliceEmitterInterface;
 use Semitexa\PlatformUi\Application\Service\Css\Emitter\AlignEmitter;
 use Semitexa\PlatformUi\Application\Service\Css\Emitter\GapEmitter;
 use Semitexa\PlatformUi\Application\Service\Css\Emitter\JustifyEmitter;
@@ -17,7 +17,7 @@ use Semitexa\PlatformUi\Application\Service\Css\Emitter\ToneEmitter;
 
 final class SliceCatalog
 {
-    /** @var array<string, SliceEmitter> */
+    /** @var array<string, SliceEmitterInterface> */
     private array $emitters = [];
 
     public static function withDefaults(): self
@@ -35,7 +35,7 @@ final class SliceCatalog
         return $catalog;
     }
 
-    public function register(SliceEmitter $emitter): void
+    public function register(SliceEmitterInterface $emitter): void
     {
         $this->emitters[$emitter->attribute()] = $emitter;
     }
@@ -47,7 +47,7 @@ final class SliceCatalog
         return $emitter->emit($value);
     }
 
-    public function emitter(string $attribute): ?SliceEmitter
+    public function emitter(string $attribute): ?SliceEmitterInterface
     {
         return $this->emitters[$attribute] ?? null;
     }

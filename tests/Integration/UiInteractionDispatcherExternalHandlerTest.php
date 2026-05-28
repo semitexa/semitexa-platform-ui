@@ -17,7 +17,7 @@ use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\InputPrimitive;
 use Semitexa\PlatformUi\Attribute\HandlesUiEvent;
 use Semitexa\PlatformUi\Attribute\UiPart;
 use Semitexa\PlatformUi\Attribute\UiSlot;
-use Semitexa\PlatformUi\Contract\UiEventHandlerInterface;
+use Semitexa\PlatformUi\Domain\Contract\UiEventHandlerInterface;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionConfigurationException;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionForbiddenException;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionNotFoundException;
@@ -361,7 +361,7 @@ final class ExtDispGridErrorHandler implements UiEventHandlerInterface
     }
 }
 
-final class ExtDispGridFakeDp implements \Semitexa\PlatformUi\Contract\UiPartDataProviderInterface
+final class ExtDispGridFakeDp implements \Semitexa\PlatformUi\Domain\Contract\UiPartDataProviderInterface
 {
     public function provide(\Semitexa\PlatformUi\Domain\Model\Component\UiPartContext $context): array
     {

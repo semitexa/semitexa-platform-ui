@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Css\Emitter;
 
-use Semitexa\PlatformUi\Contract\SliceEmitter;
+use Semitexa\PlatformUi\Domain\Contract\SliceEmitterInterface;
 use Semitexa\PlatformUi\Application\Service\Css\Slice\Slice;
 
-final class JustifyEmitter implements SliceEmitter
+final class JustifyEmitter implements SliceEmitterInterface
 {
     private const MAP = [
         'start' => 'flex-start',

@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Css\Emitter;
 
-use Semitexa\PlatformUi\Contract\SliceEmitter;
+use Semitexa\PlatformUi\Domain\Contract\SliceEmitterInterface;
 use Semitexa\PlatformUi\Application\Service\Css\Slice\Slice;
 
-final class RadiusEmitter implements SliceEmitter
+final class RadiusEmitter implements SliceEmitterInterface
 {
     /**
      * Fallback values used when a skin doesn't define `--ui-radius-<size>`.

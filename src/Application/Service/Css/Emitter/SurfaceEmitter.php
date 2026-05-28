@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Css\Emitter;
 
-use Semitexa\PlatformUi\Contract\SliceEmitter;
+use Semitexa\PlatformUi\Domain\Contract\SliceEmitterInterface;
 use Semitexa\PlatformUi\Application\Service\Css\Slice\Slice;
 
-final class SurfaceEmitter implements SliceEmitter
+final class SurfaceEmitter implements SliceEmitterInterface
 {
     private const VALUES = ['flat', 'panel', 'raised'];
 
