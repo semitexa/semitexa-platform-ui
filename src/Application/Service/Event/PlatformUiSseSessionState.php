@@ -31,12 +31,10 @@ namespace Semitexa\PlatformUi\Application\Service\Event;
  * holder is the simplest cross-template channel that does not require
  * editing every component to forward an extra prop.
  *
- * Why not the existing UiSseChannelToken: that class signs an opaque
- * stream-subscription credential for the platform-ui `/__ui/stream`
- * route. The canonical KISS endpoint takes an UNSIGNED `session_id`
- * query parameter and routes by it directly. The two systems share
- * no key material; minting `uch_*` ids for KISS would be misleading.
- * The dedicated `sse_<32 hex>` prefix keeps logs disambiguated.
+ * Why an unsigned id: the canonical KISS endpoint takes an UNSIGNED
+ * `session_id` query parameter and routes by it directly — defence in
+ * depth comes from the signed `sub` claim, not from this id. The
+ * dedicated `sse_<32 hex>` prefix keeps logs disambiguated.
  */
 final class PlatformUiSseSessionState
 {

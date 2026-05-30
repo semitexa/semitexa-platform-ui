@@ -11,7 +11,6 @@ use Semitexa\PlatformUi\Application\Service\Event\PlatformUiSseSessionState;
 use Semitexa\PlatformUi\Application\Service\Event\PlatformUiTransportModePolicy;
 use Semitexa\PlatformUi\Application\Service\Event\UiEventManifestBuilder;
 use Semitexa\PlatformUi\Application\Service\Event\UiInstanceIdGenerator;
-use Semitexa\PlatformUi\Application\Service\Event\UiSseChannelToken;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleParser;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistry;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistry;
@@ -625,33 +624,6 @@ final class PlatformUiTwigExtension
                 $ttl = $ttlSeconds ?? 600;
                 $handle = UiFormSubmitCsrfTokenStore::getActive()->issue($ttl);
                 return ['k' => $handle->id, 't' => $handle->raw];
-            },
-        );
-
-        /**
-         * ui_sse_channel(ttlSeconds = null)
-         *
-         * Mints a fresh SSE channel token for the current render. Use
-         * once per page; render the returned `{channel, token, url}`
-         * into the template so JavaScript can call
-         * `SemitexaUi.sse.attach({url})`. The token is opaque (signed
-         * via SignedContext); the server-side stream handler verifies
-         * it before opening the stream.
-         *
-         * Returns an array (NOT a Markup) — callers either echo
-         * specific keys or pass it to `json_encode|raw` if they want
-         * the full bundle inline.
-         */
-        TwigExtensionRegistry::registerFunction(
-            'ui_sse_channel',
-            static function (?int $ttlSeconds = null): array {
-                $channelId = UiSseChannelToken::generateChannelId();
-                $token     = UiSseChannelToken::sign($channelId, $ttlSeconds);
-                return [
-                    'channel' => $channelId,
-                    'token'   => $token,
-                    'url'     => '/__ui/stream?token=' . rawurlencode($token),
-                ];
             },
         );
 

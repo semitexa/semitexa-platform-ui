@@ -624,15 +624,12 @@ Trust boundary:
 - `dispatchId` is client-supplied and used only for replay-key construction — handlers see it on `UiInteractionEvent::$dispatchId` for correlation but MUST NOT base authorization or routing decisions on it.
 - When the handler returns `UiInteractionResult::patch([...])`, every patch is validated against the signed claims' `instance` — handlers can only patch their own component instance.
 
-**Service bindings (default).** Platform UI ships six `#[SatisfiesServiceContract]`-bound defaults:
+**Service bindings (default).** Platform UI ships three `#[SatisfiesServiceContract]`-bound defaults:
 
 | Interface | Default implementation | Module |
 |---|---|---|
 | `UiReplayStoreInterface` | `CacheBackedUiReplayStore` | semitexa-platform-ui |
 | `UiInteractionAuthorizerInterface` | `AllowAllUiInteractionAuthorizer` | semitexa-platform-ui |
-| `UiSsePatchQueue` | `RedisUiSsePatchQueue` | semitexa-platform-ui |
-| `UiSseSubscriptionAuthorizerInterface` | `AllowAllUiSseSubscriptionAuthorizer` | semitexa-platform-ui |
-| `UiSseConnectionLimiterInterface` | `RedisUiSseConnectionLimiter` | semitexa-platform-ui |
 | `UiFieldRuleRegistryInterface` | `DefaultUiFieldRuleRegistry` | semitexa-platform-ui |
 
 The Semitexa container resolves both contracts at boot via `ServiceContractRegistry`. `UiDispatchHandler` declares them as `#[InjectAsReadonly]` protected properties — the container fills them, the handler never news them up in production. The dispatcher is constructed inside the handler with the injected dependencies; there is no longer any `withServices()` plumbing on the production path.
@@ -799,96 +796,21 @@ When the server response includes a non-empty `patches` array, the bridge runs e
 
 ### SSE server-push channel
 
-Server-Sent Events bridge for the *existing* `UiResponsePatch` shape. The same patch object that POST `/__ui/dispatch` returns can be pushed asynchronously through the SSE channel — there is **one** patch shape and **one** safe applier on the frontend, with two transports (request/response and push) feeding into them.
+> **Retired.** The standalone platform-ui patch-stream subsystem (its own
+> route, channel-token auth, per-channel Redis queue, connection limiter and
+> subscription authorizer) has been **removed**. All UI streaming now rides the
+> single canonical KISS stream `GET /__semitexa_kiss` (served by SSR's
+> `AsyncResourceSseServer::handleSse`). The page opens that one stream via
+> `ui_page_sse_session_meta(...)`; components never open their own.
 
-**Endpoint**: `GET /__ui/stream?token=<signed-channel-token>` (route declared with `TransportType::Sse`, `produces: ['text/event-stream']`).
-
-**Channel token**: a SignedContext blob with claims `{c: 'ui-patch-stream', ch: '<channel-id>', iat, exp}`. `UiSseChannelToken::sign($channelId)` mints one; `UiSseChannelToken::verifyChannelId($token)` returns the channel id or `null`. The purpose claim defends against /__ui/dispatch ctx tokens being accepted as subscriptions. Tokens carry no handler/class/user identity — only an opaque channel id.
-
-**SSE message shape** (event name `ui.patch`, body is JSON):
-
-```json
-{
-  "v": 1,
-  "patches": [
-    {"op": "setText", "target": {"instance": "uci_…", "name": "server-ack"}, "value": "…"}
-  ],
-  "messageId": "uchm_<32hex>",
-  "publishedAt": 1778739613
-}
-```
-
-`patches` re-uses the exact `UiResponsePatch` JSON shape. The frontend listener pipes each patch through `applyOnePatch` — the same function the dispatch transport calls.
-
-**Publisher**: `UiSsePatchPublisher::publish($channelId, $instanceId, $patches)`. Validates every patch via `UiPatchValidator::validateAll` against the pinned `$instanceId`, enforces a 32-patch-per-message cap, encodes JSON, and writes onto `UiSsePatchQueue`. Bound by default to `RedisUiSsePatchQueue` (key `semitexa:ui-patch-queue:<channelId>`, RPUSH with 60s idle TTL) via `SatisfiesServiceContract`.
-
-**Stream handler** (`UiSseStreamHandler`) — hardened ordering:
-
-1. **Token presence + verification**: `401 missing_channel_token` / `invalid_channel_token` on failure. Done *before* any other check so an invalid token never consumes a connection slot or hits the authorizer.
-2. **Build `UiSseSubscriptionContext`** from the verified claims: `{channelId, purpose, issuedAt, expiresAt, requestIp, claims}`. `requestIp` is read from the Swoole `remote_addr` (matching SSR's `AsyncResourceSseServer`).
-3. **Subscription authorization**: `UiSseSubscriptionAuthorizerInterface::authorize($context)` runs. `false` return → `403 subscription_forbidden`. The connection limiter is *not* consulted on denial — denied attempts never count against the IP / global cap.
-4. **Claim a connection lease**: `UiSseConnectionLimiterInterface::claim($context)`. Cap hit → `429 sse_connection_limit_exceeded`. Defaults honor `SSE_MAX_CONN_PER_IP=5` and `SSE_MAX_CONN_GLOBAL=500` (env names reused from SSR's `AsyncResourceSseServer` so operators tune one knob for both subsystems).
-5. **Swoole response acquisition**: `SwooleBootstrap::getCurrentSwooleRequestResponse()`. Non-Swoole runtimes → `503 sse_unavailable` (the lease is released in `finally`).
-6. **SSE headers** (`Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`, `X-Accel-Buffering: no`) and initial `event: connected` frame.
-7. **Coroutine poll loop**: `Swoole\Coroutine::sleep(0.25)` between drains. Bounded by `SSE_MAX_CONNECTION_AGE_SECONDS` (default 600s) and by `connection_aborted()` detection.
-8. **`event: close`** frame with a reason (`client_disconnected` / `write_failed` / `max_age`).
-9. **`finally`: release the connection lease**, so per-IP and global counters drop back down promptly. The lease's TTL is a safety net for missed releases (worker crash, killed coroutine), not the primary path.
-
-**Subscription authorizer** (override seam):
-
-```php
-interface UiSseSubscriptionAuthorizerInterface
-{
-    public function authorize(UiSseSubscriptionContext $context): bool;
-}
-
-final readonly class UiSseSubscriptionContext
-{
-    public string $channelId;
-    public string $purpose;       // always 'ui-patch-stream' for verified tokens
-    public int    $issuedAt;
-    public int    $expiresAt;
-    public string $requestIp;     // from Swoole remote_addr, '' if unresolvable
-    public array  $claims;        // raw verified claims (server-side only)
-}
-```
-
-The default `AllowAllUiSseSubscriptionAuthorizer` returns `true`. Apps that need tenant / role / user gating register their own `#[SatisfiesServiceContract(of: UiSseSubscriptionAuthorizerInterface::class)]` class in a module that "extends" `semitexa-platform-ui`; the contract registry picks the descendant.
-
-**Connection limiter**:
-
-```php
-interface UiSseConnectionLimiterInterface
-{
-    public function claim(UiSseSubscriptionContext $context): UiSseConnectionLease;
-    public function release(UiSseConnectionLease $lease): void;
-}
-```
-
-- Default binding: `RedisUiSseConnectionLimiter`. Backed by two Redis sets (`semitexa:ui-sse-conn:per-ip:<ip>` and `semitexa:ui-sse-conn:global`) with `EXPIRE` on each successful claim. Counts are observed across every Swoole worker on every node sharing the cache.
-- Fallback: `InMemoryUiSseConnectionLimiter` (per-worker map) for tests and dev environments without Redis. Documented as worker-local and NOT marked with `SatisfiesServiceContract`.
-- Knobs: `SSE_MAX_CONN_PER_IP` (default 5), `SSE_MAX_CONN_GLOBAL` (default 500). Lease TTL = `max(700s, SSE_MAX_CONNECTION_AGE_SECONDS + 100s)` so a normal close releases before the safety-net TTL fires.
-- Release is **idempotent**. The handler's `finally` block calls `release(lease)`; if the underlying Redis SREM fails, TTL eviction catches the leak.
-
-**Frontend API** — opt-in:
-
-```js
-const detach = window.SemitexaUi.sse.attach({ url: '/__ui/stream?token=…' });
-// later: detach();
-```
-
-The bridge listens for `connected`, `ui.patch`, and `close` SSE events. `ui.patch` messages are version-checked (`v === 1`), then their patches go through the same `applyOnePatch` the dispatch transport uses. Lifecycle CustomEvents on `document` (every detail object carries the bridge `url`):
-
-- `semitexa:ui-sse:connected`
-- `semitexa:ui-sse:message`
-- `semitexa:ui-sse:patch-applied`
-- `semitexa:ui-sse:patch-failed`
-- `semitexa:ui-sse:close`
-- `semitexa:ui-sse:error`
-
-No `EventSource` is constructed until `sse.attach({url})` is called.
-
-**Twig helper** — `{% set s = ui_sse_channel() %}` returns `{channel, token, url}` for inline rendering. The token is opaque; templates pass `s.url` (or `s.token`) to JS.
+What survives is the part that was always shared: there is **one** patch shape
+(`UiResponsePatch`) and **one** safe applier on the frontend. Server-pushed
+patches arrive as canonical typed `ui.patch` frames on the KISS `EventSource`
+and flow through the same `applyOnePatch` engine the request/response transport
+uses. The frontend bridge (`window.SemitexaUi.sse.attach({url})`) is only ever
+attached to a `/__semitexa_kiss` URL; it still emits the `semitexa:ui-sse:*`
+lifecycle CustomEvents on `document`. The retired `{v, patches[]}` envelope is
+tolerated defensively but is no longer produced.
 
 ### Field validation (server-side rules DSL)
 
@@ -1520,13 +1442,19 @@ The registry MUST resolve through a fixed `match` — NEVER `new $name(...)` or 
 
     The helper owns ONLY the on-wire envelope shape (key list + key order pinned by `UiGridDataResponseTest`). It does NOT authorize, query, parse criteria, decode cursors, project rows, or pick HTTP statuses — every one of those concerns stays in the handler. The `UiGridPaginationData` + `UiGridFilterState` DTOs are pure data carriers (no validation, no normalisation); handlers feed already-canonical values. A future grid-data endpoint that wants to participate in the `platform.grid` contract MUST go through `UiGridDataResponse` so the on-wire envelope cannot drift across consumers. **This is an envelope contract, not a generic grid-data-provider framework** — there is no shared repository, no shared criteria, no shared SSE policy; those decisions stay with each consumer.
 
-  The original SSE refresh plumbing (topic registry, publisher wrapper, store-action call) lives on unchanged on the project side:
+  > **Superseded.** The original project-side SSE refresh plumbing below was
+  > built against the now-retired platform-ui patch-stream subsystem
+  > (channel-token + per-channel patch publisher). With all UI streaming unified
+  > on the canonical KISS stream, that plumbing is superseded; the description is
+  > retained as historical design context only.
+
+  The original SSE refresh plumbing (topic registry, publisher wrapper, store-action call) was:
 
   - **JSON data endpoint** at `GET /ui-playground/admin/leads/grid-data` (`LeadAdminGridDataPayload` + `LeadAdminGridDataHandler`). Returns the safe envelope `{ok, gridId: "ui-playground.leads", rows[...], pagination: {limit, hasMore, nextCursor}, filters: {q, action}}` — the envelope key list + key order is byte-identical to the demo-submissions grid (Option B: sort travels as a query parameter / form input, not in the response). Accepts `?sort=` with the allow-listed tokens (`submittedAt_desc` default, `submittedAt_asc`); unknown tokens → `400` with `reason: invalid_sort` and NO repository read. The cursor's filter fingerprint binds the active sort token, so a cursor minted under one sort cannot be re-used under another (`400 invalid_cursor`). Same 5-gate ordering as the page handler (authorize → criteria → cursor → fingerprint → repo). Error envelope on any failure: `{ok: false, reason, message}` with 400/403 status. **Never carries `values_json`, tokens, ctx, dispatchId, debug, or class FQCNs** (pinned by a canary integration test).
 
-  - **Topic registry** for SSE refresh — the framework `UiSsePatchPublisher` is strictly point-to-point (per-channelId Redis LIST), so the project introduces a small subscription layer: `UiPlaygroundLeadGridRefreshTopicInterface` (cache-backed default + in-memory test fallback) holds a map `{channelId → (instanceId, expiresAt)}` under namespace `ui-playground-lead-grid-refresh`. The lead admin page handler subscribes its freshly minted SSE channel + grid root instance id on each render (TTL = `UiSseChannelToken::DEFAULT_TTL_SECONDS = 600`). Stale entries are pruned on every read; the single-map storage shape is bounded by the cache key's namespace TTL.
+  - **Topic registry** for SSE refresh — the retired framework patch publisher was strictly point-to-point (per-channel Redis LIST), so the project introduced a small subscription layer: `UiPlaygroundLeadGridRefreshTopicInterface` (cache-backed default + in-memory test fallback) holds a map `{channelId → (instanceId, expiresAt)}` under namespace `ui-playground-lead-grid-refresh`. The lead admin page handler subscribed its freshly minted SSE channel + grid root instance id on each render (TTL 600s). Stale entries are pruned on every read; the single-map storage shape is bounded by the cache key's namespace TTL.
 
-  - **Refresh publisher** (`UiPlaygroundLeadGridRefreshPublisherInterface`, default `DefaultUiPlaygroundLeadGridRefreshPublisher` — `#[SatisfiesServiceContract]`, container-managed, `UiSsePatchPublisher` property-injected). After `UiPlaygroundStoreLeadAction::handle()` saves a row, the action calls `publishRefresh()` which iterates the topic's subscribers and publishes a `setText` patch to each: `targetName: 'lead-grid-refresh-marker'`, `value: (string) time()`. Patch fan-out is best-effort — both the publisher and the action wrap the publish call in `try {…} catch (\Throwable)` so a stale channel id, dead Redis connection, or contract-violating custom publisher cannot un-do the save.
+  - **Refresh publisher** (`UiPlaygroundLeadGridRefreshPublisherInterface`, default `DefaultUiPlaygroundLeadGridRefreshPublisher` — `#[SatisfiesServiceContract]`, container-managed, the framework patch publisher property-injected). After `UiPlaygroundStoreLeadAction::handle()` saves a row, the action calls `publishRefresh()` which iterates the topic's subscribers and publishes a `setText` patch to each: `targetName: 'lead-grid-refresh-marker'`, `value: (string) time()`. Patch fan-out is best-effort — both the publisher and the action wrap the publish call in `try {…} catch (\Throwable)` so a stale channel id, dead Redis connection, or contract-violating custom publisher cannot un-do the save.
 
   - **Refresh-marker patch shape**. Fixed: `op=setText`, `targetInstance=<grid-root-instance-id>`, `targetName='lead-grid-refresh-marker'`, `value='<unix-ts>'`. **Never carries lead values, leadId, or operator-internal jargon** (pinned by `refresh_signal_carries_no_lead_values` — the publisher's contract method is parameterless, so lead-value data has nowhere to flow through it).
 
@@ -2121,7 +2049,7 @@ Old submit ctxs (rendered before this slice) keep working: when `cfg.f[*].i` is 
 
 ## Current limitations
 
-- **SSE server-push channel is wired** (this slice). Patches can arrive via POST `/__ui/dispatch` response or via the `/__ui/stream` SSE channel; both transports reuse the same `UiResponsePatch` shape and the same safe applier. SSE messages target DOM nodes that already exist inside the component instance — no node creation, no `innerHTML`, no arbitrary selectors.
+- **SSE server-push channel is wired** (this slice). Patches can arrive via the dispatch response or pushed as canonical `ui.patch` frames over the single KISS stream (`/__semitexa_kiss`); both transports reuse the same `UiResponsePatch` shape and the same safe applier. SSE messages target DOM nodes that already exist inside the component instance — no node creation, no `innerHTML`, no arbitrary selectors.
 - Patch op allow-list covers `setText`, `setValue`, `setAttribute` only. No `setHtml`, no class-list mutations, no node insertion/removal — those are future-slice concerns and intentionally absent.
 - `setAttribute` is restricted to four allow-listed attribute names (`aria-invalid`, `aria-describedby`, `data-state`, `ui-state`). Anything else is rejected server-side and again by the frontend applier.
 - A patch whose target element is missing in the rendered DOM (e.g. the caller did not pass `showServerAckTarget: true`) is a graceful no-op — the bridge emits `semitexa:ui-patch:failed` with `reason: "target_not_found"` and the rest of the batch continues.
@@ -2152,5 +2080,5 @@ Old submit ctxs (rendered before this slice) keep working: when `cfg.f[*].i` is 
 6. **Atomic cache primitive** in `CacheManagerInterface` (SETNX / `add`) so `CacheBackedUiReplayStore::claim` can drop its get-then-put race window.
 7. **SSE delivery semantics upgrade**: at-least-once via Redis pub/sub fanout (today the bridge uses LPOP — at-most-once per claim), plus reconnect with `Last-Event-ID` so a transient drop does not lose patches.
 8. **SSE channel revocation**: an out-of-band revocation set (Redis key with token id) so an issued channel token can be invalidated before its TTL expires.
-9. **Persistent component state** — a server-side projection a handler can read/mutate, with SSE deltas published through `UiSsePatchPublisher`. The validation result type from this slice is the smallest shape that fits — the persistent state layer will wrap it, not replace it. (Patch shape stays the same.)
-10. **Framework-layer unification**: a `UiInteractionDispatcherInterface` contract so SSR's `/__ui/event` can delegate to platform-ui's dispatcher; the two endpoints collapse into one. Same for unifying `/__ui/stream` with SSR's `/sse` once channel-broadcasting lands in `AsyncResourceSseServer`.
+9. **Persistent component state** — a server-side projection a handler can read/mutate, with SSE deltas published over the canonical KISS stream. The validation result type from this slice is the smallest shape that fits — the persistent state layer will wrap it, not replace it. (Patch shape stays the same.)
+10. **Framework-layer unification**: a `UiInteractionDispatcherInterface` contract so SSR's `/__ui/event` can delegate to platform-ui's dispatcher; the two endpoints collapse into one. (The streaming half of this unification is **done** — all UI streaming now rides the single `/__semitexa_kiss` stream on `AsyncResourceSseServer`.)

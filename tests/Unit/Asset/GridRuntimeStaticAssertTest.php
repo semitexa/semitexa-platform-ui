@@ -160,8 +160,8 @@ final class GridRuntimeStaticAssertTest extends TestCase
     #[Test]
     public function runtime_no_longer_references_legacy_sse_patch_applied(): void
     {
-        // The legacy /__ui/stream patch-applied event is replaced by
-        // the canonical KISS componentState document event. Pin the
+        // The legacy patch-applied event is replaced by the canonical
+        // KISS componentState document event. Pin the
         // removal so a future regression cannot reintroduce the
         // legacy listener silently.
         $source = $this->loadRuntime();
