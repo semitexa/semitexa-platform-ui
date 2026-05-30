@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Payload\Request;
 
 use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Core\Attribute\SseGateModel;
 use Semitexa\Core\Attribute\TransportType;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
@@ -25,6 +26,10 @@ use Semitexa\Core\Http\Response\ResourceResponse;
     methods: ['GET'],
     transport: TransportType::Sse,
     produces: ['text/event-stream'],
+    // Gated in-handler by the signed HMAC channel token (UiSseChannelToken),
+    // verified before any stream lifecycle starts — a public route whose gate
+    // lives in the handler, not the auth pipeline.
+    sseGateModel: SseGateModel::ChannelToken,
 )]
 final class UiSseStreamPayload
 {
