@@ -19,6 +19,23 @@ use Attribute;
  * shared `grid-runtime.js` feed runtime instead of the canonical
  * `/__ui/dispatch` + page-session KISS model.
  *
+ * The feed comes in two modes (the runtime reads `feed.mode` from the
+ * bundle and picks its transport accordingly):
+ *
+ *   - {@see self::MODE_SSE} (default) — the held-open one-URL stream
+ *     described above: a single persistent `EventSource`, server-minted
+ *     id adoption, one-URL `X-Semitexa-Stream-Rehydrate` re-hydrate, and
+ *     a pulling fallback when SSE is unavailable. This is the leads grid.
+ *   - {@see self::MODE_PLAIN} — a PLAIN pull feed: NO persistent
+ *     `EventSource` and NO OPTIONS handshake. The runtime fetches the
+ *     feed route as classic JSON (the same `UiGridDataResponse` envelope)
+ *     on load and re-fetches on each view change. This fits a static /
+ *     finite grid whose endpoint is plain GET JSON (no held-open SSE
+ *     route), e.g. the synthetic component-inventory grid. Using the SSE
+ *     init path here would be wrong — OPTIONS on a GET-only JSON endpoint
+ *     fails and the runtime would optimistically open an `EventSource`
+ *     against a non-streaming route.
+ *
  * Read at boot by {@see \Semitexa\PlatformUi\Application\Service\Component\GridComponentMetadataProvider},
  * which reflects it off the component class and emits a `gridFeed` prop that
  * the `platform.grid` template bakes into the runtime's JSON bundle. The
@@ -43,13 +60,30 @@ use Attribute;
 #[Attribute(Attribute::TARGET_CLASS)]
 final class GridFeed
 {
+    /** Held-open SSE feed (the one-URL stream); the default. */
+    public const MODE_SSE = 'sse';
+
+    /** Plain pull feed — classic JSON GET, no EventSource, no OPTIONS. */
+    public const MODE_PLAIN = 'plain';
+
     /**
      * @param class-string|null $provider
      * @param list<array{label: string, route: string, method?: string}> $mutations
+     * @param self::MODE_* $mode
      */
     public function __construct(
         public readonly string $route,
         public readonly ?string $provider = null,
         public readonly array $mutations = [],
-    ) {}
+        public readonly string $mode = self::MODE_SSE,
+    ) {
+        if ($mode !== self::MODE_SSE && $mode !== self::MODE_PLAIN) {
+            throw new \InvalidArgumentException(sprintf(
+                'GridFeed mode must be "%s" or "%s", got "%s".',
+                self::MODE_SSE,
+                self::MODE_PLAIN,
+                $mode,
+            ));
+        }
+    }
 }

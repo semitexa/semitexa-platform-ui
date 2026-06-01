@@ -224,6 +224,12 @@
             var feedUrl     = feed.route;
             var mutations   = Array.isArray(feed.mutations) ? feed.mutations : [];
             var feedLiveEl  = rootEl.querySelector('[data-ui-grid-feed-live]');
+            // Feed transport mode. 'plain' = a classic JSON pull feed with NO
+            // persistent EventSource and NO OPTIONS handshake (init goes
+            // straight to startPulling); 'sse' (default) = the held-open
+            // one-URL stream. Anything other than 'plain' is treated as 'sse'
+            // so the leads path is byte-identical.
+            var feedMode    = (feed && feed.mode === 'plain') ? 'plain' : 'sse';
 
             // Adopted server stream id — the ONLY id source is the first
             // `ui.stream.id` SSE event of each connection. Null until adopted;
@@ -551,6 +557,12 @@
             // === Init: OPTIONS handshake decides the transport ==============
             (function init() {
                 setControlsEnabled(false);
+                // PLAIN feed: no held-open stream, no OPTIONS probe. The route
+                // is a plain GET JSON endpoint (an OPTIONS would fail and the
+                // SSE-optimistic branch below would wrongly open an
+                // EventSource against it). Pull once on load + on every view
+                // change — the same classic-JSON path the SSE fallback uses.
+                if (feedMode === 'plain') { startPulling(); return; }
                 var hasEventSource = (typeof window.EventSource !== 'undefined');
                 fetch(feedUrl, {
                     method: 'OPTIONS',

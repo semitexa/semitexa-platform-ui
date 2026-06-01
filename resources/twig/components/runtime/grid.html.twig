@@ -80,6 +80,10 @@
 {%- set _grid_feed           = gridFeed|default(null) -%}
 {%- set _grid_feed_route     = _grid_feed is not null ? (_grid_feed.route|default('')) : '' -%}
 {%- set _grid_feed_mutations = _grid_feed is not null ? (_grid_feed.mutations|default([])) : [] -%}
+{#- Feed transport mode: 'sse' (held-open one-URL stream, the default) or
+    'plain' (classic JSON pull, no EventSource / no OPTIONS). The runtime
+    reads this to decide its init path. -#}
+{%- set _grid_feed_mode      = _grid_feed is not null ? (_grid_feed.mode|default('sse')) : 'sse' -%}
 {%- if _grid_feed is not null and _grid_feed_route != '' and _grid_data_url == '' -%}
     {%- set _grid_data_url = _grid_feed_route -%}
 {%- endif -%}
@@ -510,7 +514,7 @@
     "initialSort":         _grid_initial_sort,
     "sortParam":           _grid_sort_param,
     "initialPagination":   _grid_pagination,
-    "feed":                _grid_feed is not null ? { "route": _grid_feed_route, "mutations": _grid_feed_mutations } : null,
+    "feed":                _grid_feed is not null ? { "route": _grid_feed_route, "mutations": _grid_feed_mutations, "mode": _grid_feed_mode } : null,
 }|json_encode|raw }}
     </script>
 </div>

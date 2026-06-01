@@ -56,7 +56,7 @@ final class GridComponentMetadataProvider implements ComponentMetadataProviderIn
      * (the default — inventory / submissions keep the dispatch model).
      *
      * @param ReflectionClass<object> $class
-     * @return array{route: string, provider: ?string, mutations: list<array{label: string, route: string, method: string}>}|null
+     * @return array{route: string, provider: ?string, mutations: list<array{label: string, route: string, method: string}>, mode: string}|null
      */
     private function resolveGridFeed(ReflectionClass $class): ?array
     {
@@ -86,6 +86,7 @@ final class GridComponentMetadataProvider implements ComponentMetadataProviderIn
             'route' => $attr->route,
             'provider' => $attr->provider,
             'mutations' => $mutations,
+            'mode' => $attr->mode,
         ];
     }
 
