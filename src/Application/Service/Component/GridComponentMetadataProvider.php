@@ -7,6 +7,7 @@ namespace Semitexa\PlatformUi\Application\Service\Component;
 use ReflectionClass;
 use Semitexa\PlatformUi\Attribute\AsColumn;
 use Semitexa\PlatformUi\Attribute\AsFilter;
+use Semitexa\PlatformUi\Attribute\GridFeed;
 use Semitexa\PlatformUi\Attribute\WithPagination;
 use Semitexa\Ssr\Attribute\AsComponentMetadataProvider;
 use Semitexa\Ssr\Domain\Contract\ComponentMetadataProviderInterface;
@@ -41,6 +42,50 @@ final class GridComponentMetadataProvider implements ComponentMetadataProviderIn
             'columns' => $this->resolveColumns($componentClass),
             'filters' => $this->resolveFilters($componentClass),
             'pagination' => $this->resolvePagination($componentClass),
+            'gridFeed' => $this->resolveGridFeed($componentClass),
+        ];
+    }
+
+    /**
+     * Reflect the optional `#[GridFeed]` declaration. A grid that declares a
+     * feed is driven by the shared held-open SSE runtime (`grid-runtime.js`
+     * feed mode) instead of the canonical `/__ui/dispatch` + KISS model; the
+     * returned shape is baked into the `platform.grid` JSON bundle so the
+     * runtime can discover the feed route + declared mutations with no
+     * grid-specific literals. Returns null when the class declares no feed
+     * (the default — inventory / submissions keep the dispatch model).
+     *
+     * @param ReflectionClass<object> $class
+     * @return array{route: string, provider: ?string, mutations: list<array{label: string, route: string, method: string}>}|null
+     */
+    private function resolveGridFeed(ReflectionClass $class): ?array
+    {
+        $attrs = $class->getAttributes(GridFeed::class);
+        if ($attrs === []) {
+            return null;
+        }
+        /** @var GridFeed $attr */
+        $attr = $attrs[0]->newInstance();
+
+        $mutations = [];
+        foreach ($attr->mutations as $mutation) {
+            $label = $mutation['label'] ?? null;
+            $route = $mutation['route'] ?? null;
+            if (!is_string($label) || $label === '' || !is_string($route) || $route === '') {
+                continue;
+            }
+            $method = $mutation['method'] ?? 'POST';
+            $mutations[] = [
+                'label' => $label,
+                'route' => $route,
+                'method' => is_string($method) && $method !== '' ? strtoupper($method) : 'POST',
+            ];
+        }
+
+        return [
+            'route' => $attr->route,
+            'provider' => $attr->provider,
+            'mutations' => $mutations,
         ];
     }
 

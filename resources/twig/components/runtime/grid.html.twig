@@ -68,6 +68,22 @@
 {%- set _grid_page_url     = pageFallbackUrl|default('') -%}
 {%- set _grid_empty        = emptyMessage|default('No rows.') -%}
 
+{#- Held-open SSE feed declaration (the `gridFeed` prop emitted by
+    GridComponentMetadataProvider from `#[GridFeed]`). When present, this
+    grid is driven by the shared `grid-runtime.js` FEED runtime — a single
+    persistent EventSource on `_grid_feed_route` with one-URL re-hydrate
+    commands — instead of the canonical `/__ui/dispatch` + page-session KISS
+    model. Null for ordinary grids (inventory / submissions), which render
+    exactly as before. The data URL doubles as the feed route so the runtime
+    boots (it bails on an empty data URL) and the pulling fallback re-fetches
+    the same endpoint as classic JSON. -#}
+{%- set _grid_feed           = gridFeed|default(null) -%}
+{%- set _grid_feed_route     = _grid_feed is not null ? (_grid_feed.route|default('')) : '' -%}
+{%- set _grid_feed_mutations = _grid_feed is not null ? (_grid_feed.mutations|default([])) : [] -%}
+{%- if _grid_feed is not null and _grid_feed_route != '' and _grid_data_url == '' -%}
+    {%- set _grid_data_url = _grid_feed_route -%}
+{%- endif -%}
+
 {#- Column normalisation. Callers may pass either the legacy explicit
     shape (`{key, label, style?, sortAsc?, sortDesc?}`) or the boot-
     time providerProps shape from `#[AsColumn]`
@@ -146,6 +162,7 @@
     data-ui-component-instance-id="{{ _grid_instance }}"
     data-ui-grid="{{ _grid_id }}"
     data-ui-grid-data-url="{{ _grid_data_url }}"
+    {% if _grid_feed is not null and _grid_feed_route != '' %}data-ui-grid-feed-url="{{ _grid_feed_route }}"{% endif %}
     {% if _grid_sub_channel is not null and _grid_sub_channel != '' %}data-ui-grid-subscriber-channel-id="{{ _grid_sub_channel }}"{% endif %}
     data-ui-grid-refresh-marker="{{ _grid_refresh_name }}"
     data-ui-grid-pagination-window-size="{{ _grid_window }}"
@@ -294,6 +311,31 @@
     {%- set _filter_state_slot = slot('filterState')|default('')|trim %}
     {%- if _filter_state_slot != '' %}
         {{ slot('filterState')|raw }}
+    {%- endif %}
+
+    {#- Feed-mode toolbar: a live-state badge (the runtime drives its text
+        through connecting… → live → reconnecting… → offline · polling) plus
+        any declared `#[GridFeed]` mutation buttons (e.g. "+ Add a demo
+        lead"). Only rendered for feed grids; ordinary grids never see it. The
+        runtime POSTs a mutation to its declared route — in SSE mode the
+        resulting row arrives live on the open feed, in pulling mode the
+        runtime re-fetches once. -#}
+    {%- if _grid_feed is not null %}
+        <div data-ui-grid-feed-toolbar sx-layout="cluster" sx-gap="3" sx-align="center" style="flex-wrap:wrap;">
+            <span data-ui-grid-feed-live
+                  style="font-size:0.75rem;padding:0.125rem 0.5rem;border-radius:999px;background:var(--ui-surface-muted,#eee);"
+                  ui-text="muted" aria-live="polite">connecting…</span>
+            {%- for _m in _grid_feed_mutations %}
+                {%- if _m.label|default(null) is not null and _m.route|default(null) is not null %}
+                    <button type="button"
+                            data-ui-grid-feed-mutation
+                            data-ui-grid-feed-mutation-route="{{ _m.route }}"
+                            data-ui-grid-feed-mutation-method="{{ _m.method|default('POST') }}"
+                            ui="button" data-ui-primitive="platform.button" ui-variant="solid" ui-tone="brand"
+                            style="margin-left:auto;font-size:0.8125rem;">{{ _m.label }}</button>
+                {%- endif %}
+            {%- endfor %}
+        </div>
     {%- endif %}
 
     {#- Empty state — visible when there are no initial rows. The
@@ -468,6 +510,7 @@
     "initialSort":         _grid_initial_sort,
     "sortParam":           _grid_sort_param,
     "initialPagination":   _grid_pagination,
+    "feed":                _grid_feed is not null ? { "route": _grid_feed_route, "mutations": _grid_feed_mutations } : null,
 }|json_encode|raw }}
     </script>
 </div>

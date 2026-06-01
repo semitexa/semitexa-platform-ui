@@ -183,6 +183,393 @@
             return state.mode === 'count' || state.mode === 'offset';
         }
 
+        // ================================================================
+        // FEED MODE — the held-open SSE + one-URL re-hydrate runtime.
+        //
+        // When the grid declares a `#[GridFeed]` (the bundle carries
+        // `feed.route`), it is NOT driven by the canonical `/__ui/dispatch`
+        // + page-session KISS model below. Instead this branch reproduces
+        // the full held-open-stream contract that used to live in a bespoke
+        // inline `<script>` per grid:
+        //
+        //   1. OPTIONS-on-init transport decision (SSE vs Pulling);
+        //   2. ONE persistent held-open EventSource — opened once, re-opened
+        //      ONLY on an actual transport drop, NEVER on a view change;
+        //   3. server-owned id ADOPTION from the first `ui.stream.id` event
+        //      (the GET carries NO `?stream_id=`; the server is sole
+        //      coordinate);
+        //   4. command-gating: view controls disabled-until-live + a hard
+        //      `sendCommand` guard (no command before an id is adopted);
+        //   5. one-URL re-hydrate: a view change POSTs the SAME feed url with
+        //      `X-Semitexa-Stream-Rehydrate` (ack-only; rows arrive on the
+        //      open stream as a `ui.grid.data` frame);
+        //   6. one render path — every frame (initial / view-change /
+        //      mutation) flows through the shared renderPage();
+        //   7. declared mutations (e.g. "+ Add a demo lead") POST their route;
+        //   8. Pulling fallback (classic JSON re-fetch per view change);
+        //   9. reconnect + exponential backoff + adopt-a-fresh-id.
+        //
+        // It reuses the shared, declaration-driven render functions
+        // (renderPage / renderPagination / buildRow / updateSortableHeaders)
+        // and the `state` bag — there are NO grid-specific literals here, so a
+        // second grid needs only a class + `#[GridFeed]` + columns. The branch
+        // returns before any of the dispatch/KISS wiring below, so ordinary
+        // grids are completely unaffected.
+        if (bundle && bundle.feed && typeof bundle.feed.route === 'string' && bundle.feed.route !== '') {
+            runFeedMode(bundle.feed);
+            return;
+        }
+
+        function runFeedMode(feed) {
+            var feedUrl     = feed.route;
+            var mutations   = Array.isArray(feed.mutations) ? feed.mutations : [];
+            var feedLiveEl  = rootEl.querySelector('[data-ui-grid-feed-live]');
+
+            // Adopted server stream id — the ONLY id source is the first
+            // `ui.stream.id` SSE event of each connection. Null until adopted;
+            // every re-hydrate command is gated on it.
+            var streamId         = null;
+            var transport        = null;   // 'sse' | 'pulling' (decided once, from OPTIONS)
+            var source           = null;   // the ONE held-open EventSource
+            var gotFrame         = false;  // any frame on the current stream yet?
+            var controlsLive     = false;  // view controls enabled? (disable-until-live)
+            var reconnectAttempts = 0;
+            var reconnectTimer    = null;
+            var qTimer            = null;
+
+            // Seed the view state from the server-rendered controls so the
+            // first GET opens at the right view (limit/sort).
+            state.limit = parseInt(readFormValue(formEl, 'limit'), 10) || parseInt(state.limit, 10) || 25;
+            var seedSort = readFormValue(formEl, sortParam) || initialSort || '';
+            if (seedSort !== '') state.sort = seedSort;
+            state.page = 1;
+
+            function setFeedLive(text, tone) {
+                if (!feedLiveEl) return;
+                feedLiveEl.textContent = text;
+                feedLiveEl.setAttribute('data-state', tone || '');
+            }
+
+            // Disable-until-live gate (the visual half). Toggles the caller-
+            // owned view controls + a `data-controls-live` attribute; the hard
+            // guard against a command without an id lives in sendCommand().
+            function setControlsEnabled(enabled) {
+                controlsLive = !!enabled;
+                var limitSel = formEl ? formEl.querySelector('select[name="limit"]') : null;
+                var qInput   = formEl ? formEl.querySelector('[name="q"]') : null;
+                var submitEl = formEl ? formEl.querySelector('button[type="submit"]') : null;
+                if (limitSel) limitSel.disabled = !enabled;
+                if (qInput)   qInput.disabled   = !enabled;
+                if (submitEl) submitEl.disabled = !enabled;
+                rootEl.setAttribute('data-controls-live', enabled ? '1' : '0');
+            }
+
+            // The stream-open / pulling URL. NO `stream_id` query param — the
+            // server mints + owns the id and announces it via `ui.stream.id`;
+            // with no client id sent, the server-minted id IS the addressing
+            // key == the announced id the client adopts.
+            function buildFeedUrl() {
+                var p = new URLSearchParams();
+                p.set('limit', String(state.limit || 25));
+                if (state.sort)   p.set('sort', state.sort);
+                p.set('page', String(state.page || 1));
+                if (state.q)      p.set('q', state.q);
+                if (state.action) p.set('action', state.action);
+                if (!isOffsetMode() && state.cursor) p.set('cursor', state.cursor);
+                return feedUrl + '?' + p.toString();
+            }
+
+            // === SSE: ONE persistent held-open EventSource ==================
+            // The ONLY place a connection is created. Called once on init and
+            // again ONLY on an actual transport drop — NEVER on a view change.
+            function openStream() {
+                if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+                if (source) { try { source.close(); } catch (e) {} source = null; }
+                // Re-gate on every (re)connect: the OLD id is dead; the new
+                // connection mints a fresh server id we adopt below. Do NOT
+                // re-assert the old id.
+                streamId = null;
+                setControlsEnabled(false);
+                setFeedLive('connecting…', 'connecting');
+                source = new EventSource(buildFeedUrl(), { withCredentials: true });
+                // Adopt the server-minted id. The ONLY assignment to streamId;
+                // overwrites any prior id on reconnect.
+                source.addEventListener('ui.stream.id', function (ev) {
+                    try {
+                        var d = JSON.parse(ev.data);
+                        if (d && typeof d.stream_id === 'string' && d.stream_id) {
+                            streamId = d.stream_id;
+                        }
+                    } catch (e) { /* malformed id frame → stay gated */ }
+                });
+                source.addEventListener('ui.grid.data', function (ev) {
+                    gotFrame = true;
+                    reconnectAttempts = 0;
+                    setControlsEnabled(true);      // first frame → live → controls enabled
+                    setFeedLive('live', 'live');
+                    try {
+                        var frame = JSON.parse(ev.data);
+                        if (frame && frame.ok === false) {
+                            renderError(safeString(frame.message) || safeString(frame.reason) || 'The grid stream reported an error.');
+                        } else {
+                            clearError();
+                            renderPage(frame);
+                            updateSortableHeaders(state.sort);
+                        }
+                    } catch (e) { renderError('Bad frame: ' + e.message); }
+                });
+                source.addEventListener('ui.grid.error', function (ev) {
+                    try { var f = JSON.parse(ev.data); renderError(safeString(f.message) || safeString(f.reason) || 'error'); }
+                    catch (e) { renderError('error'); }
+                });
+                source.addEventListener('close', function () { setFeedLive('closed', 'closed'); });
+                source.onerror = function () {
+                    if (!gotFrame) {
+                        // Never delivered a frame → SSE is not usable here;
+                        // documented degrade to classic JSON polling.
+                        startPulling();
+                        return;
+                    }
+                    // Had a live stream and it dropped → reconnect the SAME
+                    // logical stream (latest view) with exponential backoff.
+                    try { source.close(); } catch (e) {} source = null;
+                    scheduleReconnect();
+                };
+            }
+
+            function scheduleReconnect() {
+                if (reconnectTimer) return;
+                setFeedLive('reconnecting…', 'connecting');
+                var delay = Math.min(30000, 1000 * Math.pow(2, reconnectAttempts));
+                reconnectAttempts++;
+                reconnectTimer = setTimeout(function () { reconnectTimer = null; openStream(); }, delay);
+            }
+
+            function startSse() {
+                transport = 'sse';
+                gotFrame = false;
+                reconnectAttempts = 0;
+                openStream();
+            }
+
+            // === Pulling: classic JSON, view changes re-fetch ===============
+            function startPulling() {
+                transport = 'pulling';
+                if (source) { try { source.close(); } catch (e) {} source = null; }
+                if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+                // No `ui.stream.id`, no commands — the disable-until-live gate
+                // does not apply, so controls are enabled immediately.
+                setControlsEnabled(true);
+                pull();
+            }
+
+            function pull() {
+                setFeedLive('offline · polling', 'offline');
+                fetch(buildFeedUrl(), { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (frame) {
+                        if (frame && frame.ok === false) {
+                            renderError(safeString(frame.message) || safeString(frame.reason) || 'Request failed.');
+                            return;
+                        }
+                        clearError();
+                        renderPage(frame);
+                        updateSortableHeaders(state.sort);
+                    })
+                    .catch(function (e) { renderError('Failed to load grid: ' + e.message); });
+            }
+
+            // === View change → COMMAND (sse) or re-fetch (pulling) ==========
+            function viewChanged() {
+                if (transport === 'pulling') { pull(); return; }
+                sendCommand();
+            }
+
+            // One-URL re-hydrate: the view-change command targets the SAME feed
+            // url the EventSource holds open, distinguished by the
+            // `X-Semitexa-Stream-Rehydrate` header. Fire-and-forget, ack-only —
+            // the fresh rows arrive on the open stream as a `ui.grid.data`
+            // frame. This short POST is NOT a new EventSource connection.
+            function sendCommand() {
+                // Hard disable-until-live guard: never address a command to a
+                // stream before its server id is adopted.
+                if (!streamId) return;
+                // Coerce to ints — renderPage() writes state.limit back as a
+                // String from the response, but the feed DTO's typed setters
+                // expect int limit/page.
+                var body = {
+                    stream_id: streamId,
+                    page:  parseInt(state.page, 10)  || 1,
+                    limit: parseInt(state.limit, 10) || 25,
+                };
+                if (state.sort)   body.sort = state.sort;
+                if (state.q)      body.q = state.q;
+                if (state.action) body.action = state.action;
+                if (!isOffsetMode() && state.cursor) body.cursor = state.cursor;
+                fetch(feedUrl, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-Semitexa-Stream-Rehydrate': '1',
+                    },
+                    body: JSON.stringify(body),
+                }).catch(function () { /* a dropped command is retried by the next view change */ });
+            }
+
+            // === Gestures: a view change is a COMMAND, never a reconnect =====
+            function gated() { return transport === 'sse' && !controlsLive; }
+
+            if (formEl) {
+                // Page-size <select> + filter submit + the search input all
+                // funnel into a view change on the held-open stream.
+                formEl.addEventListener('change', function (ev) {
+                    var t = ev.target;
+                    if (!t || typeof t.getAttribute !== 'function') return;
+                    if (t.getAttribute('name') === 'limit') {
+                        if (gated()) return;
+                        state.limit = parseInt(t.value, 10) || state.limit;
+                        resetPaginationHistory();
+                        viewChanged();
+                    } else if (t.getAttribute('name') === 'action') {
+                        if (gated()) return;
+                        state.action = t.value === '' ? null : t.value;
+                        resetPaginationHistory();
+                        viewChanged();
+                    }
+                });
+                formEl.addEventListener('submit', function (ev) {
+                    ev.preventDefault();
+                    if (gated()) return;
+                    state.q      = readFormValue(formEl, 'q') || null;
+                    state.action = readFormValue(formEl, 'action') || null;
+                    state.limit  = parseInt(readFormValue(formEl, 'limit'), 10) || state.limit;
+                    resetPaginationHistory();
+                    viewChanged();
+                });
+                var qEl = formEl.querySelector('[name="q"]');
+                if (qEl) {
+                    qEl.addEventListener('input', function () {
+                        clearTimeout(qTimer);
+                        qTimer = setTimeout(function () {
+                            if (gated()) return;
+                            var v = qEl.value.trim();
+                            state.q = v === '' ? null : v;
+                            resetPaginationHistory();
+                            viewChanged();
+                        }, 300);
+                    });
+                }
+            }
+
+            // Sortable column header — flip the sort token, re-query the held
+            // stream. Reuses the shared sort tokens + header sync.
+            rootEl.addEventListener('click', function (ev) {
+                var t = ev.target;
+                while (t && t !== rootEl && (!t.getAttribute || t.getAttribute('data-ui-grid-sort') === null)) {
+                    t = t.parentNode;
+                }
+                if (!t || t === rootEl) return;
+                var asc  = t.getAttribute('data-ui-grid-sort-asc')  || '';
+                var desc = t.getAttribute('data-ui-grid-sort-desc') || '';
+                if (asc === '' || desc === '') return;
+                ev.preventDefault();
+                if (gated()) return;
+                state.sort = (state.sort === asc) ? desc : (state.sort === desc ? asc : desc);
+                resetPaginationHistory();
+                updateSortableHeaders(state.sort);
+                viewChanged();
+            });
+
+            // Pagination: Next / Previous / numbered page buttons. Delegated
+            // from the root so the listeners survive every re-render.
+            rootEl.addEventListener('click', function (ev) {
+                var t = ev.target;
+                if (!t || typeof t.closest !== 'function') return;
+                var nextEl = t.closest('[data-ui-grid-next]');
+                var prevEl = t.closest('[data-ui-grid-prev]');
+                var pageEl = t.closest('[data-ui-grid-page]');
+                if (nextEl) {
+                    ev.preventDefault();
+                    if (gated()) return;
+                    if (isOffsetMode()) {
+                        if (state.totalPages !== null && state.page >= state.totalPages) return;
+                        state.page += 1;
+                    } else {
+                        var c = nextEl.getAttribute('data-ui-grid-next-cursor');
+                        if (typeof c !== 'string' || c === '') return;
+                        state.cursors.push(c);
+                        state.page += 1;
+                        state.cursor = c;
+                    }
+                    viewChanged();
+                } else if (prevEl) {
+                    ev.preventDefault();
+                    if (gated() || state.page <= 1) return;
+                    state.page -= 1;
+                    if (!isOffsetMode()) state.cursor = state.cursors[state.page - 1] || null;
+                    viewChanged();
+                } else if (pageEl) {
+                    ev.preventDefault();
+                    if (gated()) return;
+                    var n = parseInt(pageEl.getAttribute('data-ui-grid-page') || '', 10);
+                    if (!isFinite(n) || n < 1) return;
+                    if (isOffsetMode()) {
+                        var max = state.totalPages !== null ? state.totalPages : n;
+                        if (n > max) return;
+                        state.page = n;
+                    } else {
+                        if (n > state.cursors.length) return;
+                        state.page = n;
+                        state.cursor = state.cursors[n - 1] || null;
+                    }
+                    viewChanged();
+                }
+            });
+
+            // Declared mutations (e.g. "+ Add a demo lead"). POST the declared
+            // route; in SSE mode the new row arrives live on the open stream,
+            // in pulling mode re-fetch once after the write.
+            rootEl.addEventListener('click', function (ev) {
+                var btn = ev.target.closest ? ev.target.closest('[data-ui-grid-feed-mutation]') : null;
+                if (!btn) return;
+                ev.preventDefault();
+                var route  = btn.getAttribute('data-ui-grid-feed-mutation-route');
+                var method = (btn.getAttribute('data-ui-grid-feed-mutation-method') || 'POST').toUpperCase();
+                if (!route) return;
+                btn.disabled = true;
+                fetch(route, { method: method, credentials: 'same-origin' })
+                    .then(function (r) { return r.json(); })
+                    .catch(function () { return null; })
+                    .then(function () {
+                        if (transport === 'pulling') { setTimeout(pull, 300); }
+                        setTimeout(function () { btn.disabled = false; }, 600);
+                    });
+            });
+
+            // === Init: OPTIONS handshake decides the transport ==============
+            (function init() {
+                setControlsEnabled(false);
+                var hasEventSource = (typeof window.EventSource !== 'undefined');
+                fetch(feedUrl, {
+                    method: 'OPTIONS',
+                    credentials: 'same-origin',
+                    headers: { 'Accept': 'application/json' },
+                })
+                    .then(function (r) { return r.ok ? r.json() : null; })
+                    .catch(function () { return null; })
+                    .then(function (doc) {
+                        var modes = doc && doc.modes;
+                        var sseAdvertised = !!(modes && typeof modes.indexOf === 'function'
+                            && (modes.indexOf('sse') >= 0 || modes.indexOf('sse-update') >= 0));
+                        // OPTIONS answered → trust it. OPTIONS failed → optimistic SSE.
+                        var canSse = hasEventSource && (doc ? sseAdvertised : true);
+                        if (canSse) { startSse(); } else { startPulling(); }
+                    });
+            })();
+        }
+
         // --- Canonical dispatch correlation tracking ---------------------
         // Phase 6 moved the grid's row data OFF the HTTP response and onto
         // the SSE `ui.componentState` frame. POST /__ui/event now returns
