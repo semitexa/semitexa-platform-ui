@@ -58,7 +58,16 @@
 {%- set _grid_columns_raw  = columns|default([]) -%}
 {%- set _grid_initial_rows = initialRows|default([]) -%}
 {%- set _grid_pagination   = initialPagination|default({}) -%}
-{%- set _grid_limit        = _grid_pagination.limit|default(25) -%}
+{#- Initial page size, single-sourced from the component's declared
+    `#[WithPagination(defaultLimit:)]` (carried as `pagination.defaultLimit`
+    by GridComponentMetadataProvider). `initialPagination.limit` — present
+    only when the server rendered a concrete first page (the dispatch/SSR
+    grids) — takes precedence so a server-clamped limit still wins; the
+    literal 25 is only the ultimate fallback for a grid that declares no
+    pagination at all. Feed grids (leads) render no `initialPagination`, so
+    before this fallback they silently fell back to the hardcoded 25 and
+    ignored their declared `defaultLimit`. -#}
+{%- set _grid_limit        = _grid_pagination.limit|default(pagination.defaultLimit|default(25)) -%}
 {%- set _grid_has_more     = _grid_pagination.hasMore|default(false) -%}
 {%- set _grid_next_cursor  = _grid_pagination.nextCursor|default(null) -%}
 {%- set _grid_initial_q    = initialQuery|default(null) -%}
