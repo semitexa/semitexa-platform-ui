@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Semitexa\PlatformUi\Application\Handler;
+namespace Semitexa\PlatformUi\Application\Handler\PayloadHandler;
 
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Discovery\AttributeDiscovery;

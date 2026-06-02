@@ -13,7 +13,7 @@ use Semitexa\Core\Request;
  * metadata (the live HTTP request for content-negotiation, the adopted stream
  * id, and the view-change params for a re-hydrate command). Implemented by a
  * grid's app-side payload (e.g. the leads grid's `LeadGridStreamPayload`) so
- * the generic {@see \Semitexa\PlatformUi\Application\Handler\AbstractGridStreamFeedHandler}
+ * the generic {@see \Semitexa\PlatformUi\Application\Handler\PayloadHandler\AbstractGridStreamFeedHandler}
  * can drive the held-open serve + the one-URL re-hydrate intake without
  * knowing the concrete grid.
  *
