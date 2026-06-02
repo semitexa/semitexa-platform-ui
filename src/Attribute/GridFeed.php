@@ -56,6 +56,31 @@ use Attribute;
  *                  `{label, route, method?}`; clicking POSTs to the mutation
  *                  route and — in SSE mode — the resulting row arrives live on
  *                  the open feed (in pulling mode the runtime re-fetches once).
+ *   - $liveOn    — LIVE-ON-EVENTS declaration: a list of invalidation SCOPE
+ *                  KEYS this grid refreshes on (e.g. `['ui_playground_leads']`).
+ *                  Each entry is the suffix of an `ui.invalidate.{tenant}.{scope}`
+ *                  channel — the SAME scope-key string the subscribe side
+ *                  ({@see \Semitexa\Ssr\Domain\Model\SubscriptionRecord::$scopeKeys},
+ *                  already a list) and the ORM's `#[ResourceKey]` /
+ *                  `ResourceChangedEvent::$resourceKey` already speak, so a
+ *                  declared scope threads in with ZERO translation. The list is
+ *                  an OR: ANY listed scope firing re-runs the held view, and a
+ *                  burst of triggers is collapsed to one re-run by the existing
+ *                  `RerunCoalescer`. Default `[]` = OFF = a static grid (today's
+ *                  behaviour): no scope → no subscription → never re-runs.
+ *
+ *                  Phasing: this attribute field is the DECLARATION surface
+ *                  only. The subscribe (route `liveOn` into
+ *                  `SubscriptionRecord::$scopeKeys`) and the publish bridge are
+ *                  wired in later phases; declaring `liveOn` here makes the
+ *                  scopes available in metadata, nothing goes live yet.
+ *
+ *                  Structural invariants (live re-run v1 is WINDOWED + SSE
+ *                  only) are cross-attribute and so are enforced at boot by
+ *                  {@see \Semitexa\PlatformUi\Application\Service\Component\GridComponentMetadataProvider}
+ *                  (this ctor cannot see the sibling `#[WithPagination]` /
+ *                  the feed `mode`): a non-empty `liveOn` on a cursor/keyset
+ *                  grid, or on a {@see self::MODE_PLAIN} feed, BOOT-FAILS there.
  */
 #[Attribute(Attribute::TARGET_CLASS)]
 final class GridFeed
@@ -70,12 +95,14 @@ final class GridFeed
      * @param class-string|null $provider
      * @param list<array{label: string, route: string, method?: string}> $mutations
      * @param self::MODE_* $mode
+     * @param list<string> $liveOn
      */
     public function __construct(
         public readonly string $route,
         public readonly ?string $provider = null,
         public readonly array $mutations = [],
         public readonly string $mode = self::MODE_SSE,
+        public readonly array $liveOn = [],
     ) {
         if ($mode !== self::MODE_SSE && $mode !== self::MODE_PLAIN) {
             throw new \InvalidArgumentException(sprintf(
@@ -84,6 +111,15 @@ final class GridFeed
                 self::MODE_PLAIN,
                 $mode,
             ));
+        }
+        foreach ($liveOn as $scopeKey) {
+            if (!is_string($scopeKey) || $scopeKey === '') {
+                throw new \InvalidArgumentException(sprintf(
+                    'GridFeed liveOn entries must be non-empty scope-key strings '
+                    . '(the suffix of an "ui.invalidate.{tenant}.{scope}" channel); got %s.',
+                    get_debug_type($scopeKey),
+                ));
+            }
         }
     }
 }

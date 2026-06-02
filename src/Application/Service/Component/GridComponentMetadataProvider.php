@@ -38,13 +38,83 @@ final class GridComponentMetadataProvider implements ComponentMetadataProviderIn
     /** @inheritDoc */
     public function getProps(ReflectionClass $componentClass): array
     {
+        $gridFeed = $this->resolveGridFeed($componentClass);
+        $pagination = $this->resolvePagination($componentClass);
+
+        // Cross-attribute structural invariant for the live-on-events mode:
+        // a non-empty #[GridFeed(liveOn:)] is only valid on a windowed + SSE
+        // grid. Enforced here (where both the feed and the pagination are
+        // resolved, and the class name is available) — boot-fail, not a
+        // silent runtime no-op.
+        $this->assertLiveOnConstraints($componentClass, $gridFeed, $pagination);
+
         return [
             'columns' => $this->resolveColumns($componentClass),
             'filters' => $this->resolveFilters($componentClass),
-            'pagination' => $this->resolvePagination($componentClass),
-            'gridFeed' => $this->resolveGridFeed($componentClass),
+            'pagination' => $pagination,
+            'gridFeed' => $gridFeed,
             'defaultSort' => $this->resolveDefaultSort($componentClass),
         ];
+    }
+
+    /**
+     * LIVE-ON-EVENTS structural invariant (v1). A grid may declare a non-empty
+     * `#[GridFeed(liveOn: [...])]` ONLY when it can actually carry a live
+     * re-run subscription. Two declaration-time conditions make a live
+     * subscription IMPOSSIBLE, so the invalid config boot-fails HERE (naming
+     * the grid) rather than silently never firing at runtime — the invalid
+     * config is impossible by construction:
+     *
+     *   1. WINDOWED-ONLY. Live re-run is proven only for WINDOWED/offset
+     *      pagination (leads, declared `mode: auto`). A CURSOR/keyset window
+     *      shifts on insert, so "re-run the held view" is ambiguous — cursor
+     *      grids are out of scope for `liveOn` v1 (grid-live-on-events-design
+     *      §7). The keyset signal is `WithPagination::mode === 'cursor'`, which
+     *      is ALSO the no-`#[WithPagination]` default ({@see resolvePagination}):
+     *      a live grid must declare an offset/count/auto pagination mode.
+     *   2. SSE TRANSPORT. `liveOn` pushes a re-run onto a held-open
+     *      `EventSource`; a {@see GridFeed::MODE_PLAIN} pull feed never holds a
+     *      stream, so a live subscription could never fire — `liveOn` on a
+     *      plain feed is invalid.
+     *
+     * This phase only makes the invalid config impossible; the subscribe /
+     * publish wiring lands in later phases.
+     *
+     * @param ReflectionClass<object> $class
+     * @param array{route: string, provider: ?string, mutations: list<array{label: string, route: string, method: string}>, mode: string, liveOn: list<string>}|null $gridFeed
+     * @param array{defaultLimit: int, limitOptions: list<int>, mode: string, windowSize: int, autoCountThreshold: int} $pagination
+     */
+    private function assertLiveOnConstraints(ReflectionClass $class, ?array $gridFeed, array $pagination): void
+    {
+        if ($gridFeed === null || $gridFeed['liveOn'] === []) {
+            // Default OFF — no live scopes → static grid (today's behaviour).
+            return;
+        }
+
+        if ($pagination['mode'] === WithPagination::MODE_CURSOR) {
+            throw new \InvalidArgumentException(sprintf(
+                'Grid %s declares #[GridFeed(liveOn: [%s])] but is cursor/keyset-'
+                . 'paginated (WithPagination mode "%s"). Live re-run is WINDOWED-'
+                . 'only in v1: a cursor window shifts on insert, so a live grid '
+                . 'must declare an offset/count/auto pagination mode.',
+                $class->getName(),
+                implode(', ', $gridFeed['liveOn']),
+                $pagination['mode'],
+            ));
+        }
+
+        if ($gridFeed['mode'] === GridFeed::MODE_PLAIN) {
+            throw new \InvalidArgumentException(sprintf(
+                'Grid %s declares #[GridFeed(liveOn: [%s])] with feed mode "%s". '
+                . 'liveOn pushes a live re-run onto a held-open SSE stream; a '
+                . 'plain pull feed never holds one, so a live grid must declare '
+                . 'GridFeed mode "%s".',
+                $class->getName(),
+                implode(', ', $gridFeed['liveOn']),
+                GridFeed::MODE_PLAIN,
+                GridFeed::MODE_SSE,
+            ));
+        }
     }
 
     /**
@@ -94,7 +164,7 @@ final class GridComponentMetadataProvider implements ComponentMetadataProviderIn
      * (the default — inventory / submissions keep the dispatch model).
      *
      * @param ReflectionClass<object> $class
-     * @return array{route: string, provider: ?string, mutations: list<array{label: string, route: string, method: string}>, mode: string}|null
+     * @return array{route: string, provider: ?string, mutations: list<array{label: string, route: string, method: string}>, mode: string, liveOn: list<string>}|null
      */
     private function resolveGridFeed(ReflectionClass $class): ?array
     {
@@ -125,6 +195,11 @@ final class GridComponentMetadataProvider implements ComponentMetadataProviderIn
             'provider' => $attr->provider,
             'mutations' => $mutations,
             'mode' => $attr->mode,
+            // The declared live-on-events scope keys (Phase 1: declaration +
+            // metadata only). Phase 2 sources AbstractGridStreamFeedHandler's
+            // SubscriptionRecord::$scopeKeys from this list (replacing the
+            // hardcoded gridStreamWatchedScopeKey()); default [] stays static.
+            'liveOn' => $attr->liveOn,
         ];
     }
 

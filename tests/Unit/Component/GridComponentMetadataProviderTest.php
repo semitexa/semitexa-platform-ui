@@ -10,6 +10,7 @@ use ReflectionClass;
 use Semitexa\PlatformUi\Application\Service\Component\GridComponentMetadataProvider;
 use Semitexa\PlatformUi\Attribute\AsColumn;
 use Semitexa\PlatformUi\Attribute\AsFilter;
+use Semitexa\PlatformUi\Attribute\GridFeed;
 use Semitexa\PlatformUi\Attribute\WithPagination;
 
 final class GridComponentMetadataProviderTest extends TestCase
@@ -220,6 +221,96 @@ final class GridComponentMetadataProviderTest extends TestCase
 
         new AsColumn(label: 'Submitted', defaultSort: 'desc');
     }
+
+    // ---- live-on-events: liveOn declaration + metadata thread (C1/C2) -------
+
+    #[Test]
+    public function grid_feed_emits_empty_live_on_by_default(): void
+    {
+        $provider = new GridComponentMetadataProvider();
+
+        $props = $provider->getProps(new ReflectionClass(GridFeedNoLiveOnFixture::class));
+
+        self::assertSame([], $props['gridFeed']['liveOn']);
+    }
+
+    #[Test]
+    public function grid_feed_threads_declared_live_on_scopes_into_metadata(): void
+    {
+        $provider = new GridComponentMetadataProvider();
+
+        $props = $provider->getProps(new ReflectionClass(GridLiveOnWindowedFixture::class));
+
+        self::assertSame(
+            [
+                'route' => '/grid/feed',
+                'provider' => null,
+                'mutations' => [],
+                'mode' => 'sse',
+                'liveOn' => ['ui_playground_leads', 'ui_playground_audit'],
+            ],
+            $props['gridFeed'],
+        );
+    }
+
+    #[Test]
+    public function grid_feed_accepts_live_on_on_an_auto_paginated_sse_grid(): void
+    {
+        // Leads' shape: auto pagination + SSE feed. Auto is windowed-capable,
+        // so a declared liveOn must NOT boot-fail.
+        $provider = new GridComponentMetadataProvider();
+
+        $props = $provider->getProps(new ReflectionClass(GridLiveOnAutoFixture::class));
+
+        self::assertSame(['ui_playground_leads'], $props['gridFeed']['liveOn']);
+        self::assertSame('auto', $props['pagination']['mode']);
+    }
+
+    // ---- live-on-events: structural boot-fail guards (C3) -------------------
+
+    #[Test]
+    public function live_on_boot_fails_on_a_cursor_grid(): void
+    {
+        $provider = new GridComponentMetadataProvider();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/cursor\/keyset-paginated.*WINDOWED-only/s');
+
+        $provider->getProps(new ReflectionClass(GridLiveOnCursorFixture::class));
+    }
+
+    #[Test]
+    public function live_on_boot_fails_when_pagination_attribute_is_absent(): void
+    {
+        // No #[WithPagination] resolves to the cursor default → also invalid.
+        $provider = new GridComponentMetadataProvider();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/cursor\/keyset-paginated/');
+
+        $provider->getProps(new ReflectionClass(GridLiveOnNoPaginationFixture::class));
+    }
+
+    #[Test]
+    public function live_on_boot_fails_on_a_plain_feed(): void
+    {
+        $provider = new GridComponentMetadataProvider();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/plain pull feed never holds/');
+
+        $provider->getProps(new ReflectionClass(GridLiveOnPlainFixture::class));
+    }
+
+    #[Test]
+    public function grid_feed_rejects_a_non_string_live_on_entry_at_declaration(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('liveOn entries must be non-empty scope-key strings');
+
+        /** @phpstan-ignore-next-line — exercising the ctor guard on a bad shape */
+        new GridFeed(route: '/grid/feed', liveOn: ['ok', '']);
+    }
 }
 
 final class PlainComponentFixture
@@ -288,5 +379,60 @@ final class GridWithTwoDefaultSortsFixture
     public string $submittedAt = '';
 
     #[AsColumn(label: 'Email', sortable: true, defaultSort: 'asc')]
+    public string $email = '';
+}
+
+// ---- live-on-events fixtures -----------------------------------------------
+
+/** SSE feed with NO liveOn → emits liveOn: [] (default OFF), even on cursor. */
+#[WithPagination(defaultLimit: 25, limitOptions: [10, 25, 50])]
+#[GridFeed(route: '/grid/feed')]
+final class GridFeedNoLiveOnFixture
+{
+    #[AsColumn(label: 'Email')]
+    public string $email = '';
+}
+
+/** Windowed (offset) + SSE + liveOn → valid; the scopes thread into metadata. */
+#[WithPagination(defaultLimit: 25, limitOptions: [10, 25, 50], mode: 'offset')]
+#[GridFeed(route: '/grid/feed', liveOn: ['ui_playground_leads', 'ui_playground_audit'])]
+final class GridLiveOnWindowedFixture
+{
+    #[AsColumn(label: 'Email')]
+    public string $email = '';
+}
+
+/** Leads' shape: auto pagination + SSE + liveOn → valid (auto is windowed-capable). */
+#[WithPagination(defaultLimit: 10, limitOptions: [10, 25, 50], mode: 'auto')]
+#[GridFeed(route: '/grid/feed', liveOn: ['ui_playground_leads'])]
+final class GridLiveOnAutoFixture
+{
+    #[AsColumn(label: 'Email')]
+    public string $email = '';
+}
+
+/** Cursor/keyset + liveOn → BOOT-FAIL (windowed-only v1). */
+#[WithPagination(defaultLimit: 25, limitOptions: [10, 25, 50], mode: 'cursor')]
+#[GridFeed(route: '/grid/feed', liveOn: ['ui_playground_leads'])]
+final class GridLiveOnCursorFixture
+{
+    #[AsColumn(label: 'Email')]
+    public string $email = '';
+}
+
+/** liveOn with NO #[WithPagination] → cursor default → BOOT-FAIL. */
+#[GridFeed(route: '/grid/feed', liveOn: ['ui_playground_leads'])]
+final class GridLiveOnNoPaginationFixture
+{
+    #[AsColumn(label: 'Email')]
+    public string $email = '';
+}
+
+/** Plain pull feed + liveOn → BOOT-FAIL (liveOn needs a held-open SSE stream). */
+#[WithPagination(defaultLimit: 25, limitOptions: [10, 25, 50], mode: 'offset')]
+#[GridFeed(route: '/grid/feed', mode: GridFeed::MODE_PLAIN, liveOn: ['ui_playground_leads'])]
+final class GridLiveOnPlainFixture
+{
+    #[AsColumn(label: 'Email')]
     public string $email = '';
 }
