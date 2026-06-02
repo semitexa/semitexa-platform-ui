@@ -43,7 +43,45 @@ final class GridComponentMetadataProvider implements ComponentMetadataProviderIn
             'filters' => $this->resolveFilters($componentClass),
             'pagination' => $this->resolvePagination($componentClass),
             'gridFeed' => $this->resolveGridFeed($componentClass),
+            'defaultSort' => $this->resolveDefaultSort($componentClass),
         ];
+    }
+
+    /**
+     * Resolve the grid's DECLARED default sort token from the single
+     * `#[AsColumn(defaultSort: 'asc'|'desc')]` column, if any. Returns the
+     * `${propertyName}_${direction}` token (e.g. `submittedAt_desc`) — the
+     * exact shape the shell's `${key}_asc`/`${key}_desc` sort-toggle
+     * convention already uses — so the declared default seeds the initial
+     * `sort` with no template prop. Null when no column declares a default
+     * sort. Throws when more than one does: a grid has exactly one default
+     * sort (mirrors the cross-field validation in resolvePagination()).
+     *
+     * @param ReflectionClass<object> $class
+     */
+    private function resolveDefaultSort(ReflectionClass $class): ?string
+    {
+        $token = null;
+        foreach ($class->getProperties() as $prop) {
+            $attrs = $prop->getAttributes(AsColumn::class);
+            if ($attrs === []) {
+                continue;
+            }
+            /** @var AsColumn $attr */
+            $attr = $attrs[0]->newInstance();
+            if ($attr->defaultSort === null) {
+                continue;
+            }
+            if ($token !== null) {
+                throw new \InvalidArgumentException(sprintf(
+                    'Grid %s declares more than one #[AsColumn(defaultSort:)]; '
+                    . 'a grid has exactly one default sort.',
+                    $class->getName(),
+                ));
+            }
+            $token = $prop->getName() . '_' . $attr->defaultSort;
+        }
+        return $token;
     }
 
     /**

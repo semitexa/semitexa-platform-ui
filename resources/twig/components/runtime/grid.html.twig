@@ -34,6 +34,10 @@
  #   initialPagination (optional {limit, hasMore, nextCursor})
  #   initialQuery   (optional string — fallback Next-link state)
  #   initialAction  (optional string — fallback Next-link state)
+ #   defaultSort    (optional string — declared default sort token, emitted
+ #                   from #[AsColumn(defaultSort:)] by the metadata provider)
+ #   initialSort    (optional string — explicit per-page sort override;
+ #                   takes precedence over the declared `defaultSort`)
  #   pageFallbackUrl   (optional string — no-JS Next-link href base)
  #   emptyMessage   (optional string)
  #   paginationWindowSize (optional int — max visited-page buttons
@@ -72,7 +76,13 @@
 {%- set _grid_next_cursor  = _grid_pagination.nextCursor|default(null) -%}
 {%- set _grid_initial_q    = initialQuery|default(null) -%}
 {%- set _grid_initial_act  = initialAction|default(null) -%}
-{%- set _grid_initial_sort = initialSort|default(null) -%}
+{#- Initial sort, single-sourced from the component's declared
+    `#[AsColumn(defaultSort:)]` (carried as the `defaultSort` token prop by
+    GridComponentMetadataProvider). A caller-supplied `initialSort` prop —
+    an explicit per-page override — still takes precedence; the declared
+    default is the fallback. Mirrors the `_grid_limit` resolution: declared
+    config is the single source, the prop is only an override. -#}
+{%- set _grid_initial_sort = initialSort|default(defaultSort|default(null)) -%}
 {%- set _grid_sort_param   = sortParam|default('sort') -%}
 {%- set _grid_page_url     = pageFallbackUrl|default('') -%}
 {%- set _grid_empty        = emptyMessage|default('No rows.') -%}

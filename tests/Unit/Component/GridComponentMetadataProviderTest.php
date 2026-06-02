@@ -170,6 +170,56 @@ final class GridComponentMetadataProviderTest extends TestCase
             $props['pagination'],
         );
     }
+
+    #[Test]
+    public function default_sort_is_null_when_no_column_declares_it(): void
+    {
+        $provider = new GridComponentMetadataProvider();
+
+        $props = $provider->getProps(new ReflectionClass(GridWithColumnsFixture::class));
+
+        self::assertArrayHasKey('defaultSort', $props);
+        self::assertNull($props['defaultSort']);
+    }
+
+    #[Test]
+    public function default_sort_resolves_declared_column_token(): void
+    {
+        $provider = new GridComponentMetadataProvider();
+
+        $props = $provider->getProps(new ReflectionClass(GridWithDefaultSortFixture::class));
+
+        self::assertSame('submittedAt_desc', $props['defaultSort']);
+    }
+
+    #[Test]
+    public function default_sort_throws_when_more_than_one_column_declares_it(): void
+    {
+        $provider = new GridComponentMetadataProvider();
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('more than one #[AsColumn(defaultSort:)]');
+
+        $provider->getProps(new ReflectionClass(GridWithTwoDefaultSortsFixture::class));
+    }
+
+    #[Test]
+    public function as_column_rejects_invalid_default_sort_direction(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('defaultSort must be "asc" or "desc"');
+
+        new AsColumn(label: 'Submitted', sortable: true, defaultSort: 'descending');
+    }
+
+    #[Test]
+    public function as_column_rejects_default_sort_on_non_sortable_column(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('defaultSort requires sortable: true');
+
+        new AsColumn(label: 'Submitted', defaultSort: 'desc');
+    }
 }
 
 final class PlainComponentFixture
@@ -221,4 +271,22 @@ final class FullGridFixture
 
     #[AsFilter(type: 'search', placeholder: 'Search…')]
     public string $q = '';
+}
+
+final class GridWithDefaultSortFixture
+{
+    #[AsColumn(label: 'Submitted', sortable: true, type: 'datetime', defaultSort: 'desc')]
+    public string $submittedAt = '';
+
+    #[AsColumn(label: 'Email')]
+    public string $email = '';
+}
+
+final class GridWithTwoDefaultSortsFixture
+{
+    #[AsColumn(label: 'Submitted', sortable: true, type: 'datetime', defaultSort: 'desc')]
+    public string $submittedAt = '';
+
+    #[AsColumn(label: 'Email', sortable: true, defaultSort: 'asc')]
+    public string $email = '';
 }
