@@ -6,10 +6,12 @@ namespace Semitexa\PlatformUi\Application\Handler\PayloadHandler;
 
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Discovery\AttributeDiscovery;
+use Semitexa\Core\Discovery\ClassDiscovery;
 use Semitexa\Core\Discovery\RouteRegistry;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Core\Pipeline\ReRun\ReRunContext;
 use Semitexa\Core\Server\SwooleBootstrap;
+use Semitexa\PlatformUi\Attribute\GridFeed;
 use Semitexa\PlatformUi\Domain\Contract\GridStreamPayloadInterface;
 use Semitexa\Ssr\Application\Service\Async\AsyncResourceSseServer;
 use Semitexa\Ssr\Domain\Model\SubscriptionRecord;
@@ -25,8 +27,9 @@ use Semitexa\Ssr\Domain\Model\SubscriptionRecord;
  * {@see AsyncResourceSseServer::submitViewChange()}, the SSE-vs-JSON content
  * negotiation, and the JSON degrade — lives here ONCE, driven by a grid's
  * `#[GridFeed]` declaration. A concrete grid handler supplies only the
- * grid-specific seams (its row envelope, its grid id / route / watched scope)
- * and binds the route via its own `#[AsPayloadHandler]` + payload
+ * grid-specific seams (its row envelope, its grid id / route; the watched
+ * live-on-events scopes are DECLARED on the grid via `#[GridFeed(liveOn:)]`,
+ * not coded here) and binds the route via its own `#[AsPayloadHandler]` + payload
  * `#[AsPublicPayload]`. A second grid is then a payload + a thin subclass + a
  * row source — no copy of this serving code.
  *
@@ -67,6 +70,24 @@ abstract class AbstractGridStreamFeedHandler
     #[InjectAsReadonly]
     protected AttributeDiscovery $attributeDiscovery;
 
+    /**
+     * Used to find the grid component whose `#[GridFeed]` declares THIS feed
+     * route, so the held-open subscription's watched scopes are sourced from
+     * the declared {@see GridFeed::$liveOn} (live-on-events Phase 2) rather than
+     * a hardcoded per-handler constant. {@see resolveWatchedScopeKeys()}.
+     */
+    #[InjectAsReadonly]
+    protected ClassDiscovery $classDiscovery;
+
+    /**
+     * Route → resolved live-on scope keys, memoized per worker. The
+     * declaration→subscription resolution is classmap-stable for the life of a
+     * worker, so it is reflected once per feed route, not once per connect.
+     *
+     * @var array<string, list<string>>
+     */
+    private static array $watchedScopeKeyCache = [];
+
     // ---- Grid-specific seams a concrete handler MUST supply ----------------
 
     /**
@@ -85,13 +106,6 @@ abstract class AbstractGridStreamFeedHandler
 
     /** This feed endpoint's own route method (the GET held-open verb). */
     abstract protected function gridStreamRouteMethod(): string;
-
-    /**
-     * The resource scope this grid watches for live invalidation — equals the
-     * P1 `resourceKey` of the grid's backing resource (the channel a mutation
-     * publishes on). The held-open re-run fires when this scope is invalidated.
-     */
-    abstract protected function gridStreamWatchedScopeKey(): string;
 
     // ---- The shared pipeline -----------------------------------------------
 
@@ -320,8 +334,15 @@ abstract class AbstractGridStreamFeedHandler
      * Build the cross-worker subscription row ({@see SubscriptionRecord}) — the
      * identity-free, routable record the reverse-index scan filters on.
      * streamingId == sessionId (one stream per connection); scopeKeys is the
-     * single watched scope; tenantId/tenantBlob mirror the publisher so the
-     * channel names agree.
+     * declared live-on-events watch list ({@see resolveWatchedScopeKeys()});
+     * tenantId/tenantBlob mirror the publisher so the channel names agree.
+     *
+     * An empty `scopeKeys` (the grid declares no `#[GridFeed(liveOn:)]`) is a
+     * valid record: R1 indexes no invalidation channel for it, so it never
+     * live-re-runs (a static grid), yet the record + its worker-local
+     * {@see ReRunContext} are still registered so the held-open stream's
+     * view-change re-hydrate keeps working (that rides the context, not
+     * scopeKeys).
      */
     private function buildSubscriptionRecord(string $sessionId): SubscriptionRecord
     {
@@ -329,9 +350,70 @@ abstract class AbstractGridStreamFeedHandler
             streamingId: $sessionId,
             sessionId: $sessionId,
             tenantId: self::currentTenantId(),
-            scopeKeys: [$this->gridStreamWatchedScopeKey()],
+            scopeKeys: $this->resolveWatchedScopeKeys(),
             tenantBlob: self::currentTenantBlob(),
         );
+    }
+
+    /**
+     * The live-on-events scope keys THIS feed's held-open stream subscribes to,
+     * sourced from its `#[GridFeed(liveOn:)]` declaration (memoized per worker).
+     * See {@see watchedScopeKeysForRoute()} for the resolution + default rules.
+     *
+     * @return list<string>
+     */
+    private function resolveWatchedScopeKeys(): array
+    {
+        $route = $this->gridStreamRoutePath();
+
+        return self::$watchedScopeKeyCache[$route]
+            ??= self::watchedScopeKeysForRoute(
+                $this->classDiscovery->findClassesWithAttribute(GridFeed::class),
+                $route,
+            );
+    }
+
+    /**
+     * Resolve the declared live-on-events watched scope keys for a feed route —
+     * the single source of {@see SubscriptionRecord::$scopeKeys} (live-on-events
+     * Phase 2). Scans the `#[GridFeed]`-bearing component classes, matches the
+     * one whose declared {@see GridFeed::$route} equals the feed route this
+     * handler serves, and returns its {@see GridFeed::$liveOn} list VERBATIM.
+     * This REPLACES the former hardcoded per-handler `gridStreamWatchedScopeKey()`
+     * seam: the watched scope is now DECLARED on the grid, not coded in the
+     * handler.
+     *
+     * The list is the subscribe contract verbatim — `SubscriptionRecord::$scopeKeys`
+     * is already a list, so `liveOn: [a, b, c]` subscribes the held-open stream
+     * to all three: ANY firing re-runs (OR semantics), and a burst coalesces to
+     * one re-run via the existing `RerunCoalescer`.
+     *
+     * Default `[]` — no `#[GridFeed]` matches the route, or it declares no
+     * `liveOn` — means an EMPTY subscription: the stream watches no channel and
+     * never live-re-runs (a static grid, today's behaviour). It is byte-equal to
+     * the no-subscription state regardless of how the record is later indexed.
+     *
+     * @param list<class-string> $gridFeedClasses the component classes carrying `#[GridFeed]`
+     * @return list<string>
+     */
+    public static function watchedScopeKeysForRoute(array $gridFeedClasses, string $routePath): array
+    {
+        foreach ($gridFeedClasses as $class) {
+            if (!class_exists($class)) {
+                continue;
+            }
+            $attrs = (new \ReflectionClass($class))->getAttributes(GridFeed::class);
+            if ($attrs === []) {
+                continue;
+            }
+            /** @var GridFeed $feed */
+            $feed = $attrs[0]->newInstance();
+            if ($feed->route === $routePath) {
+                return array_values($feed->liveOn);
+            }
+        }
+
+        return [];
     }
 
     /**
