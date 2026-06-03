@@ -68,12 +68,21 @@ final class UiGridDataResponse
      * @param list<array<string, mixed>> $rows  Already-projected,
      *      already-sanitised row maps. The handler owns row
      *      shape; this class does not inspect keys.
+     * @param array<string, list<array{value: string, label: string}>>|null $filterOptions
+     *      Optional declarative select-filter options, keyed by filter field
+     *      name (`{ category: [{value,label}], … }`). When a feed handler that
+     *      owns its filter catalogs supplies this, the `platform.grid` runtime
+     *      populates the matching `<select>` controls from it — so a page can
+     *      render the grid with a single `{{ component(...) }}` and NO
+     *      hand-wired `filterOptions` prop. Pass null (the default) to omit it
+     *      entirely.
      * @return array{
      *   ok: true,
      *   gridId: string,
      *   rows: list<array<string, mixed>>,
      *   pagination: array<string, mixed>,
      *   filters: array{q:?string, action:?string},
+     *   filterOptions?: array<string, list<array{value: string, label: string}>>,
      * }
      */
     public static function success(
@@ -81,14 +90,25 @@ final class UiGridDataResponse
         array $rows,
         UiGridPaginationPayload $pagination,
         UiGridFilterState $filters,
+        ?array $filterOptions = null,
     ): array {
-        return [
+        $envelope = [
             'ok'         => true,
             'gridId'     => $gridId,
             'rows'       => $rows,
             'pagination' => $pagination->toArray(),
             'filters'    => $filters->toArray(),
         ];
+        // ADDITIVE, optional trailing key. Appended ONLY when the handler
+        // supplies options, so every existing caller's envelope stays
+        // byte-identical (the pinned ok/gridId/rows/pagination/filters key
+        // order + bytes are unchanged) and the runtime touches no select when
+        // the key is absent.
+        if ($filterOptions !== null && $filterOptions !== []) {
+            $envelope['filterOptions'] = $filterOptions;
+        }
+
+        return $envelope;
     }
 
     /**

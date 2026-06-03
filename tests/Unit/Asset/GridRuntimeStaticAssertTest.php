@@ -587,6 +587,121 @@ final class GridRuntimeStaticAssertTest extends TestCase
         );
     }
 
+    // ----------------------------------------------------------------
+    // Badge / link rich-cell rendering — server↔client byte-equivalence
+    // ----------------------------------------------------------------
+
+    #[Test]
+    public function runtime_badge_variant_styles_match_the_twig_template_byte_for_byte(): void
+    {
+        // These three strings are the client half of the server↔client
+        // parity. They MUST be byte-identical to the `_ui_badge_*` /
+        // `_ui_link_cell_style` strings in grid.html.twig, or a badge/link
+        // cell would render differently on the client feed-rebuild than on the
+        // server initial paint (the cell "jumps"). The matching Twig render
+        // test (GridComponentRenderTest) asserts the SAME literals on the
+        // server side, so the two pins together prove equivalence.
+        $source = $this->loadRuntime();
+        self::assertStringContainsString(
+            "var UI_BADGE_BASE = 'display:inline-block;padding:0.125rem 0.5rem;border-radius:999px;font-size:0.75rem;font-weight:600;line-height:1.4;';",
+            $source,
+            'badge base style must match the Twig _ui_badge_base byte-for-byte.',
+        );
+        self::assertStringContainsString(
+            "background:var(--ui-state-success-surface,#e6f4ea);color:var(--ui-state-success,#1a7f37);",
+            $source,
+            'badge ok variant must match the Twig ok style byte-for-byte.',
+        );
+        self::assertStringContainsString(
+            "background:var(--ui-state-warning-surface,#fff4e5);color:var(--ui-state-warning,#9a6700);",
+            $source,
+            'badge warn variant must match the Twig warn style byte-for-byte.',
+        );
+        self::assertStringContainsString(
+            "background:var(--ui-surface-sunken,#eceff1);color:var(--ui-text-muted,#5f6b76);",
+            $source,
+            'badge mute variant must match the Twig mute style byte-for-byte.',
+        );
+        self::assertStringContainsString(
+            "var UI_LINK_CELL_STYLE = 'color:var(--ui-action-primary,#0b66c3);text-decoration:underline;';",
+            $source,
+            'link cell style must match the Twig _ui_link_cell_style byte-for-byte.',
+        );
+    }
+
+    #[Test]
+    public function runtime_builds_badge_cells_via_createElement_span(): void
+    {
+        $body = $this->strippedRuntime();
+        self::assertStringContainsString(
+            "document.createElement('span')",
+            $body,
+            'grid-runtime.js must build badge cells via createElement(span).',
+        );
+        self::assertStringContainsString(
+            "setAttribute('data-ui-grid-badge'",
+            $body,
+            'grid-runtime.js must mark the badge span with data-ui-grid-badge.',
+        );
+        self::assertMatchesRegularExpression(
+            '/function\s+resolveBadgeVariant\s*\(/',
+            $body,
+            'grid-runtime.js must resolve the badge variant via a helper that mirrors the Twig lookup + mute fallback.',
+        );
+    }
+
+    #[Test]
+    public function runtime_builds_link_cells_via_createElement_anchor_with_safe_href(): void
+    {
+        $body = $this->strippedRuntime();
+        self::assertStringContainsString(
+            "document.createElement('a')",
+            $body,
+            'grid-runtime.js must build link cells via createElement(a).',
+        );
+        self::assertStringContainsString(
+            "setAttribute('data-ui-grid-link'",
+            $body,
+            'grid-runtime.js must mark the link anchor with data-ui-grid-link.',
+        );
+        self::assertMatchesRegularExpression(
+            '/function\s+interpolateHref\s*\(/',
+            $body,
+            'grid-runtime.js must interpolate the href template via a helper.',
+        );
+        self::assertStringContainsString(
+            'encodeURIComponent(',
+            $body,
+            'grid-runtime.js must URL-encode interpolated href values.',
+        );
+        self::assertMatchesRegularExpression(
+            '/function\s+isSiteRelativeHref\s*\(/',
+            $body,
+            'grid-runtime.js must guard hrefs as site-relative (no scheme / protocol-relative) before emitting an anchor.',
+        );
+    }
+
+    #[Test]
+    public function runtime_populates_filter_selects_from_envelope_filter_options(): void
+    {
+        $body = $this->strippedRuntime();
+        self::assertMatchesRegularExpression(
+            '/function\s+fillFilterOptions\s*\(/',
+            $body,
+            'grid-runtime.js must define fillFilterOptions() to populate selects from the envelope.',
+        );
+        self::assertStringContainsString(
+            'envelope.filterOptions',
+            $body,
+            'grid-runtime.js must read envelope.filterOptions (additive declarative filter options).',
+        );
+        self::assertStringContainsString(
+            "document.createElement('option')",
+            $body,
+            'grid-runtime.js must build <option>s via createElement (safe-DOM), not innerHTML.',
+        );
+    }
+
     #[Test]
     public function runtime_does_not_reference_nonexistent_dispatched_listener(): void
     {

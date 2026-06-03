@@ -423,4 +423,106 @@ final class GridComponentRenderTest extends TestCase
         // to without mutating any visible UI.
         self::assertMatchesRegularExpression('/<span[^>]*data-ui-patch-target="lead-grid-refresh-marker"[^>]*hidden/', $html);
     }
+
+    // ----------------------------------------------------------------
+    // Badge + link rich-cell rendering (server side of the server↔client
+    // parity). These exact style strings are the SINGLE source mirrored
+    // byte-for-byte into grid-runtime.js — pinned by
+    // GridRuntimeStaticAssertTest so the two renderers cannot drift.
+    // ----------------------------------------------------------------
+
+    /** Byte-identical to UI_BADGE_VARIANT_STYLES.ok in grid-runtime.js. */
+    private const BADGE_OK_STYLE = 'display:inline-block;padding:0.125rem 0.5rem;border-radius:999px;font-size:0.75rem;font-weight:600;line-height:1.4;background:var(--ui-state-success-surface,#e6f4ea);color:var(--ui-state-success,#1a7f37);';
+    /** Byte-identical to UI_BADGE_VARIANT_STYLES.mute in grid-runtime.js. */
+    private const BADGE_MUTE_STYLE = 'display:inline-block;padding:0.125rem 0.5rem;border-radius:999px;font-size:0.75rem;font-weight:600;line-height:1.4;background:var(--ui-surface-sunken,#eceff1);color:var(--ui-text-muted,#5f6b76);';
+    /** Byte-identical to UI_LINK_CELL_STYLE in grid-runtime.js. */
+    private const LINK_STYLE = 'color:var(--ui-action-primary,#0b66c3);text-decoration:underline;';
+
+    private function richProps(array $rows): array
+    {
+        return [
+            'gridId'        => 'platform.grid.rich',
+            'instanceId'    => 'uci_rich',
+            'dataUrl'       => '/test/data',
+            'columns'       => [
+                ['key' => 'title',  'label' => 'Title',  'type' => 'link',  'href' => '/articles/{id}'],
+                ['key' => 'status', 'label' => 'Status', 'type' => 'badge', 'badge' => ['draft' => 'mute', 'published' => 'ok']],
+                ['key' => 'slug',   'label' => 'Slug',   'type' => 'mono'],
+            ],
+            'initialRows'   => $rows,
+            'pageFallbackUrl' => '/test/page',
+        ];
+    }
+
+    #[Test]
+    public function badge_column_renders_a_styled_span_for_a_mapped_value(): void
+    {
+        $html = $this->render($this->richProps([
+            ['id' => '5', 'title' => 'Hello', 'status' => 'published', 'slug' => 'hello'],
+        ]));
+        self::assertStringContainsString(
+            '<span data-ui-grid-badge="ok" style="' . self::BADGE_OK_STYLE . '">published</span>',
+            $html,
+        );
+    }
+
+    #[Test]
+    public function badge_column_falls_back_to_mute_for_an_unmapped_value(): void
+    {
+        $html = $this->render($this->richProps([
+            ['id' => '7', 'title' => 'Hi', 'status' => 'archived', 'slug' => 'hi'],
+        ]));
+        self::assertStringContainsString(
+            '<span data-ui-grid-badge="mute" style="' . self::BADGE_MUTE_STYLE . '">archived</span>',
+            $html,
+        );
+    }
+
+    #[Test]
+    public function link_column_renders_an_anchor_with_interpolated_relative_href(): void
+    {
+        $html = $this->render($this->richProps([
+            ['id' => '42', 'title' => 'My Title', 'status' => 'draft', 'slug' => 'my-title'],
+        ]));
+        self::assertStringContainsString(
+            '<a data-ui-grid-link href="/articles/42" style="' . self::LINK_STYLE . '">My Title</a>',
+            $html,
+        );
+    }
+
+    #[Test]
+    public function link_href_interpolation_url_encodes_the_row_value(): void
+    {
+        // A row value with a reserved char must be URL-encoded in the href so
+        // it cannot break out of the path / inject markup.
+        $html = $this->render($this->richProps([
+            ['id' => 'a/b c', 'title' => 'X', 'status' => 'draft', 'slug' => 'x'],
+        ]));
+        self::assertStringContainsString('href="/articles/a%2Fb%20c"', $html);
+        // The raw, un-encoded value must NOT appear inside an href.
+        self::assertStringNotContainsString('href="/articles/a/b c"', $html);
+    }
+
+    #[Test]
+    public function link_text_is_html_escaped(): void
+    {
+        $html = $this->render($this->richProps([
+            ['id' => '1', 'title' => '<script>alert(1)</script>', 'status' => 'draft', 'slug' => 's'],
+        ]));
+        // The hostile title renders as escaped anchor TEXT, never markup.
+        self::assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $html);
+        self::assertStringNotContainsString('<script>alert(1)</script>', $html);
+    }
+
+    #[Test]
+    public function plain_columns_render_byte_identically_when_rich_columns_are_absent(): void
+    {
+        // The decisive non-regression pin: a grid that declares NO badge/link
+        // columns produces exactly the same `<td>…textContent…</td>` cells as
+        // before this enhancement (no <span>/<a>, no data-ui-grid-badge/link).
+        $html = $this->render($this->fullProps());
+        self::assertStringContainsString('<td ui-text="body" style="padding:0.5rem 0.75rem;font-size:0.8125rem;">Ada</td>', $html);
+        self::assertStringNotContainsString('data-ui-grid-badge', $html);
+        self::assertStringNotContainsString('data-ui-grid-link', $html);
+    }
 }

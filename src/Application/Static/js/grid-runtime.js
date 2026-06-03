@@ -61,6 +61,65 @@
     var MIN_PAGE_WINDOW     = 1;
     var MAX_PAGE_WINDOW     = 25;
 
+    // Rich-cell (badge / link) styling. These strings are BYTE-IDENTICAL
+    // copies of the `_ui_badge_*` / `_ui_link_cell_style` definitions in
+    // resources/twig/components/runtime/grid.html.twig. The server initial
+    // paint and this client feed-rebuild MUST produce the same DOM, so a cell
+    // never "jumps" / changes shape on reload — that server↔client parity is
+    // the badge/link feature's correctness bar. Edit BOTH copies in lockstep.
+    // Badge variants are the fixed token set ok/warn/mute; an unmapped /
+    // unknown value resolves to `mute`.
+    var UI_BADGE_BASE = 'display:inline-block;padding:0.125rem 0.5rem;border-radius:999px;font-size:0.75rem;font-weight:600;line-height:1.4;';
+    var UI_BADGE_VARIANT_STYLES = {
+        ok:   UI_BADGE_BASE + 'background:var(--ui-state-success-surface,#e6f4ea);color:var(--ui-state-success,#1a7f37);',
+        warn: UI_BADGE_BASE + 'background:var(--ui-state-warning-surface,#fff4e5);color:var(--ui-state-warning,#9a6700);',
+        mute: UI_BADGE_BASE + 'background:var(--ui-surface-sunken,#eceff1);color:var(--ui-text-muted,#5f6b76);',
+    };
+    var UI_LINK_CELL_STYLE = 'color:var(--ui-action-primary,#0b66c3);text-decoration:underline;';
+
+    /**
+     * Resolve a badge variant for a cell value against the column's
+     * server-owned value→variant map. Unmapped values, and any variant not in
+     * the fixed token set, fall back to `mute` — identical to the Twig
+     * `(col.badge)[value]|default('mute')` + unknown-variant guard.
+     */
+    function resolveBadgeVariant(value, badgeMap) {
+        var variant = (badgeMap && typeof badgeMap === 'object' && typeof badgeMap[value] === 'string')
+            ? badgeMap[value]
+            : 'mute';
+        if (typeof UI_BADGE_VARIANT_STYLES[variant] !== 'string') variant = 'mute';
+        return variant;
+    }
+
+    /**
+     * Interpolate a site-relative href template's `{field}` placeholders from
+     * the row, URL-encoding each value. Mirrors the Twig per-field
+     * `replace({'{key}': value|url_encode})` loop. The field NAMES come from
+     * the trusted column template, never the row; the field VALUES are
+     * URL-encoded, so an interpolated value can never reintroduce a `{token}`
+     * (encodeURIComponent escapes braces) — making the substitution
+     * order-independent and injection-safe.
+     */
+    function interpolateHref(template, row) {
+        var href = String(template);
+        for (var k in row) {
+            if (!Object.prototype.hasOwnProperty.call(row, k)) continue;
+            var v = row[k];
+            href = href.split('{' + k + '}').join(encodeURIComponent(v == null ? '' : String(v)));
+        }
+        return href;
+    }
+
+    /**
+     * Site-relative href guard — defence in depth alongside the boot-time
+     * AsColumn validation. Accepts a single leading `/` and rejects
+     * protocol-relative `//host` (and anything a scheme could ride). Mirrors
+     * the Twig `starts with '/' and not starts with '//'` check.
+     */
+    function isSiteRelativeHref(href) {
+        return typeof href === 'string' && href.charAt(0) === '/' && href.charAt(1) !== '/';
+    }
+
     /**
      * Pure sliding-window helper for the pagination footer.
      *
@@ -1155,6 +1214,13 @@
             if (filterStateEl) filterStateEl.hidden = !hasFilter;
             if (filterQ)       filterQ.textContent  = typeof filters.q === 'string' ? filters.q : '';
             if (filterAction)  filterAction.textContent = typeof filters.action === 'string' ? filters.action : '';
+
+            // Declarative filter options — when the feed handler surfaces a
+            // `filterOptions` map in the envelope, (re)populate the matching
+            // <select> controls from it so the page never hand-wires them.
+            // Additive: absent → no select is touched (existing grids
+            // unaffected).
+            fillFilterOptions(envelope.filterOptions);
         }
 
         // Pagination footer — Previous button, visited-page numbered
@@ -1365,6 +1431,37 @@
             renderPagination({ hasMore: initialHasMore, nextCursor: initialCursor });
         })();
 
+        // Populate <select> filter options from the envelope's optional
+        // `filterOptions` map (keyed by filter field name). Options are built
+        // via createElement + textContent (safe-DOM) and the current selection
+        // is preserved across a re-fetch. We iterate the form's <select>s and
+        // match by their `name` attribute rather than building a selector from
+        // server data — no arbitrary selectors from the payload.
+        function fillFilterOptions(filterOptions) {
+            if (!formEl || !filterOptions || typeof filterOptions !== 'object') return;
+            var selects = formEl.querySelectorAll('select');
+            for (var s = 0; s < selects.length; s++) {
+                var selectEl = selects[s];
+                var field = selectEl.getAttribute('name');
+                if (!field || !Object.prototype.hasOwnProperty.call(filterOptions, field)) continue;
+                var opts = filterOptions[field];
+                if (!Array.isArray(opts)) continue;
+                var current = typeof selectEl.value === 'string' ? selectEl.value : '';
+                while (selectEl.firstChild) selectEl.removeChild(selectEl.firstChild);
+                for (var i = 0; i < opts.length; i++) {
+                    var opt = opts[i];
+                    if (!opt || typeof opt !== 'object') continue;
+                    var value = opt.value == null ? '' : String(opt.value);
+                    var label = opt.label == null ? value : String(opt.label);
+                    var optionEl = document.createElement('option');
+                    optionEl.setAttribute('value', value);
+                    optionEl.textContent = label;
+                    if (value === current) optionEl.selected = true;
+                    selectEl.appendChild(optionEl);
+                }
+            }
+        }
+
         function buildRow(row) {
             if (!row || typeof row !== 'object') return null;
             var tr = document.createElement('tr');
@@ -1380,8 +1477,38 @@
                 if (Object.prototype.hasOwnProperty.call(row, col.key) && row[col.key] != null) {
                     text = String(row[col.key]);
                 }
-                // textContent — the cardinal anti-XSS guarantee.
-                td.textContent = text;
+                var colType = typeof col.type === 'string' ? col.type : 'text';
+                if (colType === 'badge') {
+                    // Badge: a styled <span> chosen by the server-owned variant
+                    // map. The value only sets textContent + selects a variant
+                    // key — never markup. Byte-equivalent to the grid.html.twig
+                    // <td> badge branch (same span, data attr, style, text).
+                    var variant = resolveBadgeVariant(text, col.badge);
+                    var badgeEl = document.createElement('span');
+                    badgeEl.setAttribute('data-ui-grid-badge', variant);
+                    badgeEl.setAttribute('style', UI_BADGE_VARIANT_STYLES[variant]);
+                    badgeEl.textContent = text;
+                    td.appendChild(badgeEl);
+                } else if (colType === 'link') {
+                    // Link: an <a> whose href is the column template with
+                    // {field} placeholders interpolated + URL-encoded. Degrade
+                    // to plain text when the resolved href is not site-relative.
+                    // Byte-equivalent to the grid.html.twig <td> link branch.
+                    var href = interpolateHref(typeof col.href === 'string' ? col.href : '', row);
+                    if (isSiteRelativeHref(href)) {
+                        var linkEl = document.createElement('a');
+                        linkEl.setAttribute('data-ui-grid-link', '');
+                        linkEl.setAttribute('href', href);
+                        linkEl.setAttribute('style', UI_LINK_CELL_STYLE);
+                        linkEl.textContent = text;
+                        td.appendChild(linkEl);
+                    } else {
+                        td.textContent = text;
+                    }
+                } else {
+                    // textContent — the cardinal anti-XSS guarantee.
+                    td.textContent = text;
+                }
                 td.setAttribute('ui-text', 'body');
                 var baseStyle = 'padding:0.5rem 0.75rem;font-size:0.8125rem;';
                 var colStyle  = typeof col.style === 'string' ? col.style : '';

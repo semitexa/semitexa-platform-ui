@@ -56,6 +56,83 @@ final class GridComponentMetadataProviderTest extends TestCase
     }
 
     #[Test]
+    public function resolves_badge_and_link_config_only_for_rich_columns(): void
+    {
+        $provider = new GridComponentMetadataProvider();
+
+        $props = $provider->getProps(new ReflectionClass(GridWithRichColumnsFixture::class));
+
+        // The badge column carries its variant map; the link column carries its
+        // href template; the plain column keeps the EXACT 4-key shape (no
+        // badge/href keys) — the additive non-regression guarantee.
+        self::assertSame(
+            [
+                ['key' => 'title', 'label' => 'Title', 'sortable' => false, 'type' => 'link', 'href' => '/articles/{id}'],
+                ['key' => 'status', 'label' => 'Status', 'sortable' => false, 'type' => 'badge', 'badge' => ['draft' => 'mute', 'published' => 'ok']],
+                ['key' => 'slug', 'label' => 'Slug', 'sortable' => false, 'type' => 'mono'],
+            ],
+            $props['columns'],
+        );
+    }
+
+    #[Test]
+    public function badge_map_is_rejected_on_a_non_badge_column(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/badge map is only valid on a type: "badge"/');
+
+        /** @phpstan-ignore-next-line — exercising the ctor guard */
+        new AsColumn(label: 'X', type: 'text', badge: ['a' => 'ok']);
+    }
+
+    #[Test]
+    public function badge_type_requires_a_non_empty_map(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/type "badge" requires a non-empty/');
+
+        new AsColumn(label: 'X', type: 'badge');
+    }
+
+    #[Test]
+    public function href_is_rejected_on_a_non_link_column(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/href is only valid on a type: "link"/');
+
+        /** @phpstan-ignore-next-line — exercising the ctor guard */
+        new AsColumn(label: 'X', type: 'text', href: '/x/{id}');
+    }
+
+    #[Test]
+    public function link_type_requires_an_href(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/type "link" requires an href template/');
+
+        new AsColumn(label: 'X', type: 'link');
+    }
+
+    #[Test]
+    public function link_href_must_be_site_relative(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/href must be a site-relative path/');
+
+        // Protocol-relative // is rejected (so are absolute URLs / schemes).
+        new AsColumn(label: 'X', type: 'link', href: '//evil.example/{id}');
+    }
+
+    #[Test]
+    public function link_href_rejects_javascript_scheme(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/href must be a site-relative path/');
+
+        new AsColumn(label: 'X', type: 'link', href: 'javascript:alert(1)');
+    }
+
+    #[Test]
     public function resolves_filters_in_declaration_order(): void
     {
         $provider = new GridComponentMetadataProvider();
@@ -325,6 +402,18 @@ final class GridWithColumnsFixture
 
     #[AsColumn(label: 'Email')]
     public string $email = '';
+}
+
+final class GridWithRichColumnsFixture
+{
+    #[AsColumn(label: 'Title', type: 'link', href: '/articles/{id}')]
+    public string $title = '';
+
+    #[AsColumn(label: 'Status', type: 'badge', badge: ['draft' => 'mute', 'published' => 'ok'])]
+    public string $status = '';
+
+    #[AsColumn(label: 'Slug', type: 'mono')]
+    public string $slug = '';
 }
 
 final class GridWithFiltersFixture

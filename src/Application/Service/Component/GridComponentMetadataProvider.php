@@ -205,7 +205,7 @@ final class GridComponentMetadataProvider implements ComponentMetadataProviderIn
 
     /**
      * @param ReflectionClass<object> $class
-     * @return list<array{key: string, label: string, sortable: bool, type: string}>
+     * @return list<array{key: string, label: string, sortable: bool, type: string, badge?: array<string, string>, href?: string}>
      */
     private function resolveColumns(ReflectionClass $class): array
     {
@@ -217,12 +217,25 @@ final class GridComponentMetadataProvider implements ComponentMetadataProviderIn
             }
             /** @var AsColumn $attr */
             $attr = $attrs[0]->newInstance();
-            $columns[] = [
+            $column = [
                 'key' => $prop->getName(),
                 'label' => $attr->label,
                 'sortable' => $attr->sortable,
                 'type' => $attr->type,
             ];
+            // Rich-cell config is ADDED ONLY when declared, so plain
+            // (text/mono/date/number) columns keep the exact 4-key shape they
+            // had before this enhancement — their bundle/providerProps payload
+            // stays byte-identical (the non-regression guarantee). The
+            // attribute constructor already pinned the invariants
+            // (badge ⇒ type badge, href ⇒ type link), so no re-validation here.
+            if ($attr->badge !== null) {
+                $column['badge'] = $attr->badge;
+            }
+            if ($attr->href !== null) {
+                $column['href'] = $attr->href;
+            }
+            $columns[] = $column;
         }
         return $columns;
     }

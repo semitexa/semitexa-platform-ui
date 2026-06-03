@@ -115,9 +115,25 @@
     derive `${key}_asc` / `${key}_desc` (the convention the data
     endpoint allow-list already follows); when `type` is set and no
     explicit `style`, map to a sensible default cell style. -#}
+{#- Rich-cell (badge / link) styling — the SINGLE source of these style
+    strings. `grid-runtime.js` `buildRow()` hardcodes BYTE-IDENTICAL copies so
+    the server initial paint and the client feed-rebuild produce the SAME DOM
+    (the cell must not "jump" / change shape on reload — that parity is the
+    feature's correctness bar). If you edit a string here, edit the matching
+    literal in grid-runtime.js in lockstep. Badge variants are the fixed token
+    set ok/warn/mute; an unmapped value resolves to `mute`. -#}
+{%- set _ui_badge_base = 'display:inline-block;padding:0.125rem 0.5rem;border-radius:999px;font-size:0.75rem;font-weight:600;line-height:1.4;' -%}
+{%- set _ui_badge_variant_styles = {
+    'ok':   _ui_badge_base ~ 'background:var(--ui-state-success-surface,#e6f4ea);color:var(--ui-state-success,#1a7f37);',
+    'warn': _ui_badge_base ~ 'background:var(--ui-state-warning-surface,#fff4e5);color:var(--ui-state-warning,#9a6700);',
+    'mute': _ui_badge_base ~ 'background:var(--ui-surface-sunken,#eceff1);color:var(--ui-text-muted,#5f6b76);',
+} -%}
+{%- set _ui_link_cell_style = 'color:var(--ui-action-primary,#0b66c3);text-decoration:underline;' -%}
+
 {%- set _grid_columns = [] -%}
 {%- for _col in _grid_columns_raw -%}
     {%- set _col_key       = _col.key|default(null) -%}
+    {%- set _col_type      = _col.type|default('text') -%}
     {%- set _col_sort_asc  = _col.sortAsc|default(null) -%}
     {%- set _col_sort_desc = _col.sortDesc|default(null) -%}
     {%- if (_col_sort_asc is null or _col_sort_asc == '') and (_col_sort_desc is null or _col_sort_desc == '') and _col.sortable|default(false) and _col_key is not null -%}
@@ -126,20 +142,29 @@
     {%- endif -%}
     {%- set _col_style = _col.style|default('') -%}
     {%- if _col_style == '' -%}
-        {%- set _col_type = _col.type|default('text') -%}
         {%- if _col_type == 'datetime' or _col_type == 'date' -%}
             {%- set _col_style = 'white-space:nowrap;' -%}
         {%- elseif _col_type == 'mono' -%}
             {%- set _col_style = 'font-family:var(--ui-font-mono);font-size:0.75rem;' -%}
         {%- endif -%}
     {%- endif -%}
-    {%- set _grid_columns = _grid_columns|merge([{
+    {%- set _col_entry = {
         key:      _col_key,
         label:    _col.label|default(_col_key),
         style:    _col_style,
         sortAsc:  _col_sort_asc,
         sortDesc: _col_sort_desc,
-    }]) -%}
+    } -%}
+    {#- ADDITIVE: carry type + its rich-cell config to the client bundle ONLY
+        for the new badge/link types. text/mono/date/number columns add NO keys
+        here, so their normalized entry (and the JSON bundle the client reads)
+        is byte-identical to before this enhancement. -#}
+    {%- if _col_type == 'badge' -%}
+        {%- set _col_entry = _col_entry|merge({ type: 'badge', badge: _col.badge|default({}) }) -%}
+    {%- elseif _col_type == 'link' -%}
+        {%- set _col_entry = _col_entry|merge({ type: 'link', href: _col.href|default('') }) -%}
+    {%- endif -%}
+    {%- set _grid_columns = _grid_columns|merge([_col_entry]) -%}
 {%- endfor -%}
 {#- Pagination window size — caller-tunable, but clamped + defaulted
     server-side so the rendered data attribute is always a safe
@@ -450,7 +475,33 @@
                             {% if row.id|default(null) is not null %}data-ui-grid-row-id="{{ row.id }}"{% endif %}>
                             {%- for col in _grid_columns %}
                                 <td ui-text="body" style="padding:0.5rem 0.75rem;font-size:0.8125rem;{{ col.style|default('') }}">
-                                    {{- attribute(row, col.key)|default('') -}}
+                                    {%- set _cell_val  = attribute(row, col.key)|default('') -%}
+                                    {%- set _cell_type = col.type|default('text') -%}
+                                    {%- if _cell_type == 'badge' -%}
+                                        {#- Badge: server-owned value→variant lookup; the cell value only
+                                            selects a variant key + sets the text, never markup. Unmapped /
+                                            unknown variant → `mute`. Byte-equivalent to grid-runtime.js. -#}
+                                        {%- set _variant = (col.badge|default({}))[_cell_val]|default('mute') -%}
+                                        {%- if _ui_badge_variant_styles[_variant] is not defined -%}{%- set _variant = 'mute' -%}{%- endif -%}
+                                        <span data-ui-grid-badge="{{ _variant }}" style="{{ _ui_badge_variant_styles[_variant] }}">{{- _cell_val -}}</span>
+                                    {%- elseif _cell_type == 'link' -%}
+                                        {#- Link: interpolate {field} placeholders from the row, URL-encoding
+                                            each value (field NAMES come from the trusted href template, not the
+                                            row). Re-assert the site-relative invariant before emitting the
+                                            anchor; on failure degrade to plain escaped text. Byte-equivalent
+                                            to grid-runtime.js. -#}
+                                        {%- set _href = col.href|default('') -%}
+                                        {%- for _hk, _hv in row -%}
+                                            {%- set _href = _href|replace({ ('{' ~ _hk ~ '}'): _hv|url_encode }) -%}
+                                        {%- endfor -%}
+                                        {%- if _href starts with '/' and not (_href starts with '//') -%}
+                                            <a data-ui-grid-link href="{{ _href }}" style="{{ _ui_link_cell_style }}">{{- _cell_val -}}</a>
+                                        {%- else -%}
+                                            {{- _cell_val -}}
+                                        {%- endif -%}
+                                    {%- else -%}
+                                        {{- _cell_val -}}
+                                    {%- endif -%}
                                 </td>
                             {%- endfor %}
                         </tr>
