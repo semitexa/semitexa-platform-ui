@@ -215,8 +215,10 @@
             var value = row && row[field] != null ? String(row[field]) : '';
             return encodeURIComponent(value);
         });
-        // Site-relative guard: only root-relative, non-protocol-relative hrefs.
-        if (href.charAt(0) !== '/' || href.slice(0, 2) === '//') return '';
+        // Site-relative guard: only root-relative hrefs. Rejects protocol-
+        // relative (`//`) AND backslash variants (`/\`) — browsers normalise
+        // `\` to `/` in URLs, so `/\evil.com` would become `//evil.com`.
+        if (!/^\/(?![\/\\])/.test(href)) return '';
         return href;
     }
 
@@ -290,11 +292,13 @@
             cursorIndex: 0,
             nextCursor: '',
             pulling: false,
+            pullAgain: false,     // a refresh landed while a pull was in flight
             recovered: false,     // one-shot guard for invalid_pagination auto-recovery
             // --- One Way Phase 4: SSE transport state -------------------
             transport: null,      // 'sse' | 'pull' — decided in start(), may degrade sse→pull
             streamId: null,       // adopted server-minted id; ONLY set from `ui.stream.id`
             gotFrame: false,      // any data frame on the current stream yet?
+            everStreamed: false,  // any frame on ANY connection — gates permanent degrade
             reconnectAttempts: 0,
         };
         var source = null;          // the ONE held-open EventSource
@@ -539,7 +543,13 @@
 
         // ---- data flow -------------------------------------------------
         function pull() {
-            if (state.pulling) return;
+            if (state.pulling) {
+                // A view change landed mid-flight — re-pull when this request
+                // settles so the rendered grid matches the FINAL view, never
+                // the one that happened to be loading.
+                state.pullAgain = true;
+                return;
+            }
             state.pulling = true;
             root.setAttribute('data-ui-grid-v2-state', 'loading');
             var qs = buildQuery().toString();
@@ -553,6 +563,7 @@
                 })
                 .then(function (result) {
                     state.pulling = false;
+                    if (drainQueuedPull()) return;
                     if (!result.ok || !result.body || !Array.isArray(result.body.data)) {
                         handleErrorEnvelope(result.body);
                         return;
@@ -562,8 +573,18 @@
                 })
                 .catch(function () {
                     state.pulling = false;
+                    if (drainQueuedPull()) return;
                     showError('The grid feed is unreachable.');
                 });
+        }
+
+        // Settle path for a refresh that arrived during an in-flight pull:
+        // the stale response is discarded and the FINAL view is fetched.
+        function drainQueuedPull() {
+            if (!state.pullAgain) return false;
+            state.pullAgain = false;
+            pull();
+            return true;
         }
 
         // ---- One Way Phase 4: SSE transport -----------------------------
@@ -607,6 +628,7 @@
             // `_type` discriminator) — same render path as a pull body.
             source.addEventListener('ui.collection.data', function (ev) {
                 state.gotFrame = true;
+                state.everStreamed = true;
                 state.reconnectAttempts = 0;
                 try {
                     var envelope = JSON.parse(ev.data);
@@ -622,14 +644,19 @@
 
             source.addEventListener('ui.collection.error', function (ev) {
                 state.gotFrame = true;
+                state.everStreamed = true;
                 try { handleErrorEnvelope(JSON.parse(ev.data)); }
                 catch (e) { showError('The grid stream reported an error.'); }
             });
 
             source.onerror = function () {
-                if (!state.gotFrame) {
-                    // Never delivered a frame → SSE is not usable here;
-                    // documented PERMANENT degrade to plain JSON pull.
+                if (!state.gotFrame && !state.everStreamed) {
+                    // NEVER delivered a frame on ANY connection → SSE is not
+                    // usable here; documented PERMANENT degrade to plain JSON
+                    // pull. A reconnect attempt that errors before its first
+                    // frame (server mid-restart) is NOT that case — the
+                    // endpoint already proved it can stream, so it stays on
+                    // the backoff path below.
                     if (source) { try { source.close(); } catch (e) {} source = null; }
                     state.transport = 'pull';
                     state.streamId = null;
@@ -720,7 +747,12 @@
         function invokeAction(btn) {
             var route = btn.getAttribute('data-ui-grid-action-route') || '';
             var method = (btn.getAttribute('data-ui-grid-action-method') || 'POST').toUpperCase();
-            if (route === '') return;
+            // Same-origin guard: action routes come from the contract (which
+            // may be served from the sessionStorage cache) or the page-local
+            // overlay — only a root-relative, non-protocol-relative route may
+            // ever carry the CSRF token, and only over a mutating verb.
+            if (!/^\/(?![\/\\])/.test(route)) return;
+            if (method !== 'POST' && method !== 'PUT' && method !== 'PATCH' && method !== 'DELETE') return;
             btn.disabled = true;
             fetch(route, {
                 method: method,

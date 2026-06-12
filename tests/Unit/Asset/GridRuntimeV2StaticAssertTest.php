@@ -133,6 +133,52 @@ final class GridRuntimeV2StaticAssertTest extends TestCase
     }
 
     #[Test]
+    public function link_hrefs_are_guarded_root_relative_with_no_backslash_bypass(): void
+    {
+        // The ONLY URL-from-data sink. `/\evil.com` normalises to
+        // `//evil.com` in browsers, so the guard must reject `\` too.
+        self::assertStringContainsString(
+            '/^\\/(?![\\/\\\\])/.test(href)',
+            self::runtimeSource(),
+            'interpolateHref must keep the root-relative guard that also rejects the /\\ backslash bypass.',
+        );
+    }
+
+    #[Test]
+    public function action_routes_are_guarded_before_carrying_the_csrf_token(): void
+    {
+        $source = self::runtimeSource();
+
+        self::assertStringContainsString(
+            '/^\\/(?![\\/\\\\])/.test(route)',
+            $source,
+            'invokeAction must reject non-root-relative routes before fetching with the CSRF header.',
+        );
+        self::assertStringContainsString(
+            "method !== 'POST' && method !== 'PUT' && method !== 'PATCH' && method !== 'DELETE'",
+            $source,
+            'invokeAction must allow only mutating verbs.',
+        );
+    }
+
+    #[Test]
+    public function a_failed_reconnect_does_not_permanently_degrade_a_proven_stream(): void
+    {
+        $source = self::runtimeSource();
+
+        self::assertStringContainsString(
+            'everStreamed',
+            $source,
+            'the runtime must track whether ANY connection ever streamed a frame.',
+        );
+        self::assertStringContainsString(
+            '!state.gotFrame && !state.everStreamed',
+            $source,
+            'permanent degrade-to-pull must require that NO connection ever delivered a frame — a dropped-then-failed reconnect stays on the backoff path.',
+        );
+    }
+
+    #[Test]
     public function the_runtime_boots_from_the_v2_shell_marker(): void
     {
         self::assertStringContainsString(

@@ -332,6 +332,7 @@ Inline patch handling on the response is **unchanged** — the canonical `UiResp
 - `/__ui/dispatch` route and `UiDispatchHandler` remain — direct callers (e.g. UiPlayground demo pages) still hit it with legacy body.
 - `/__ui/stream` route, `UiSseStreamHandler`, `UiSsePatchQueue`, and the channel-token machinery remain.
 - `platform.grid` runtime is unchanged: `grid-runtime.js` still does direct `fetch(/grid-data?…)`. Grid migration is Phase 4.
+  *(Historical note — superseded by the One Way Pattern: the v1 `platform.grid` component and `grid-runtime.js` were deleted in the Phase 6 sweep; grids now boot from the route's OPTIONS contract via `grid-runtime-v2.js` over the canonical `{data, meta}` envelope.)*
 
 The next slice for ADR Phase 3 final cleanup is removing the `/__ui/dispatch` compatibility shim once every demo page repoints, and starting the Phase 4 grid migration on top of the now-end-to-end canonical channel.
 

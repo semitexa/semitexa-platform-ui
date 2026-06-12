@@ -1647,9 +1647,9 @@
      *
      * NOTE: there is intentionally NO `parsedManifests.length > 0`
      * gate. Pages that opt into the canonical stream may render
-     * components without `#[UiOn]` handlers (e.g. `platform.grid` —
-     * a read-only component that still wants to receive
-     * `ui.componentState` frames). The meta tag is the explicit
+     * components without `#[UiOn]` handlers (e.g. a read-only
+     * component that still wants to receive `ui.componentState`
+     * frames). The meta tag is the explicit
      * opt-in; the manifest count is irrelevant for the SSE open
      * decision.
      *

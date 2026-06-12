@@ -1407,6 +1407,16 @@ The registry MUST resolve through a fixed `match` — NEVER `new $name(...)` or 
 
   **Boot listener**: a project-side `BootUiPlaygroundRegistryListener` (`AsServerLifecycleListener` phase `WorkerStartAfterContainer`, priority `0` so it fires AFTER the package's `-5`) stashes the container-bound `UiPlaygroundLeadSubmissionRepositoryInterface` winner in the project's worker-scoped static holder. The composite registry pulls the active repo from that holder lazily at action-resolve time, so the action class itself stays free of container access.
 
+  > **Superseded (One Way Phase 6).** Everything in this `platform.grid`
+  > section describes the v1 grid apparatus — `GridComponent`,
+  > `grid.html.twig`, `grid-runtime.js`, `UiGridDataResponse`,
+  > `GridRuntimeStaticAssertTest` — which was DELETED in the One Way Phase 6
+  > sweep. The replacement is the contract-driven `platform.grid-v2` shell
+  > (`resources/twig/components/runtime/grid-v2.html.twig`) +
+  > `grid-runtime-v2.js`: grids boot from the route's OPTIONS contract and
+  > render the canonical `{data, meta}` collection envelope (pull or SSE).
+  > The description below is retained as historical design context only.
+
   **`platform.grid` — reusable interactive grid shell**. A minimal package-level component. **Two consumers** now drive it through identical client-side code: the lead admin listing (`/ui-playground/admin/leads`) and the demo-submissions diagnostic listing (`/ui-playground/admin/demo-submissions`). Each consumer owns its own data endpoint, criteria, cursor, authorizer, and (for leads) SSE topic + publisher — the grid component owns only the shell + the runtime contract.
 
   - **Component**: `Semitexa\PlatformUi\Application\Component\Builtin\GridComponent` (`#[AsComponent(name: 'platform.grid', template: '@platform-ui/components/runtime/grid.html.twig', cacheable: true)]`). Slots: `warning`, `filters`, `filterState`, `footer` — all caller-owned. The component owns ONLY the grid shell (root + data-* attrs + hidden refresh marker + table headers from `columns` + initial-rows fallback tbody + Next-link with fallback href + inline JSON bundle). It deliberately does NOT know query semantics, authorization, repository, cursor internals, or SSE topic internals.
