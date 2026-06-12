@@ -23,12 +23,12 @@ use Attribute;
  *
  * Identity:
  *   - $component — class-string of a #[AsComponent] class (the component
- *                  this binding targets, e.g. `GridComponent::class`).
+ *                  this binding targets, e.g. `FormComponent::class`).
  *                  The registry resolves this to the canonical component
- *                  name (e.g. "platform.grid") at discovery time.
+ *                  name (e.g. "platform.form") at discovery time.
  *   - $part      — name of a #[UiPart] declared on the component, or a
- *                  #[UiSlot] when the slot owns the interaction (e.g.
- *                  Grid's "filters" slot). Validated at discovery time.
+ *                  #[UiSlot] when the slot owns the interaction.
+ *                  Validated at discovery time.
  *   - $event     — semantic event name (same /^[a-z][a-z0-9:_-]*$/
  *                  shape #[UiOn] enforces).
  *   - $payload   — optional class-string of the typed payload the

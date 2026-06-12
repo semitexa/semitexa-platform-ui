@@ -1,0 +1,34 @@
+{#
+ # platform.grid-v2 — One Way Phase 3: the endpoint-pointer grid shell.
+ #
+ # The metadata-driven runtime (grid-runtime-v2.js) discovers this root via
+ # `[data-ui-grid-v2]`, calls `OPTIONS` on `data-ui-grid-endpoint`, and builds
+ # the entire grid (columns, sort, filters, search, pager) from the served
+ # route contract. The shell therefore carries NO server-projected config —
+ # only the endpoint pointer plus the genuinely page-local bits.
+ #
+ # Props:
+ #   endpoint      (required string — the canonical collection feed route)
+ #   gridId        (optional string — instance id, default 'grid')
+ #   actions       (optional list<{label, route, method?}> — page-local action
+ #                  overlay, used only until the contract serves `ui.actions`;
+ #                  the runtime prefers the contract block when present)
+ #   emptyMessage  (optional string)
+ #}
+{%- set _grid_v2_id       = gridId|default('grid') -%}
+{%- set _grid_v2_endpoint = endpoint|default('') -%}
+{%- set _grid_v2_actions  = actions|default([]) -%}
+{%- set _grid_v2_empty    = emptyMessage|default('No rows.') -%}
+<div
+    data-ui-component="platform.grid-v2"
+    data-ui-grid-v2="{{ _grid_v2_id }}"
+    data-ui-grid-endpoint="{{ _grid_v2_endpoint }}"
+    data-ui-grid-empty="{{ _grid_v2_empty }}"
+    {% if _grid_v2_actions|length > 0 %}data-ui-grid-actions="{{ _grid_v2_actions|json_encode }}"{% endif %}
+    sx-layout="stack" sx-gap="2"
+>
+    <noscript>
+        <p ui-text="muted">This grid needs JavaScript. The raw feed is at
+            <a href="{{ _grid_v2_endpoint }}">{{ _grid_v2_endpoint }}</a>.</p>
+    </noscript>
+</div>

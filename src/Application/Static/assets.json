@@ -22,10 +22,10 @@
             "priority": 60,
             "attributes": { "defer": true }
         },
-        "js/grid-runtime.js": {
+        "js/grid-runtime-v2.js": {
             "scope": "global",
             "position": "body",
-            "priority": 70,
+            "priority": 71,
             "attributes": { "defer": true }
         }
     }

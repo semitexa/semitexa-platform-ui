@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Tests\Unit\Submit;
 
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Semitexa\Core\Support\ProjectRoot;
 use Semitexa\PlatformUi\Application\Service\Submit\ConfigurableUiDemoSubmissionAdminAuthorizer;
 use Semitexa\PlatformUi\Domain\Exception\UiDemoSubmissionAdminAuthorizationException;
 
@@ -88,13 +91,53 @@ final class ConfigurableUiDemoSubmissionAdminAuthorizerTest extends TestCase
         }
     }
 
+    /**
+     * The opt-in default posture: a flag absent from BOTH the process
+     * env AND the `.env` file denies.
+     *
+     * putenv-clearing alone is NOT enough: Environment::getEnvValue()
+     * falls back to a once-per-process cache of `<project root>/.env`
+     * (where the dev compose stack legitimately sets the flag to 1).
+     * So this case needs (a) a fresh process — the cache is a static
+     * local that cannot be reset — and (b) a throwaway project root
+     * with no `.env`, via ProjectRoot's documented chdir()+reset()
+     * test seam.
+     */
     #[Test]
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function unset_env_flag_denies(): void
     {
+        $fixtureRoot = sys_get_temp_dir() . '/platform-ui-authorizer-unset-' . bin2hex(random_bytes(6));
+        self::assertTrue(mkdir($fixtureRoot . '/src/modules', 0775, true));
+        file_put_contents($fixtureRoot . '/composer.json', '{}');
+
+        $previousCwd = getcwd();
+        self::assertIsString($previousCwd);
+
+        // Kill the process-env copy (compose env_file injects it).
         putenv(ConfigurableUiDemoSubmissionAdminAuthorizer::ENV_FLAG);
-        self::assertFalse(ConfigurableUiDemoSubmissionAdminAuthorizer::isEnabled());
-        $this->expectException(UiDemoSubmissionAdminAuthorizationException::class);
-        (new ConfigurableUiDemoSubmissionAdminAuthorizer())->authorize();
+
+        try {
+            chdir($fixtureRoot);
+            ProjectRoot::reset();
+            self::assertSame(
+                $fixtureRoot,
+                ProjectRoot::get(),
+                'Precondition: the chdir()+reset() seam must resolve the fixture root.',
+            );
+
+            self::assertFalse(ConfigurableUiDemoSubmissionAdminAuthorizer::isEnabled());
+            $this->expectException(UiDemoSubmissionAdminAuthorizationException::class);
+            (new ConfigurableUiDemoSubmissionAdminAuthorizer())->authorize();
+        } finally {
+            chdir($previousCwd);
+            ProjectRoot::reset();
+            @unlink($fixtureRoot . '/composer.json');
+            @rmdir($fixtureRoot . '/src/modules');
+            @rmdir($fixtureRoot . '/src');
+            @rmdir($fixtureRoot);
+        }
     }
 
     #[Test]
