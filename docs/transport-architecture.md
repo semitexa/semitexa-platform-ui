@@ -1,6 +1,16 @@
 # ADR-0001 — Semitexa UI Transport Unification
 
-**Status**: Proposed. No runtime behavior changed in this slice — see §13.
+> **STATUS UPDATE — IMPLEMENTED / SUPERSEDED.** The unification this ADR proposed
+> is done. All UI streaming now rides the single canonical stream
+> `GET /__semitexa_kiss` (`AsyncResourceSseServer`). The duplicate transports this
+> ADR set out to retire — platform-ui's `GET /__ui/stream` patch subsystem
+> (route + `UiSseStreamHandler` + channel-token + per-channel queue + connection
+> limiter + subscription authorizer) and SSR's redundant `GET /sse` alias — have
+> been **deleted**. The class/route names below are preserved as the original
+> historical decision record; they no longer exist in code. See
+> `var/docs/sse-retirement-report.md` for the deletion log.
+
+**Status**: ~~Proposed~~ → **Implemented (streaming unified on `/__semitexa_kiss`; `/__ui/stream` + `/sse` retired)**.
 **Owners**: framework (semitexa-ssr) + platform-ui (semitexa-platform-ui).
 **Companion docs**: `packages/semitexa-platform-ui/docs/primitives.md` (component-side details), `vendor/semitexa/ssr/src/Application/Handler/PayloadHandler/UiEventEndpointHandler.php` (foundation handler docblock — "Step-1 scope … later steps").
 **Supersedes (eventually)**: every reference to `POST /__ui/dispatch` and `GET /__ui/stream` as *primary* transport in `primitives.md`. Both endpoints stay during migration but become temporary compatibility layers, never the long-term target.
@@ -322,6 +332,7 @@ Inline patch handling on the response is **unchanged** — the canonical `UiResp
 - `/__ui/dispatch` route and `UiDispatchHandler` remain — direct callers (e.g. UiPlayground demo pages) still hit it with legacy body.
 - `/__ui/stream` route, `UiSseStreamHandler`, `UiSsePatchQueue`, and the channel-token machinery remain.
 - `platform.grid` runtime is unchanged: `grid-runtime.js` still does direct `fetch(/grid-data?…)`. Grid migration is Phase 4.
+  *(Historical note — superseded by the One Way Pattern: the v1 `platform.grid` component and `grid-runtime.js` were deleted in the Phase 6 sweep; grids now boot from the route's OPTIONS contract via `grid-runtime-v2.js` over the canonical `{data, meta}` envelope.)*
 
 The next slice for ADR Phase 3 final cleanup is removing the `/__ui/dispatch` compatibility shim once every demo page repoints, and starting the Phase 4 grid migration on top of the now-end-to-end canonical channel.
 

@@ -1252,11 +1252,11 @@
                 });
                 return;
             }
-            // Shape-detect: canonical typed message from /__semitexa_kiss
+            // Shape-detect: canonical typed message from the kiss stream
             // carries `_type: 'ui.patch'` + a single `patch` body and
-            // wraps it in a `componentInstanceId` envelope. The legacy
-            // /__ui/stream shape is `{v, patches[]}`. Both routes share
-            // this listener; we route by shape, not by URL.
+            // wraps it in a `componentInstanceId` envelope. A legacy
+            // patch-array shape `{v, patches[]}` is still tolerated for
+            // safety; we route by shape, not by URL.
             if (parsed._type === 'ui.patch') {
                 emitTransportEvent('semitexa:ui-sse:message', {
                     message: parsed,
@@ -1647,9 +1647,9 @@
      *
      * NOTE: there is intentionally NO `parsedManifests.length > 0`
      * gate. Pages that opt into the canonical stream may render
-     * components without `#[UiOn]` handlers (e.g. `platform.grid` —
-     * a read-only component that still wants to receive
-     * `ui.componentState` frames). The meta tag is the explicit
+     * components without `#[UiOn]` handlers (e.g. a read-only
+     * component that still wants to receive `ui.componentState`
+     * frames). The meta tag is the explicit
      * opt-in; the manifest count is irrelevant for the SSE open
      * decision.
      *

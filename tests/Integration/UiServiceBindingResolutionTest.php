@@ -8,15 +8,9 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Semitexa\Core\Container\ServiceContractRegistry;
 use Semitexa\PlatformUi\Application\Service\Event\AllowAllUiInteractionAuthorizer;
-use Semitexa\PlatformUi\Application\Service\Event\AllowAllUiSseSubscriptionAuthorizer;
 use Semitexa\PlatformUi\Application\Service\Event\CacheBackedUiReplayStore;
-use Semitexa\PlatformUi\Application\Service\Event\RedisUiSseConnectionLimiter;
-use Semitexa\PlatformUi\Application\Service\Event\RedisUiSsePatchQueue;
 use Semitexa\PlatformUi\Application\Service\Event\UiInteractionAuthorizerInterface;
 use Semitexa\PlatformUi\Application\Service\Event\UiReplayStoreInterface;
-use Semitexa\PlatformUi\Application\Service\Event\UiSseConnectionLimiterInterface;
-use Semitexa\PlatformUi\Application\Service\Event\UiSsePatchQueue;
-use Semitexa\PlatformUi\Application\Service\Event\UiSseSubscriptionAuthorizerInterface;
 use Semitexa\PlatformUi\Application\Service\Validation\DefaultUiFieldRuleRegistry;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistryInterface;
 
@@ -108,55 +102,6 @@ final class UiServiceBindingResolutionTest extends TestCase
             'semitexa-platform-ui',
             $modules,
             'semitexa-platform-ui module must register a UiInteractionAuthorizerInterface implementation.',
-        );
-    }
-
-    #[Test]
-    public function sse_patch_queue_resolves_to_redis_default(): void
-    {
-        $contracts = self::$registry->getContracts();
-        self::assertArrayHasKey(
-            UiSsePatchQueue::class,
-            $contracts,
-            'UiSsePatchQueue must have a default binding registered '
-            . 'via SatisfiesServiceContract.',
-        );
-        self::assertSame(
-            RedisUiSsePatchQueue::class,
-            $contracts[UiSsePatchQueue::class],
-            'RedisUiSsePatchQueue must be the default UiSsePatchQueue impl.',
-        );
-    }
-
-    #[Test]
-    public function sse_subscription_authorizer_resolves_to_allow_all_default(): void
-    {
-        $contracts = self::$registry->getContracts();
-        self::assertArrayHasKey(
-            UiSseSubscriptionAuthorizerInterface::class,
-            $contracts,
-            'UiSseSubscriptionAuthorizerInterface must have a default '
-            . 'binding registered via SatisfiesServiceContract.',
-        );
-        self::assertSame(
-            AllowAllUiSseSubscriptionAuthorizer::class,
-            $contracts[UiSseSubscriptionAuthorizerInterface::class],
-        );
-    }
-
-    #[Test]
-    public function sse_connection_limiter_resolves_to_redis_default(): void
-    {
-        $contracts = self::$registry->getContracts();
-        self::assertArrayHasKey(
-            UiSseConnectionLimiterInterface::class,
-            $contracts,
-            'UiSseConnectionLimiterInterface must have a default binding '
-            . 'registered via SatisfiesServiceContract.',
-        );
-        self::assertSame(
-            RedisUiSseConnectionLimiter::class,
-            $contracts[UiSseConnectionLimiterInterface::class],
         );
     }
 

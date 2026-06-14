@@ -216,17 +216,29 @@ final class DemoSubmissionsAdminHandlerTest extends TestCase
         // No `withAuthorizer()` call → handler MUST resolve through
         // UiDemoSubmissionAdminAuthorizer::getActive() (lazy-default
         // to configurable deny-by-default mode). Pin the bridge.
-        $repo = new InMemoryUiFormDatabaseDemoSubmissionRepository();
-        $repo->save($this->makeRecord('uifs_bridge', 1, ['contact_name' => 'Ada']));
-        $handler = new (self::HANDLER_CLASS)();
-        $handler->withRepository($repo);
-        // do NOT call withAuthorizer
-        $resource = $this->invokeHandler($handler);
-        self::assertSame(403, $resource->getStatusCode());
-        $ctx = $this->renderContext($resource);
-        self::assertTrue($ctx['denied']);
-        self::assertSame('demo_admin_disabled', $ctx['denialReason']);
-        self::assertArrayNotHasKey('submissions', $ctx);
+        //
+        // The deny posture is forced with an EXPLICIT falsey flag:
+        // putenv-clearing cannot represent "unset" here because
+        // Environment::getEnvValue() falls back to the project `.env`
+        // (where the dev compose stack legitimately enables the flag).
+        // The truly-unset posture is pinned in isolation by
+        // ConfigurableUiDemoSubmissionAdminAuthorizerTest::unset_env_flag_denies.
+        $this->setEnvFlag('0');
+        try {
+            $repo = new InMemoryUiFormDatabaseDemoSubmissionRepository();
+            $repo->save($this->makeRecord('uifs_bridge', 1, ['contact_name' => 'Ada']));
+            $handler = new (self::HANDLER_CLASS)();
+            $handler->withRepository($repo);
+            // do NOT call withAuthorizer
+            $resource = $this->invokeHandler($handler);
+            self::assertSame(403, $resource->getStatusCode());
+            $ctx = $this->renderContext($resource);
+            self::assertTrue($ctx['denied']);
+            self::assertSame('demo_admin_disabled', $ctx['denialReason']);
+            self::assertArrayNotHasKey('submissions', $ctx);
+        } finally {
+            $this->restoreEnvFlag();
+        }
     }
 
     // ----------------------------------------------------------------
@@ -257,9 +269,13 @@ final class DemoSubmissionsAdminHandlerTest extends TestCase
     }
 
     #[Test]
-    public function protected_mode_with_env_flag_unset_denies_and_does_not_read_repository(): void
+    public function protected_mode_with_falsey_env_flag_denies_and_does_not_read_repository(): void
     {
-        $this->setEnvFlag(null);
+        // Explicit falsey value, not putenv-clear: see the bridge test
+        // above for why "unset" is not representable in-process. The
+        // subject here is the deny PATH (403 envelope + the repository
+        // is never read), which any denied flag value exercises.
+        $this->setEnvFlag('0');
         try {
             // The repository would throw if the handler tried to
             // call it on the deny path — same trick as the earlier
