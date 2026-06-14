@@ -231,6 +231,14 @@
 
         var endpoint = root.getAttribute('data-ui-grid-endpoint') || '';
         if (endpoint === '') return;
+        // Security: only same-origin, root-relative endpoints. The runtime echoes
+        // the XSRF-TOKEN cookie back as X-CSRF-Token on every non-GET request, so
+        // an absolute or protocol-relative endpoint would leak that token to a
+        // cross-origin host. Refuse anything that is not a single-leading-slash path.
+        if (endpoint.charAt(0) !== '/' || endpoint.charAt(1) === '/') {
+            root.setAttribute('data-ui-grid-v2-state', 'error');
+            return;
+        }
 
         var gridId = root.getAttribute('data-ui-grid-v2') || 'grid';
         var emptyMessage = root.getAttribute('data-ui-grid-empty') || 'No rows.';
@@ -523,7 +531,14 @@
 
         function buildQuery() {
             var params = new URLSearchParams();
-            if (state.q !== '') params.set('q', state.q);
+            if (state.q !== '') {
+                // Use the SERVER-declared search parameter name from the contract
+                // (collection.search.param), falling back to 'q'. A grid whose
+                // route advertises a custom search key was otherwise sending the
+                // wrong query parameter, so search silently did nothing.
+                var searchParam = (search && typeof search.param === 'string' && search.param !== '') ? search.param : 'q';
+                params.set(searchParam, state.q);
+            }
             if (state.sort !== '') params.set('sort', state.sort);
             var terms = [];
             Object.keys(state.filters).forEach(function (field) {
