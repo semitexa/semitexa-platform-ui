@@ -107,8 +107,11 @@ final class EventRuntimeFormSubmitTest extends TestCase
         // goes through the same /__ui/dispatch as input.change.
         self::assertStringNotContainsString('/__ui/submit', $code);
         self::assertStringNotContainsString("'/submit'", $code);
-        // Exactly one fetch callsite — the existing transport bridge.
-        self::assertSame(1, substr_count($code, 'fetch('));
+        // Submit introduces no new transport: the only fetch callsites are
+        // the existing attachTransport bridge and the multiplex
+        // subscribe-control POST (postSseControl, Phase 3) — both shared
+        // infrastructure, neither submit-specific.
+        self::assertSame(2, substr_count($code, 'fetch('));
     }
 
     #[Test]

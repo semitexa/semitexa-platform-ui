@@ -111,15 +111,25 @@ final class EventRuntimeAssetTest extends TestCase
         // The exact callsite count is pinned in
         // sse_attach_is_opt_in_and_not_called_at_module_init.
 
-        // The module-init code (everything after `window.SemitexaUi = {` and
-        // before the closing `})();`) MUST NOT call fetch directly, must
-        // NOT construct an EventSource, must NOT touch the SSE attach
-        // helper. Only the closures behind window.SemitexaUi.* do those
-        // things, and only after a caller explicitly opts in.
-        $initSection = self::tail($code, 'window.SemitexaUi = {');
-        self::assertNotSame('', $initSection, 'window.SemitexaUi block must exist');
+        // The genuine module-init epilogue — the top-level IIFE code that
+        // runs on load (the `if (document.readyState === 'loading') { … }
+        // else { … }` block down to the closing `})();`) — MUST NOT call
+        // fetch directly and MUST NOT construct an EventSource. The
+        // multiplex (Phase 3) added a `postSseControl` subscribe fetch and a
+        // canonical SSE auto-open, but both fire only through the gated
+        // `maybeAutoAttachTransport()` / `maybeAutoOpenSse()` helpers, never
+        // unconditionally at init. So the invariant is no longer "no fetch
+        // anywhere after window.SemitexaUi" (the subscribe-control closure
+        // now lives there) but "the init epilogue dispatches nothing
+        // directly — it only calls the manifest/meta-gated helpers".
+        $initSection = self::tail($code, "document.readyState === 'loading'");
+        self::assertNotSame('', $initSection, 'module-init epilogue must exist');
         self::assertStringNotContainsString('fetch(', $initSection);
         self::assertStringNotContainsString('new EventSource(', $initSection);
+        // Auto-attach is manifest-gated, NOT absent: the epilogue opts in
+        // via the gated helpers rather than firing a transport at init.
+        self::assertStringContainsString('maybeAutoAttachTransport()', $initSection);
+        self::assertStringContainsString('maybeAutoOpenSse()', $initSection);
     }
 
     #[Test]
@@ -131,9 +141,12 @@ final class EventRuntimeAssetTest extends TestCase
         self::assertMatchesRegularExpression('/attach:\s*attachTransport/', $code);
         // attachTransport must use fetch — that's the bridge.
         self::assertStringContainsString('fetch(', $code);
-        // …and only inside attachTransport. (Sanity: the only `fetch(` in
-        // the file lives in the attachTransport closure body.)
-        self::assertSame(1, substr_count($code, 'fetch('));
+        // Exactly two `fetch(` callsites, and no more: the attachTransport
+        // bridge plus the multiplex subscribe-control POST (postSseControl,
+        // added in Phase 3). Both are deliberate transport calls behind
+        // explicit opt-in / gated entry points; a third would signal a
+        // stray endpoint creeping in.
+        self::assertSame(2, substr_count($code, 'fetch('));
     }
 
     #[Test]

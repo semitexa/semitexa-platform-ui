@@ -1343,6 +1343,23 @@
             }
         });
 
+        // SSE transport unification · Phase 3 — multiplex demux. The shared KISS
+        // connection now also carries feed frames (collection/document) for the
+        // page's subscriptions, each tagged with its `streaming_id`. Route each to
+        // the registered subscription callback; an unrecognised id falls through to
+        // the generic `semitexa:ui-sse:frame` re-emit, so nothing regresses.
+        SSE_DATA_FRAME_TYPE_LIST.forEach(function (type) {
+            source.addEventListener(type, function (ev) {
+                var parsed = parseSseFrame(ev);
+                if (parsed === null) {
+                    return;
+                }
+                if (!routeSubscriptionFrame(parsed)) {
+                    emitTransportEvent('semitexa:ui-sse:frame', { message: parsed, url: url });
+                }
+            });
+        });
+
         // Forward default (unnamed) SSE frames so a consumer can subscribe to
         // the SINGLE shared stream instead of opening its own EventSource. The
         // deferred-SSR runtime (semitexa-twig.js) carries its deferred_block /
@@ -1580,7 +1597,9 @@
             attach: attachTransport
         },
         sse: {
-            attach: attachSse
+            attach: attachSse,
+            subscribe: sseSubscribe,
+            sessionId: readPageSseSessionId
         },
         forms: {
             snapshot: formAggregateSnapshot,
@@ -1701,6 +1720,162 @@
             return null;
         }
         return raw;
+    }
+
+    // ---- SSE transport unification · Phase 3: subscription multiplexer --------
+    //
+    // One KISS connection carries MANY feed subscriptions. `subscribe()` POSTs a
+    // subscribe control to the feed route; the server attaches the feed to this
+    // page's KISS session and pushes the feed's frames — each tagged with the
+    // subscription's `streaming_id` — over the shared connection, which the
+    // demux listeners in attachSse route back to the right callback. A consumer
+    // (grid / collab form) thus rides the ONE connection instead of opening its
+    // own EventSource. Degrades to a no-op when the page has no KISS session (the
+    // caller then keeps its own-EventSource fallback).
+
+    var SSE_SUBSCRIPTIONS = {}; // subscription_id -> { feedRef, params, onFrame }
+    var SSE_DATA_FRAME_TYPE_LIST = [
+        'ui.document.data', 'ui.document.error',
+        'ui.collection.data', 'ui.collection.error'
+    ];
+
+    /** True when a LIVE-mode KISS connection is already attached (URL carries mode=live). */
+    function hasLiveSseConnection() {
+        for (var i = 0; i < ATTACHED_SSE_CONNECTIONS.length; i++) {
+            var u = ATTACHED_SSE_CONNECTIONS[i].url || '';
+            if (u.indexOf('mode=' + SSE_TRANSPORT_MODE_LIVE) !== -1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Ensure a LIVE shared KISS connection is open (collab/grids need it live). */
+    function ensureKissOpen(sessionId) {
+        if (typeof EventSource !== 'function') {
+            return false;
+        }
+        // A subscription needs a LIVE connection. Checking only the count was a
+        // bug: a drain-mode connection (opened to flush deferred placeholders)
+        // closes after the flush, so a subscription riding it would lose its feed.
+        // Open the live URL whenever no LIVE connection is attached — a live page
+        // already opened it (attachSse de-dupes the identical URL → no-op); a
+        // drain-only page gets its live connection forced here by the subscriber.
+        if (!hasLiveSseConnection()) {
+            attachSse({ url: buildKissUrl(sessionId, SSE_TRANSPORT_MODE_LIVE) });
+        }
+        return true;
+    }
+
+    /** The feed route URL with the feed's params on the query (like the GET connect). */
+    function feedControlUrl(feedRef, params) {
+        var url = feedRef.url;
+        var qs = [];
+        if (params) {
+            for (var k in params) {
+                if (Object.prototype.hasOwnProperty.call(params, k) && params[k] != null) {
+                    qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+                }
+            }
+        }
+        if (qs.length) {
+            url += (url.indexOf('?') === -1 ? '?' : '&') + qs.join('&');
+        }
+        return url;
+    }
+
+    function postSseControl(feedRef, params, sessionId, subscriptionId, unsubscribe) {
+        if (typeof fetch !== 'function') {
+            return;
+        }
+        var headers = {
+            'X-Semitexa-Kiss-Session': sessionId,
+            'X-Semitexa-Subscription-Id': subscriptionId
+        };
+        headers[unsubscribe ? 'X-Semitexa-Stream-Unsubscribe' : 'X-Semitexa-Stream-Subscribe'] = '1';
+        try {
+            fetch(feedControlUrl(feedRef, params), {
+                method: 'POST',
+                credentials: 'same-origin',
+                keepalive: true,
+                headers: headers
+            }).catch(function () { /* best-effort; reconnect re-subscribes */ });
+        } catch (postErr) { /* ignore */ }
+    }
+
+    /**
+     * Subscribe a feed to the shared KISS connection.
+     *   feedRef = { url }, params = feed query params (e.g. { ctx }),
+     *   onFrame(frame) = called with each demuxed frame body.
+     * Returns { degraded, subscriptionId, unsubscribe() }. When `degraded` is
+     * true the page has no KISS session — the caller keeps its own EventSource.
+     */
+    function sseSubscribe(feedRef, params, onFrame) {
+        var noop = { degraded: true, subscriptionId: null, unsubscribe: function () {} };
+        var sessionId = readPageSseSessionId();
+        if (sessionId === null || typeof EventSource !== 'function' || typeof fetch !== 'function'
+            || !feedRef || typeof feedRef.url !== 'string' || feedRef.url === ''
+            || typeof onFrame !== 'function') {
+            return noop;
+        }
+
+        ensureKissOpen(sessionId);
+
+        var subscriptionId = mintHexPrefixedId('sse_', 16); // sse_<32hex>
+        SSE_SUBSCRIPTIONS[subscriptionId] = { feedRef: feedRef, params: params || {}, onFrame: onFrame };
+        postSseControl(feedRef, params, sessionId, subscriptionId, false);
+
+        return {
+            degraded: false,
+            subscriptionId: subscriptionId,
+            unsubscribe: function () {
+                if (!SSE_SUBSCRIPTIONS[subscriptionId]) {
+                    return;
+                }
+                delete SSE_SUBSCRIPTIONS[subscriptionId];
+                postSseControl(feedRef, params, sessionId, subscriptionId, true);
+            }
+        };
+    }
+
+    /** Re-POST every active subscribe (same ids) after the shared connection reconnects. */
+    function resubscribeAll() {
+        var sessionId = readPageSseSessionId();
+        if (sessionId === null) {
+            return;
+        }
+        for (var id in SSE_SUBSCRIPTIONS) {
+            if (Object.prototype.hasOwnProperty.call(SSE_SUBSCRIPTIONS, id)) {
+                var s = SSE_SUBSCRIPTIONS[id];
+                postSseControl(s.feedRef, s.params, sessionId, id, false);
+            }
+        }
+    }
+
+    /** Route a demuxed data frame to its subscription callback. True iff handled. */
+    function routeSubscriptionFrame(parsed) {
+        if (!parsed || typeof parsed._type !== 'string') {
+            return false;
+        }
+        if (SSE_DATA_FRAME_TYPE_LIST.indexOf(parsed._type) === -1) {
+            return false;
+        }
+        var sid = parsed.streaming_id;
+        if (typeof sid !== 'string' || !SSE_SUBSCRIPTIONS[sid]) {
+            return false;
+        }
+        try {
+            SSE_SUBSCRIPTIONS[sid].onFrame(parsed);
+        } catch (cbErr) { /* a consumer callback must never break the demux loop */ }
+        return true;
+    }
+
+    if (typeof document !== 'undefined' && document.addEventListener) {
+        // The shared connection's reconnect (a gap-detected re-`connected`) re-arms
+        // every subscription server-side with the same id.
+        document.addEventListener('semitexa:ui-sse:reconnected', function () {
+            resubscribeAll();
+        }, false);
     }
 
     /**

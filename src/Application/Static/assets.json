@@ -27,6 +27,12 @@
             "position": "body",
             "priority": 71,
             "attributes": { "defer": true }
+        },
+        "js/form-collab-runtime.js": {
+            "scope": "global",
+            "position": "body",
+            "priority": 72,
+            "attributes": { "defer": true }
         }
     }
 }
