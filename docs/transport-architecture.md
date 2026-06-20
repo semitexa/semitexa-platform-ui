@@ -338,4 +338,56 @@ The next slice for ADR Phase 3 final cleanup is removing the `/__ui/dispatch` co
 
 ---
 
+## 18. Multiplex unification — Phase 6 end-to-end verification (2026-06-20)
+
+The follow-on epic `ep-sse-transport-unification` multiplexes MANY feed
+subscriptions over the single KISS connection (`sseSubscribe()` POSTs a subscribe
+control to the feed route; the server attaches the feed to the page's existing
+`/__semitexa_kiss` session and demuxes frames client-side by `streaming_id`), so
+grids and collab forms stop each opening their own `EventSource`. Phases 0–5
+shipped; Phase 6 is the end-to-end proof.
+
+**Verified green (collab + grids):**
+
+- **Connection count == 1.** The two-pane collaborative-form demo
+  (`/ui-playground/components/collaborative-form`) holds exactly ONE
+  `/__semitexa_kiss` EventSource and ZERO per-form streams; both panes subscribe
+  over it (`sse-multiplex.spec.ts`). The two-up leads grids
+  (`/ui-playground/admin/leads-two-up`) likewise ride ONE shared connection with
+  ZERO per-feed EventSource (`leads-grid-v2.spec.ts` — "one write live-updates
+  both two-up grids over ONE shared connection").
+- **Live cross-subscriber sync.** An edit in pane A propagates to pane B, and an
+  out-of-page write live-updates both two-up grids, over the single connection.
+- **Server pipeline** (publish → R3 consume → reverse-index find → coalesce →
+  `{__ctrl:rerun}` deliver → R4 worker-local context resolve → re-run → framed
+  write) is unit-green (`AsyncResourceSseServerTest`, `ResourceInvalidationSubscriberTest`,
+  `SubscriptionStoreTest` incl. tenant isolation, `StaleSubscriptionReaperTest`,
+  `ConnectCoordinatorTest`).
+
+**Bug found + fixed during verification — un-typed re-run frames.**
+`AbstractSseFeedHandler::serve()` short-circuited to the *unframed* pull body via
+`if (!$this->prefersSse($payload)) return $this->buildResponse(...)` BEFORE the
+`isReRunInProgress()` framing branch. In the multiplex model the feed is attached
+by a **POST subscribe control** (no `Accept: text/event-stream`), not a GET SSE
+connect, so `prefersSse()` is structurally false on every re-run — the feed frame
+went out WITHOUT its `_type`, the SSE chokepoint emitted it as a default
+`message` (no `event:` line), and the client's named-event demux
+(`routeSubscriptionFrame`, the only path to the per-subscription callback) never
+fired. Result: data was correct and stamped with `streaming_id`, but live updates
+silently never reached the peer pane / sibling grid. Fix: a re-run is
+intrinsically delivering an SSE frame, so it now frames regardless of the rebuilt
+request's `Accept` header (`!prefersSse && !isReRunInProgress()`). Pinned by
+`AbstractSseDocumentFeedHandlerTest` (re-run frames a non-SSE-Accept request;
+plain pulls stay raw) plus the two E2E specs above.
+
+**Open follow-up (not a multiplex regression):** a one-off Swoole worker FATAL
+"all coroutines (count: 1) are asleep — deadlock" was observed in
+`ResourceInvalidationSubscriber::run()`'s blocking predis `pubSubLoop` (a lone
+parked subscribe coroutine). It did not recur across the verification runs and is
+NOT the cause of the framing bug above (the live pipeline works without it); it is
+pre-existing R3 fragility (same family as the ORM `SingleConnectionPool`
+coroutine crash) worth hardening separately.
+
+---
+
 *End of ADR-0001.*

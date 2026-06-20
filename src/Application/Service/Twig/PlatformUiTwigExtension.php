@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Twig;
 
+use Semitexa\PlatformUi\Application\Service\Collaboration\CollabManifestBuilder;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
 use Semitexa\PlatformUi\Application\Service\Component\UiPartPropResolver;
 use Semitexa\PlatformUi\Application\Service\Event\PlatformUiAuthState;
@@ -346,6 +347,67 @@ final class PlatformUiTwigExtension
                 return new Markup($html, 'UTF-8');
             },
             ['needs_context' => true, 'is_safe' => ['html']],
+        );
+
+        /**
+         * ui_collab_manifest(componentName, instanceId, formKey, recordId, mode, fields)
+         *
+         * Collaborative Form Data · Phase 3 — emits the signed collab manifest
+         * `<script type="application/json" data-ui-collab-manifest>{…}</script>`
+         * a collaborative form drops into the DOM for `form-collab-runtime.js`.
+         * The document-feed sibling of `ui_event_manifest()`: where that mints
+         * the per-event signed blobs for a component's #[UiOn] events, this
+         * mints the read feed token (`cfg.scope/mode`) PLUS the per-event write
+         * tokens the inbound collaboration handler routes by — see
+         * {@see CollabManifestBuilder}. The block is pure data (no executable
+         * JS); the runtime finds it by the `data-ui-collab-manifest` marker and
+         * connects `/__ui/form-doc`.
+         *
+         * Placed INSIDE the form's component root (the element carrying
+         * `data-ui-component-instance-id`) so the runtime resolves the root via
+         * `closest()`, exactly as the event runtime does for its manifest.
+         */
+        TwigExtensionRegistry::registerFunction(
+            'ui_collab_manifest',
+            static function (
+                string $componentName,
+                string $instanceId,
+                string $formKey,
+                string $recordId,
+                string $mode,
+                array $fields = [],
+                ?int $ttlSeconds = null,
+            ): Markup {
+                $manifest = (new CollabManifestBuilder())->build(
+                    componentName: $componentName,
+                    instanceId: $instanceId,
+                    formKey: $formKey,
+                    recordId: $recordId,
+                    mode: $mode,
+                    fields: array_values($fields),
+                    ttlSeconds: $ttlSeconds,
+                );
+
+                $json = json_encode(
+                    $manifest,
+                    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
+                );
+
+                // `</script>` inside JSON would break the parser; encode the
+                // closing-tag sequence defensively (mirrors ui_event_manifest).
+                $json = str_replace('</', '<\\/', $json);
+
+                $instanceAttr = htmlspecialchars($instanceId, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+                $html = sprintf(
+                    '<script type="application/json" data-ui-collab-manifest="%s">%s</script>',
+                    $instanceAttr,
+                    $json,
+                );
+
+                return new Markup($html, 'UTF-8');
+            },
+            ['is_safe' => ['html']],
         );
 
         /**

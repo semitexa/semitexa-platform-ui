@@ -305,11 +305,13 @@
             // --- One Way Phase 4: SSE transport state -------------------
             transport: null,      // 'sse' | 'pull' — decided in start(), may degrade sse→pull
             streamId: null,       // adopted server-minted id; ONLY set from `ui.stream.id`
+            subscriptionId: null, // SSE unification: this grid's id on the SHARED KISS connection (null = dedicated stream)
             gotFrame: false,      // any data frame on the current stream yet?
             everStreamed: false,  // any frame on ANY connection — gates permanent degrade
             reconnectAttempts: 0,
         };
-        var source = null;          // the ONE held-open EventSource
+        var source = null;          // the dedicated held-open EventSource (degrade path only)
+        var sub = null;             // SSE unification: the shared-connection subscription handle (multiplex path)
         var reconnectTimer = null;
         var sseAdvertised = Array.isArray(contract.modes) && contract.modes.indexOf('sse') >= 0;
         Object.keys(filterFields).forEach(function (field) {
@@ -608,11 +610,62 @@
         function start() {
             if (sseAdvertised && typeof window.EventSource !== 'undefined') {
                 state.transport = 'sse';
-                openStream();
+                // Prefer the ONE shared KISS connection (SSE transport
+                // unification); fall back to a dedicated EventSource when the
+                // shared subscriber is unavailable (asset order / no session).
+                if (!trySharedSubscribe()) {
+                    openStream();
+                }
             } else {
                 state.transport = 'pull';
                 pull();
             }
+        }
+
+        // Subscribe this grid as one multiplexed feed on the page's single shared
+        // KISS connection. Returns true when attached; false to degrade to a
+        // dedicated EventSource. No per-grid connection, no per-grid reconnect —
+        // the shared connection owns both (resubscribe-on-reconnect is automatic).
+        function trySharedSubscribe() {
+            var mgr = window.SemitexaUi && window.SemitexaUi.sse;
+            if (!mgr || typeof mgr.subscribe !== 'function') return false;
+            var handle = mgr.subscribe({ url: endpoint }, currentViewParams(), onFrame);
+            if (!handle || handle.degraded) return false;
+            sub = handle;
+            state.subscriptionId = handle.subscriptionId;
+            // The subscription id IS the view-change addressing coordinate (the
+            // server keys tier-2 re-run state by it). No `ui.stream.id` to adopt:
+            // the client minted the id, so commands are un-gated immediately.
+            state.streamId = handle.subscriptionId;
+            return true;
+        }
+
+        // A frame the shared subscriber demuxed to THIS grid (by streaming_id);
+        // route by type through the SAME render/error paths the dedicated stream
+        // uses (the body is the same `{data, meta}` envelope).
+        function onFrame(frame) {
+            if (!frame || typeof frame._type !== 'string') return;
+            if (frame._type === 'ui.collection.data') {
+                state.gotFrame = true;
+                state.everStreamed = true;
+                state.reconnectAttempts = 0;
+                if (!Array.isArray(frame.data)) { handleErrorEnvelope(frame); return; }
+                state.recovered = false;
+                refs.error.setAttribute('hidden', '');
+                render(frame);
+            } else if (frame._type === 'ui.collection.error') {
+                state.gotFrame = true;
+                state.everStreamed = true;
+                handleErrorEnvelope(frame);
+            }
+        }
+
+        // The current view as a plain params object (q/sort/filter/perPage/page/
+        // cursor) for the subscribe query — the same coordinates buildQuery emits.
+        function currentViewParams() {
+            var p = {};
+            buildQuery().forEach(function (value, key) { p[key] = value; });
+            return p;
         }
 
         // The ONLY place a connection is created. Called once from start()
@@ -715,14 +768,27 @@
                 page: (state.mode === 'page' && state.page > 1) ? String(state.page) : '',
                 cursor: (state.mode === 'cursor') ? state.cursor : '',
             };
+            var headers = withCsrf('POST', {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'X-Semitexa-Stream-Rehydrate': '1',
+            });
+            // Multiplexed grid: address the view-change to this grid's subscription
+            // on the page's shared KISS connection (the server delivers to the
+            // session queue and targets the subscription). Degrade path omits these
+            // and the server falls back to the body `stream_id`.
+            if (state.subscriptionId) {
+                var mgr = window.SemitexaUi && window.SemitexaUi.sse;
+                var sessionId = (mgr && typeof mgr.sessionId === 'function') ? mgr.sessionId() : null;
+                if (sessionId) {
+                    headers['X-Semitexa-Kiss-Session'] = sessionId;
+                    headers['X-Semitexa-Subscription-Id'] = state.subscriptionId;
+                }
+            }
             fetch(endpoint, {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers: withCsrf('POST', {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'X-Semitexa-Stream-Rehydrate': '1',
-                }),
+                headers: headers,
                 body: JSON.stringify(body),
             }).catch(function () { /* a dropped command is retried by the next view change */ });
         }
@@ -997,9 +1063,20 @@
             refresh();
         }
 
+        // Tear down: unsubscribe from the shared connection (so the server reaps
+        // this grid's record) and close any dedicated stream/timers.
+        function destroy() {
+            if (sub) {
+                try { sub.unsubscribe(); } catch (e) { /* noop */ }
+                sub = null;
+            }
+            if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+            if (source) { try { source.close(); } catch (e) { /* noop */ } source = null; }
+        }
+
         // Expose for diagnostics + E2E assertions.
-        root.__uiGridV2 = { contract: contract, state: state, pull: pull, refresh: refresh };
-        return { start: start };
+        root.__uiGridV2 = { contract: contract, state: state, pull: pull, refresh: refresh, destroy: destroy };
+        return { start: start, destroy: destroy };
     }
 
     // ------------------------------------------------------------------
@@ -1030,18 +1107,41 @@
     });
 
     if (typeof MutationObserver !== 'undefined' && document.body) {
+        function teardownGrid(gridRoot) {
+            if (gridRoot.__uiGridV2 && typeof gridRoot.__uiGridV2.destroy === 'function') {
+                try { gridRoot.__uiGridV2.destroy(); } catch (e) { /* noop */ }
+            }
+            gridRoot.__uiGridV2Booted = false;
+        }
+
         var observer = new MutationObserver(function (mutations) {
             for (var i = 0; i < mutations.length; i++) {
                 var added = mutations[i].addedNodes;
-                if (!added || !added.length) continue;
-                for (var j = 0; j < added.length; j++) {
-                    var node = added[j];
-                    if (!node || node.nodeType !== 1) continue;
-                    if (node.matches && node.matches('[data-ui-grid-v2]')) {
-                        bootGrid(node);
-                    } else if (node.querySelectorAll) {
-                        var gridRoots = node.querySelectorAll('[data-ui-grid-v2]');
-                        for (var k = 0; k < gridRoots.length; k++) bootGrid(gridRoots[k]);
+                if (added && added.length) {
+                    for (var j = 0; j < added.length; j++) {
+                        var node = added[j];
+                        if (!node || node.nodeType !== 1) continue;
+                        if (node.matches && node.matches('[data-ui-grid-v2]')) {
+                            bootGrid(node);
+                        } else if (node.querySelectorAll) {
+                            var gridRoots = node.querySelectorAll('[data-ui-grid-v2]');
+                            for (var k = 0; k < gridRoots.length; k++) bootGrid(gridRoots[k]);
+                        }
+                    }
+                }
+                // A grid removed from the DOM must unsubscribe so its server-side
+                // record is reaped (the shared connection survives).
+                var removed = mutations[i].removedNodes;
+                if (removed && removed.length) {
+                    for (var r = 0; r < removed.length; r++) {
+                        var rnode = removed[r];
+                        if (!rnode || rnode.nodeType !== 1) continue;
+                        if (rnode.matches && rnode.matches('[data-ui-grid-v2]')) {
+                            teardownGrid(rnode);
+                        } else if (rnode.querySelectorAll) {
+                            var goneRoots = rnode.querySelectorAll('[data-ui-grid-v2]');
+                            for (var g = 0; g < goneRoots.length; g++) teardownGrid(goneRoots[g]);
+                        }
                     }
                 }
             }

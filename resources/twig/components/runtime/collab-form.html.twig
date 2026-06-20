@@ -1,0 +1,92 @@
+{#
+ # platform.collab-form — live co-editing composition shell.
+ #
+ # The collaborative sibling of platform.form. Renders a component root that
+ # carries the canonical per-render instance id, a presence host and a status
+ # host the runtime writes into, the caller's field inputs (content slot), and
+ # the SIGNED collab manifest the runtime reads to open /__ui/form-doc.
+ #
+ # Caller props:
+ #   formKey      — safe slug identifying the form family (required).
+ #   recordId     — the record/document being co-edited (required).
+ #   mode         — collaboration mode: shared | optimistic | form-lock |
+ #                  field-lock (default "shared").
+ #   fields       — list of field names the runtime manages; each MUST match a
+ #                  data-ui-field-name in the content slot (required).
+ #   title        — short heading (optional).
+ #   description  — muted paragraph beneath the title (optional).
+ #
+ # The manifest is emitted INSIDE this root so form-collab-runtime.js resolves
+ # the root via closest('[data-ui-component-instance-id]'), exactly as the event
+ # runtime pairs its manifest.
+ #}
+{%- set _ui_instance = ui_component_instance() -%}
+{%- set _mode = mode|default('shared') -%}
+{%- set _fields = fields|default([]) -%}
+<div
+    data-ui-component="platform.collab-form"
+    data-ui-component-instance-id="{{ _ui_instance }}"
+    ui-component="collab-form"
+    sx-layout="stack"
+    sx-gap="4"
+    role="group"
+    {%- if ariaLabel|default(null) %} aria-label="{{ ariaLabel }}"{% endif %}
+>
+    {% if title|default(null) %}
+        <h2 ui-text="title" style="font-size:1.25rem;margin:0;">{{ title }}</h2>
+    {% endif %}
+    {% if description|default(null) %}
+        <p ui-text="muted" style="margin:0;max-width:42rem;">{{ description }}</p>
+    {% endif %}
+
+    <div sx-layout="cluster" sx-gap="2" sx-align="center">
+        <span ui-text="muted" style="font-size:0.8125rem;">Editing live ·</span>
+        <span data-ui-collab-presence sx-layout="cluster" sx-gap="2" aria-live="polite"></span>
+        <span
+            data-ui-collab-status
+            data-state="connecting"
+            ui-text="muted"
+            role="status"
+            aria-live="polite"
+            style="font-size:0.75rem;margin-left:auto;"
+        ></span>
+    </div>
+
+    {%- if _mode == 'form-lock' or _mode == 'field-lock' -%}
+        {# Lock modes write a "locked by X" banner here when the form (or a field)
+           is held by another participant; the runtime shows/hides it from the
+           projected lock state. #}
+        <div
+            data-ui-collab-lock
+            role="status"
+            aria-live="polite"
+            hidden
+            ui-text="muted"
+            style="font-size:0.8125rem;"
+        ></div>
+    {%- endif -%}
+
+    <form data-ui-part="form" action="#" novalidate sx-layout="stack" sx-gap="3">
+        {{ slot('content')|raw }}
+
+        {%- if _mode == 'optimistic' -%}
+            {# Optimistic mode commits the whole form under a version guard. The
+               runtime wires this button to emit form.save and renders a conflict
+               prompt into the host below when the server reports a stale save. #}
+            <div sx-layout="cluster" sx-gap="2" sx-align="center">
+                <button
+                    type="submit"
+                    data-ui-collab-save
+                    sx-surface="raised"
+                    sx-padding="2"
+                    sx-radius="sm"
+                    style="font:inherit;cursor:pointer;border:1px solid var(--ui-border,#d0d7de);"
+                >Save</button>
+                <span data-ui-collab-save-status ui-text="muted" role="status" aria-live="polite" style="font-size:0.75rem;"></span>
+            </div>
+            <div data-ui-collab-conflict role="alert" aria-live="assertive" hidden></div>
+        {%- endif -%}
+    </form>
+
+    {{ ui_collab_manifest('platform.collab-form', _ui_instance, formKey, recordId, _mode, _fields) }}
+</div>
