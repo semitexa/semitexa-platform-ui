@@ -56,7 +56,7 @@ final class FormCollaborationEventHandlerTest extends TestCase
             eventId: 'evt',
             correlationId: 'cor',
             semanticEvent: $event,
-            signedClaims: ['i' => 'actor-A', 'cfg' => ['scope' => self::SCOPE, 'mode' => $mode]],
+            signedClaims: ['i' => 'actor-A', 'cfg' => ['scope' => self::SCOPE, 'mode' => $mode, 'fields' => ['title', 'body']]],
             request: $request,
         );
     }
@@ -87,6 +87,31 @@ final class FormCollaborationEventHandlerTest extends TestCase
         self::assertSame(UiEventResponseStatus::Ok, $resp->status);
         self::assertSame(['title' => 'Hi'], $this->draft->load(self::SCOPE)?->values);
         self::assertContains(self::SCOPE, $this->invalidator->touched);
+    }
+
+    #[Test]
+    public function a_field_edit_for_a_field_off_the_signed_allow_list_is_rejected(): void
+    {
+        // 'secret' is not in the signed cfg fields (['title','body']); the body is
+        // untrusted, so it must never reach the shared draft.
+        $resp = $this->handler->handle((object) [], $this->ctx('field.edit', 'shared', ['field' => 'secret', 'value' => 'x']));
+
+        self::assertSame('unknown_field', $resp->error?->code);
+        self::assertNull($this->draft->load(self::SCOPE), 'an off-list field must not create a draft');
+        self::assertNotContains(self::SCOPE, $this->invalidator->touched);
+    }
+
+    #[Test]
+    public function form_save_drops_keys_off_the_signed_allow_list(): void
+    {
+        $resp = $this->handler->handle((object) [], $this->ctx('form.save', 'optimistic', [
+            'values' => ['title' => 'One', 'secret' => 'leak'],
+            'version' => 0,
+        ]));
+
+        self::assertSame(UiEventResponseStatus::Ok, $resp->status);
+        // 'secret' is filtered out; only the allow-listed key persists.
+        self::assertSame(['title' => 'One'], $this->draft->load(self::SCOPE)?->values);
     }
 
     #[Test]

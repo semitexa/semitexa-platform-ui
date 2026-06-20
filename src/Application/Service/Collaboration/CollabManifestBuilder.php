@@ -67,6 +67,11 @@ final class CollabManifestBuilder
         );
 
         // Write-side tokens: one per (part, event) the mode uses, each routable.
+        // The managed field list rides the SIGNED cfg here too (not just the
+        // read-side feedCtx): the handler enforces field.edit / form.save keys
+        // against this trusted allow-list, so a valid write token can't be used to
+        // inject arbitrary field names into the shared draft.
+        $writeCfg = $cfg + ['fields' => $fieldNames];
         $events = [];
         foreach (self::semanticEventsFor($resolvedMode) as [$part, $event]) {
             $events[$part . '.' . $event] = SignedContext::sign([
@@ -74,7 +79,7 @@ final class CollabManifestBuilder
                 'i'   => $instanceId,
                 'p'   => $part,
                 'e'   => $event,
-                'cfg' => $cfg,
+                'cfg' => $writeCfg,
             ], $ttlSeconds);
         }
 

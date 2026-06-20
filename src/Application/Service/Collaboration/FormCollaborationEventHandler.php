@@ -87,13 +87,18 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
         $mode = FormCollaborationMode::tryFrom(is_array($cfg) ? (string) ($cfg['mode'] ?? '') : '')
             ?? FormCollaborationMode::default();
 
+        // The managed-field allow-list rides the SIGNED cfg; write events
+        // (field.edit / form.save) are constrained to it so a valid token can't
+        // inject arbitrary field names into the shared draft.
+        $allowedFields = self::allowedFields($cfg);
+
         [$actorId, $actorLabel] = self::resolveActor($context);
         $request = is_array($context->request) ? $context->request : [];
 
         try {
             return match ($context->semanticEvent) {
-                'field.edit'      => $this->onFieldEdit($scope, $mode, $request, $actorId, $actorLabel),
-                'form.save'       => $this->onFormSave($scope, $request, $actorId),
+                'field.edit'      => $this->onFieldEdit($scope, $mode, $request, $actorId, $actorLabel, $allowedFields),
+                'form.save'       => $this->onFormSave($scope, $request, $actorId, $allowedFields),
                 'lock.acquire'    => $this->onLockAcquire($scope, $request, $actorId, $actorLabel),
                 'lock.release'    => $this->onLockRelease($scope, $request, $actorId),
                 'lock.heartbeat'  => $this->onLockHeartbeat($scope, $request, $actorId),
@@ -112,12 +117,18 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
      * Optimistic). Gated by the mode policy against the current lock state.
      *
      * @param array<string, mixed> $request
+     * @param list<string> $allowedFields the signed managed-field allow-list
      */
-    private function onFieldEdit(string $scope, FormCollaborationMode $mode, array $request, string $actorId, string $actorLabel): UiEventResponse
+    private function onFieldEdit(string $scope, FormCollaborationMode $mode, array $request, string $actorId, string $actorLabel, array $allowedFields): UiEventResponse
     {
         $field = (string) ($request['field'] ?? '');
         if ($field === '') {
             return self::error('missing_field', 'A field name is required for a field edit.');
+        }
+        // Reject any field name not on the signed allow-list — the request body is
+        // untrusted, so an arbitrary key must never reach the shared draft.
+        if (!in_array($field, $allowedFields, true)) {
+            return self::error('unknown_field', 'This field is not part of the managed form.', ['field' => $field]);
         }
 
         $formLock = $this->lockStore->current($scope, null);
@@ -147,10 +158,14 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
      * {@see FormDraftVersionConflictException}, mapped to a typed error above.
      *
      * @param array<string, mixed> $request
+     * @param list<string> $allowedFields the signed managed-field allow-list
      */
-    private function onFormSave(string $scope, array $request, string $actorId): UiEventResponse
+    private function onFormSave(string $scope, array $request, string $actorId, array $allowedFields): UiEventResponse
     {
         $values = is_array($request['values'] ?? null) ? self::sanitizeValues($request['values']) : [];
+        // Drop any submitted key not on the signed allow-list before it reaches the
+        // shared draft — the request body is untrusted.
+        $values = array_intersect_key($values, array_flip($allowedFields));
         $expectedVersion = (int) ($request['version'] ?? 0);
 
         // Stamp the STABLE per-participant id (not the display label) as the
@@ -278,6 +293,26 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
         }
 
         return $clean;
+    }
+
+    /**
+     * The trusted managed-field allow-list carried on the signed cfg. Used to
+     * constrain write events to the server-owned field set.
+     *
+     * @param mixed $cfg the signed `cfg` claim
+     * @return list<string>
+     */
+    private static function allowedFields(mixed $cfg): array
+    {
+        $fields = is_array($cfg) && is_array($cfg['fields'] ?? null) ? $cfg['fields'] : [];
+        $out = [];
+        foreach ($fields as $field) {
+            if (is_string($field) && $field !== '') {
+                $out[] = $field;
+            }
+        }
+
+        return $out;
     }
 
     /** @return scalar|null */

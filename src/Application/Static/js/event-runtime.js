@@ -1739,15 +1739,29 @@
         'ui.collection.data', 'ui.collection.error'
     ];
 
-    /** Ensure the single shared KISS connection is open (collab/grids need it live). */
+    /** True when a LIVE-mode KISS connection is already attached (URL carries mode=live). */
+    function hasLiveSseConnection() {
+        for (var i = 0; i < ATTACHED_SSE_CONNECTIONS.length; i++) {
+            var u = ATTACHED_SSE_CONNECTIONS[i].url || '';
+            if (u.indexOf('mode=' + SSE_TRANSPORT_MODE_LIVE) !== -1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Ensure a LIVE shared KISS connection is open (collab/grids need it live). */
     function ensureKissOpen(sessionId) {
         if (typeof EventSource !== 'function') {
             return false;
         }
-        // One connection per page: open a live stream only when none is attached.
-        // A live-mode page already auto-opened the same URL (attachSse de-dupes);
-        // a drain page gets its held-open connection forced here by the subscriber.
-        if (ATTACHED_SSE_CONNECTIONS.length === 0) {
+        // A subscription needs a LIVE connection. Checking only the count was a
+        // bug: a drain-mode connection (opened to flush deferred placeholders)
+        // closes after the flush, so a subscription riding it would lose its feed.
+        // Open the live URL whenever no LIVE connection is attached — a live page
+        // already opened it (attachSse de-dupes the identical URL → no-op); a
+        // drain-only page gets its live connection forced here by the subscriber.
+        if (!hasLiveSseConnection()) {
             attachSse({ url: buildKissUrl(sessionId, SSE_TRANSPORT_MODE_LIVE) });
         }
         return true;

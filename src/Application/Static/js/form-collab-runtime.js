@@ -126,6 +126,10 @@
         this.fieldLockHolders = Object.create(null);
         this.myFieldLocks = Object.create(null);
         this.fieldHeartbeatTimer = null;
+        // Lock-mode edits typed before the async lock.acquire ack lands are
+        // queued here (by field name) and flushed once the lock is held, so a
+        // keystroke during the acquire round-trip is never silently dropped.
+        this.pendingEdit = Object.create(null);
     }
 
     CollabForm.prototype.fieldEl = function (name) {
@@ -400,10 +404,13 @@
                 self.startLockHeartbeat();
                 self.setFieldsDisabled(false);
                 self.renderLockBanner(null);
+                // Lock now held — flush any keystrokes typed during the acquire.
+                self.flushAllPendingEdits();
             } else if (res && res.reason === 'lock_unavailable') {
                 // Lost the race — go read-only immediately (the snapshot will
-                // fill in the holder's label).
+                // fill in the holder's label). Drop queued edits we can't write.
                 self.iHoldLock = false;
+                self.pendingEdit = Object.create(null);
                 self.setFieldsDisabled(true);
                 self.renderLockBanner(self.lockHolderLabel || 'another participant');
             }
@@ -504,7 +511,10 @@
             if (res && (res.status === 'accepted' || res.kind === 'ack')) {
                 self.myFieldLocks[name] = true;
                 self.ensureFieldHeartbeat();
+                // Field lock now held — flush any keystrokes typed during acquire.
+                self.flushPendingEdit(name);
             } else if (res && res.reason === 'lock_unavailable') {
+                delete self.pendingEdit[name];
                 var input = self.inputOf(self.fieldEl(name));
                 if (input) {
                     input.disabled = true;
@@ -715,9 +725,48 @@
                         self.setSaveStatus('unsaved');
                         return;
                     }
+                    // Lock modes: focus kicked off an async lock.acquire. Until the
+                    // ack lands (iHoldLock / myFieldLocks), the server would reject a
+                    // field.edit and postEvent() swallows the error — losing the
+                    // keystroke. Queue it instead; the acquire ack flushes the
+                    // current value.
+                    if (self.mode === 'form-lock' && !self.iHoldLock) {
+                        self.pendingEdit[name] = input.value;
+                        return;
+                    }
+                    if (self.mode === 'field-lock' && !self.myFieldLocks[name]) {
+                        self.pendingEdit[name] = input.value;
+                        return;
+                    }
                     self.emitFieldEdit(name, input.value);
                 });
             })(String(fields[i]));
+        }
+    };
+
+    // Flush a queued lock-mode edit for `name`, sending the CURRENT input value
+    // (so any keystrokes during the acquire round-trip are captured, not the
+    // possibly-stale value at queue time).
+    CollabForm.prototype.flushPendingEdit = function (name) {
+        if (!Object.prototype.hasOwnProperty.call(this.pendingEdit, name)) {
+            return;
+        }
+        delete this.pendingEdit[name];
+        var input = this.inputOf(this.fieldEl(name));
+        if (input) {
+            this.emitFieldEdit(name, input.value);
+        }
+    };
+
+    CollabForm.prototype.flushAllPendingEdits = function () {
+        var names = [];
+        for (var k in this.pendingEdit) {
+            if (Object.prototype.hasOwnProperty.call(this.pendingEdit, k)) {
+                names.push(k);
+            }
+        }
+        for (var i = 0; i < names.length; i++) {
+            this.flushPendingEdit(names[i]);
         }
     };
 
