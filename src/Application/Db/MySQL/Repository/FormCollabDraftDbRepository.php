@@ -65,10 +65,15 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
         return $this;
     }
 
-    /** The current tenant id, or null for the default/single-tenant context. */
-    private function currentTenantId(): ?string
+    /**
+     * The current tenant id, or the 'default' sentinel for the
+     * default/single-tenant context. Never null: the unique index spans
+     * (tenant_id, scope_key) and MySQL treats NULLs as distinct, so a NULL
+     * tenant would silently drop the per-scope uniqueness guarantee.
+     */
+    private function currentTenantId(): string
     {
-        return TenantContextAccess::tenantId($this->tenantContext);
+        return TenantContextAccess::tenantIdOrDefault($this->tenantContext);
     }
 
     public function load(string $scopeKey): ?FormCollabDraftState
@@ -122,21 +127,13 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
 
     private function findByScope(string $scopeKey): ?FormCollabDraftResource
     {
-        $tenantId = $this->currentTenantId();
-
-        $query = $this->repository()->query()
-            ->where(FormCollabDraftResource::column('scope_key'), Operator::Equals, $scopeKey);
-
         // Scope to the owning tenant so the same scope_key under another tenant
-        // is never read. Default/single-tenant rows carry a NULL tenant_id.
-        if ($tenantId === null) {
-            $query->whereNull(FormCollabDraftResource::column('tenant_id'));
-        } else {
-            $query->where(FormCollabDraftResource::column('tenant_id'), Operator::Equals, $tenantId);
-        }
-
+        // is never read. Default/single-tenant rows carry the 'default' sentinel.
         /** @var FormCollabDraftResource|null $resource */
-        $resource = $query->fetchOneAs(FormCollabDraftResource::class, $this->orm()->getMapperRegistry());
+        $resource = $this->repository()->query()
+            ->where(FormCollabDraftResource::column('scope_key'), Operator::Equals, $scopeKey)
+            ->where(FormCollabDraftResource::column('tenant_id'), Operator::Equals, $this->currentTenantId())
+            ->fetchOneAs(FormCollabDraftResource::class, $this->orm()->getMapperRegistry());
 
         return $resource;
     }

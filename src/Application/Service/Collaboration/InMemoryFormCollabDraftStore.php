@@ -99,10 +99,10 @@ class InMemoryFormCollabDraftStore implements FormCollabDraftStoreInterface
         );
     }
 
-    /** The map partition for the current tenant ('' for the default context). */
+    /** The map partition for the current tenant ('default' for the default context). */
     private function tenantKey(): string
     {
-        return TenantContextAccess::tenantId($this->tenantContext) ?? '';
+        return TenantContextAccess::tenantIdOrDefault($this->tenantContext);
     }
 
     /**
