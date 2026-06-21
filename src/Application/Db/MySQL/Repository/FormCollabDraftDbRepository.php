@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Db\MySQL\Repository;
 
+use Semitexa\Core\Attribute\InjectAsMutable;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesRepositoryContract;
+use Semitexa\Core\Tenant\TenantContextAccess;
+use Semitexa\Core\Tenant\TenantContextInterface;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
@@ -36,6 +39,15 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
     #[InjectAsReadonly]
     protected OrmManager $orm;
 
+    /**
+     * The ambient tenant, so a draft row is scoped to its owner: two tenants
+     * sharing a `formKey`/`recordId` get separate rows and never read or
+     * overwrite each other's in-progress edits. Null in single-tenant / default
+     * contexts (e.g. the playground), which keeps that behaviour unchanged.
+     */
+    #[InjectAsMutable]
+    protected ?TenantContextInterface $tenantContext = null;
+
     private ?DomainRepository $repository = null;
 
     /** Test seam — production path uses property injection. */
@@ -44,6 +56,19 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
         $this->orm = $orm;
         $this->repository = null;
         return $this;
+    }
+
+    /** Test seam — production path uses property injection. */
+    public function withTenantContext(?TenantContextInterface $tenantContext): self
+    {
+        $this->tenantContext = $tenantContext;
+        return $this;
+    }
+
+    /** The current tenant id, or null for the default/single-tenant context. */
+    private function currentTenantId(): ?string
+    {
+        return TenantContextAccess::tenantId($this->tenantContext);
     }
 
     public function load(string $scopeKey): ?FormCollabDraftState
@@ -97,10 +122,21 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
 
     private function findByScope(string $scopeKey): ?FormCollabDraftResource
     {
+        $tenantId = $this->currentTenantId();
+
+        $query = $this->repository()->query()
+            ->where(FormCollabDraftResource::column('scope_key'), Operator::Equals, $scopeKey);
+
+        // Scope to the owning tenant so the same scope_key under another tenant
+        // is never read. Default/single-tenant rows carry a NULL tenant_id.
+        if ($tenantId === null) {
+            $query->whereNull(FormCollabDraftResource::column('tenant_id'));
+        } else {
+            $query->where(FormCollabDraftResource::column('tenant_id'), Operator::Equals, $tenantId);
+        }
+
         /** @var FormCollabDraftResource|null $resource */
-        $resource = $this->repository()->query()
-            ->where(FormCollabDraftResource::column('scope_key'), Operator::Equals, $scopeKey)
-            ->fetchOneAs(FormCollabDraftResource::class, $this->orm()->getMapperRegistry());
+        $resource = $query->fetchOneAs(FormCollabDraftResource::class, $this->orm()->getMapperRegistry());
 
         return $resource;
     }
@@ -112,6 +148,7 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
     {
         $resource = new FormCollabDraftResource(
             id:          self::mintId(),
+            tenant_id:   $this->currentTenantId(),
             scope_key:   $scopeKey,
             values_json: self::encodeValues($values),
             version:     $version,
@@ -130,6 +167,7 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
     {
         $resource = new FormCollabDraftResource(
             id:          $existing->id,
+            tenant_id:   $existing->tenant_id,
             scope_key:   $existing->scope_key,
             values_json: self::encodeValues($values),
             version:     $version,

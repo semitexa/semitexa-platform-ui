@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Collaboration;
 
+use Semitexa\Core\Attribute\InjectAsMutable;
+use Semitexa\Core\Tenant\TenantContextAccess;
+use Semitexa\Core\Tenant\TenantContextInterface;
 use Semitexa\PlatformUi\Domain\Contract\FormCollabDraftStoreInterface;
 use Semitexa\PlatformUi\Domain\Exception\FormDraftVersionConflictException;
 use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
@@ -25,17 +28,32 @@ use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
  */
 class InMemoryFormCollabDraftStore implements FormCollabDraftStoreInterface
 {
-    /** @var array<string, FormCollabDraftState> */
+    /** @var array<string, array<string, FormCollabDraftState>> tenant key → scope key → draft */
     private array $drafts = [];
+
+    /**
+     * The ambient tenant, so drafts are scoped to their owner exactly as the
+     * DB store does — keeps the two implementations at parity. Null in
+     * single-tenant / default contexts.
+     */
+    #[InjectAsMutable]
+    protected ?TenantContextInterface $tenantContext = null;
+
+    /** Test seam — production path uses property injection. */
+    public function withTenantContext(?TenantContextInterface $tenantContext): self
+    {
+        $this->tenantContext = $tenantContext;
+        return $this;
+    }
 
     public function load(string $scopeKey): ?FormCollabDraftState
     {
-        return $this->drafts[$scopeKey] ?? null;
+        return $this->drafts[$this->tenantKey()][$scopeKey] ?? null;
     }
 
     public function open(string $scopeKey, array $seedValues, ?string $actor): FormCollabDraftState
     {
-        return $this->drafts[$scopeKey] ??= new FormCollabDraftState(
+        return $this->drafts[$this->tenantKey()][$scopeKey] ??= new FormCollabDraftState(
             scopeKey:  $scopeKey,
             values:    self::sanitize($seedValues),
             version:   1,
@@ -46,7 +64,7 @@ class InMemoryFormCollabDraftStore implements FormCollabDraftStoreInterface
 
     public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor): FormCollabDraftState
     {
-        $current = $this->drafts[$scopeKey] ?? null;
+        $current = $this->drafts[$this->tenantKey()][$scopeKey] ?? null;
         $currentVersion = $current?->version ?? 0;
 
         if ($currentVersion !== $expectedVersion) {
@@ -58,7 +76,7 @@ class InMemoryFormCollabDraftStore implements FormCollabDraftStoreInterface
 
     public function mergeFields(string $scopeKey, array $partialValues, ?string $actor): FormCollabDraftState
     {
-        $current = $this->drafts[$scopeKey] ?? null;
+        $current = $this->drafts[$this->tenantKey()][$scopeKey] ?? null;
         $merged = $current?->values ?? [];
         foreach (self::sanitize($partialValues) as $field => $value) {
             $merged[$field] = $value;
@@ -72,13 +90,19 @@ class InMemoryFormCollabDraftStore implements FormCollabDraftStoreInterface
      */
     private function store(string $scopeKey, array $values, int $version, ?string $actor): FormCollabDraftState
     {
-        return $this->drafts[$scopeKey] = new FormCollabDraftState(
+        return $this->drafts[$this->tenantKey()][$scopeKey] = new FormCollabDraftState(
             scopeKey:  $scopeKey,
             values:    $values,
             version:   $version,
             updatedBy: $actor,
             updatedAt: time(),
         );
+    }
+
+    /** The map partition for the current tenant ('' for the default context). */
+    private function tenantKey(): string
+    {
+        return TenantContextAccess::tenantId($this->tenantContext) ?? '';
     }
 
     /**

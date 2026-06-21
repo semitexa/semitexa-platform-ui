@@ -6,6 +6,9 @@ namespace Semitexa\PlatformUi\Tests\Unit\Collaboration;
 
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Semitexa\Core\Tenant\Layer\TenantLayerInterface;
+use Semitexa\Core\Tenant\Layer\TenantLayerValueInterface;
+use Semitexa\Core\Tenant\TenantContextInterface;
 use Semitexa\PlatformUi\Application\Service\Collaboration\InMemoryFormCollabDraftStore;
 use Semitexa\PlatformUi\Domain\Exception\FormDraftVersionConflictException;
 
@@ -114,5 +117,64 @@ final class FormCollabDraftStoreTest extends TestCase
     public function load_returns_null_for_an_unopened_scope(): void
     {
         self::assertNull((new InMemoryFormCollabDraftStore())->load('formdoc:article:nope'));
+    }
+
+    #[Test]
+    public function drafts_are_isolated_per_tenant_even_on_an_identical_scope_key(): void
+    {
+        // The security property: two tenants editing the SAME formKey:recordId
+        // must never read or overwrite each other's draft.
+        $store = new InMemoryFormCollabDraftStore();
+
+        $store->withTenantContext($this->tenant('acme'));
+        $store->open(self::SCOPE, ['title' => 'Acme secret'], 'alice');
+
+        // A different tenant on the identical scope key sees no draft …
+        $store->withTenantContext($this->tenant('globex'));
+        self::assertNull($store->load(self::SCOPE), 'Globex must not see Acme\'s draft');
+
+        // … and writing under that tenant creates an INDEPENDENT row.
+        $store->open(self::SCOPE, ['title' => 'Globex draft'], 'bob');
+        $store->apply(self::SCOPE, ['title' => 'Globex edited'], 1, 'bob');
+        self::assertSame(['title' => 'Globex edited'], $store->load(self::SCOPE)->values);
+
+        // Acme's draft is untouched at its own version/values.
+        $store->withTenantContext($this->tenant('acme'));
+        $acme = $store->load(self::SCOPE);
+        self::assertSame(['title' => 'Acme secret'], $acme->values);
+        self::assertSame(1, $acme->version);
+    }
+
+    #[Test]
+    public function the_default_context_shares_one_partition(): void
+    {
+        // No tenant context (playground / single-tenant) keeps the prior
+        // behaviour: a single shared draft per scope key.
+        $store = new InMemoryFormCollabDraftStore();
+        $store->open(self::SCOPE, ['title' => 'Shared'], 'alice');
+
+        self::assertSame(['title' => 'Shared'], $store->load(self::SCOPE)->values);
+    }
+
+    private function tenant(string $id): TenantContextInterface
+    {
+        return new class ($id) implements TenantContextInterface {
+            public function __construct(private readonly string $id) {}
+
+            public function getTenantId(): string
+            {
+                return $this->id;
+            }
+
+            public function getLayer(TenantLayerInterface $layer): ?TenantLayerValueInterface
+            {
+                return null;
+            }
+
+            public function hasLayer(TenantLayerInterface $layer): bool
+            {
+                return false;
+            }
+        };
     }
 }
