@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Collaboration;
 
-use Semitexa\Core\Attribute\InjectAsMutable;
 use Semitexa\Core\Tenant\TenantContextAccess;
 use Semitexa\Core\Tenant\TenantContextInterface;
 use Semitexa\PlatformUi\Domain\Contract\FormCollabDraftStoreInterface;
@@ -32,11 +31,13 @@ class InMemoryFormCollabDraftStore implements FormCollabDraftStoreInterface
     private array $drafts = [];
 
     /**
-     * The ambient tenant, so drafts are scoped to their owner exactly as the
-     * DB store does — keeps the two implementations at parity. Null in
-     * single-tenant / default contexts.
+     * Optional tenant partition, mirroring the DB store so both implementations
+     * isolate drafts the same way. This store is a worker-local singleton (its
+     * draft map must survive across requests), so it canNOT be #[ExecutionScoped]
+     * for per-request mutable injection; the tenant is supplied via
+     * {@see withTenantContext()} (used by tests). Left null in the
+     * single-worker dev / single-tenant default it actually serves.
      */
-    #[InjectAsMutable]
     protected ?TenantContextInterface $tenantContext = null;
 
     /** Test seam — production path uses property injection. */

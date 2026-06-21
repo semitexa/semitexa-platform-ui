@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Db\MySQL\Repository;
 
+use Semitexa\Core\Attribute\ExecutionScoped;
 use Semitexa\Core\Attribute\InjectAsMutable;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesRepositoryContract;
@@ -33,6 +34,7 @@ use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
  * simultaneous writers is the lock store's job (Field/Form-lock modes); the
  * Optimistic baseline intentionally tolerates the last-write-wins window.
  */
+#[ExecutionScoped]
 #[SatisfiesRepositoryContract(of: FormCollabDraftStoreInterface::class)]
 final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
 {
@@ -164,7 +166,11 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
     {
         $resource = new FormCollabDraftResource(
             id:          $existing->id,
-            tenant_id:   $existing->tenant_id,
+            // Normalise to the current tenant so a legacy row written before
+            // the tenant_id column existed (NULL) heals to the 'default'
+            // sentinel instead of staying NULL forever and slipping past the
+            // (tenant_id, scope_key) uniqueness guarantee.
+            tenant_id:   $this->currentTenantId(),
             scope_key:   $existing->scope_key,
             values_json: self::encodeValues($values),
             version:     $version,
