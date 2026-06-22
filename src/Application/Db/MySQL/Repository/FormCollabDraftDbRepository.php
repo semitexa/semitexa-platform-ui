@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Db\MySQL\Repository;
 
+use Semitexa\Core\Attribute\ExecutionScoped;
+use Semitexa\Core\Attribute\InjectAsMutable;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesRepositoryContract;
+use Semitexa\Core\Tenant\TenantContextAccess;
+use Semitexa\Core\Tenant\TenantContextInterface;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
@@ -30,11 +34,21 @@ use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
  * simultaneous writers is the lock store's job (Field/Form-lock modes); the
  * Optimistic baseline intentionally tolerates the last-write-wins window.
  */
+#[ExecutionScoped]
 #[SatisfiesRepositoryContract(of: FormCollabDraftStoreInterface::class)]
 final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
 {
     #[InjectAsReadonly]
     protected OrmManager $orm;
+
+    /**
+     * The ambient tenant, so a draft row is scoped to its owner: two tenants
+     * sharing a `formKey`/`recordId` get separate rows and never read or
+     * overwrite each other's in-progress edits. Null in single-tenant / default
+     * contexts (e.g. the playground), which keeps that behaviour unchanged.
+     */
+    #[InjectAsMutable]
+    protected ?TenantContextInterface $tenantContext = null;
 
     private ?DomainRepository $repository = null;
 
@@ -44,6 +58,24 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
         $this->orm = $orm;
         $this->repository = null;
         return $this;
+    }
+
+    /** Test seam — production path uses property injection. */
+    public function withTenantContext(?TenantContextInterface $tenantContext): self
+    {
+        $this->tenantContext = $tenantContext;
+        return $this;
+    }
+
+    /**
+     * The current tenant id, or the 'default' sentinel for the
+     * default/single-tenant context. Never null: the unique index spans
+     * (tenant_id, scope_key) and MySQL treats NULLs as distinct, so a NULL
+     * tenant would silently drop the per-scope uniqueness guarantee.
+     */
+    private function currentTenantId(): string
+    {
+        return TenantContextAccess::tenantIdOrDefault($this->tenantContext);
     }
 
     public function load(string $scopeKey): ?FormCollabDraftState
@@ -97,9 +129,12 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
 
     private function findByScope(string $scopeKey): ?FormCollabDraftResource
     {
+        // Scope to the owning tenant so the same scope_key under another tenant
+        // is never read. Default/single-tenant rows carry the 'default' sentinel.
         /** @var FormCollabDraftResource|null $resource */
         $resource = $this->repository()->query()
             ->where(FormCollabDraftResource::column('scope_key'), Operator::Equals, $scopeKey)
+            ->where(FormCollabDraftResource::column('tenant_id'), Operator::Equals, $this->currentTenantId())
             ->fetchOneAs(FormCollabDraftResource::class, $this->orm()->getMapperRegistry());
 
         return $resource;
@@ -112,6 +147,7 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
     {
         $resource = new FormCollabDraftResource(
             id:          self::mintId(),
+            tenant_id:   $this->currentTenantId(),
             scope_key:   $scopeKey,
             values_json: self::encodeValues($values),
             version:     $version,
@@ -130,6 +166,11 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
     {
         $resource = new FormCollabDraftResource(
             id:          $existing->id,
+            // Normalise to the current tenant so a legacy row written before
+            // the tenant_id column existed (NULL) heals to the 'default'
+            // sentinel instead of staying NULL forever and slipping past the
+            // (tenant_id, scope_key) uniqueness guarantee.
+            tenant_id:   $this->currentTenantId(),
             scope_key:   $existing->scope_key,
             values_json: self::encodeValues($values),
             version:     $version,

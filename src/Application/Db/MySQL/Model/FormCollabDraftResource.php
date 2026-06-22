@@ -16,9 +16,11 @@ use Semitexa\Orm\Metadata\HasRelationReferences;
  * Collaborative Form Data · Phase 2 — the durable half of the hybrid store:
  * the shared in-progress DRAFT of one collaborative form document.
  *
- * One row per document scope (`formdoc:{formKey}:{recordId}` or
- * `form:{instanceId}` — see {@see \Semitexa\Ssr\Domain\Model\FormDocumentScope}),
- * enforced by the unique index on `scope_key`. The row holds the merged field
+ * One row per (tenant, document scope) — the scope is `formdoc:{formKey}:{recordId}`
+ * or `form:{instanceId}` (see {@see \Semitexa\Ssr\Domain\Model\FormDocumentScope}),
+ * and the unique index spans `(tenant_id, scope_key)` so two tenants that happen
+ * to share a `formKey`/`recordId` get SEPARATE draft rows and never read or
+ * overwrite each other's in-progress edits. The row holds the merged field
  * values (`values_json`, the same `json_encode()` shape the demo-submission
  * resource uses) plus a monotonically increasing `version` that powers the
  * optimistic concurrency guard, and last-writer audit columns.
@@ -34,7 +36,7 @@ use Semitexa\Orm\Metadata\HasRelationReferences;
  * is incompatible with a readonly resource).
  */
 #[FromTable(name: 'form_collab_draft')]
-#[Index(columns: ['scope_key'], unique: true, name: 'uniq_form_collab_draft_scope')]
+#[Index(columns: ['tenant_id', 'scope_key'], unique: true, name: 'uniq_form_collab_draft_tenant_scope')]
 #[Index(columns: ['updated_at', 'id'], name: 'idx_form_collab_draft_updated')]
 final readonly class FormCollabDraftResource
 {
@@ -45,6 +47,9 @@ final readonly class FormCollabDraftResource
         #[PrimaryKey(strategy: 'manual')]
         #[Column(type: MySqlType::Varchar, length: 32)]
         public string $id,
+
+        #[Column(name: 'tenant_id', type: MySqlType::Varchar, length: 64, nullable: true)]
+        public ?string $tenant_id,
 
         #[Column(type: MySqlType::Varchar, length: 191)]
         public string $scope_key,
