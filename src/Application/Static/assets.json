@@ -16,6 +16,16 @@
             "position": "head",
             "priority": 30
         },
+        "css/calendar.css": {
+            "scope": "global",
+            "position": "head",
+            "priority": 41
+        },
+        "css/date-field.css": {
+            "scope": "global",
+            "position": "head",
+            "priority": 42
+        },
         "js/event-runtime.js": {
             "scope": "global",
             "position": "body",
@@ -32,6 +42,24 @@
             "scope": "global",
             "position": "body",
             "priority": 72,
+            "attributes": { "defer": true }
+        },
+        "js/calendar-dates.js": {
+            "scope": "global",
+            "position": "body",
+            "priority": 70,
+            "attributes": { "defer": true }
+        },
+        "js/calendar-runtime.js": {
+            "scope": "global",
+            "position": "body",
+            "priority": 73,
+            "attributes": { "defer": true }
+        },
+        "js/date-field-runtime.js": {
+            "scope": "global",
+            "position": "body",
+            "priority": 74,
             "attributes": { "defer": true }
         }
     }

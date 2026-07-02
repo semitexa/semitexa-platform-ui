@@ -1,0 +1,27 @@
+{#
+ # platform.date-field — a calendar-popover date / datetime picker that IS a
+ # platform.field underneath, so it gets form value binding and the submit
+ # pipeline for free. date-field-runtime.js finds the `[data-ui-date-field]`
+ # marker, takes the field's input, makes it read-only, and shows a month-grid
+ # popover; picking writes the value + dispatches `change` so the field captures
+ # it exactly as if the user typed.
+ #
+ # Exposed as a MACRO (not a plain include): the wrapped `component('platform.field')`
+ # must render in the page context — a nested `{% include %}` that calls
+ # `component()` deadlocks. Use it as:
+ #
+ #   {% import '@platform-ui/components/runtime/date-field.html.twig' as date_field %}
+ #   {{ date_field.render('appointment', 'date', 'Appointment date') }}
+ #
+ # Args: name (required), mode ('date'|'datetime'), label, value, placeholder
+ #}
+{% macro render(name, mode = 'date', label = null, value = '', placeholder = null) %}
+    <div data-ui-component="platform.date-field" data-ui-date-field="1" data-ui-date-field-mode="{{ mode }}" class="uidf">
+        {{ component('platform.field', {
+            name: name,
+            label: label,
+            value: value,
+            placeholder: placeholder|default(mode == 'datetime' ? 'Pick date & time' : 'Pick a date')
+        }) }}
+    </div>
+{% endmacro %}

@@ -1,0 +1,132 @@
+/* platform.calendar — month grid + day agenda + editor. Tokens only. */
+.uical {
+  --uical-line: var(--ui-border-subtle, rgba(148,163,184,.24));
+  font-family: var(--ui-font-sans, system-ui, sans-serif);
+  color: var(--ui-text-primary, #1f2937);
+  background: var(--ui-surface-panel, #fff);
+  border: 1px solid var(--uical-line);
+  border-radius: var(--ui-radius-lg, 14px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.uical__head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px; border-bottom: 1px solid var(--uical-line);
+}
+.uical__nav { display: flex; gap: 6px; }
+.uical__title { font-weight: 600; font-size: 16px; }
+.uical__head .uical__btn--go { margin-left: auto; }
+.uical__btn {
+  font: inherit; font-size: 13px; cursor: pointer;
+  padding: 7px 12px; border-radius: var(--ui-radius-md, 9px);
+  border: 1px solid var(--uical-line);
+  background: var(--ui-surface-raised, #f8fafc);
+  color: var(--ui-text-primary, #1f2937);
+}
+.uical__btn:hover { border-color: var(--ui-accent-brand, #37b7ff); }
+.uical__btn--go { background: var(--ui-accent-brand, #37b7ff); color: #04121f; border-color: transparent; font-weight: 600; }
+.uical__btn--danger { color: var(--ui-state-danger, #dc2626); border-color: var(--ui-state-danger, #dc2626); background: transparent; }
+
+.uical__body { display: flex; gap: 0; min-height: 460px; }
+.uical__month { flex: 1 1 auto; display: flex; flex-direction: column; }
+.uical__weekdays, .uical__weeks { display: grid; grid-template-columns: repeat(7, 1fr); }
+.uical__weekdays > div {
+  padding: 8px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--ui-text-muted, #6b7280); border-bottom: 1px solid var(--uical-line); text-align: left;
+}
+.uical__weeks { flex: 1 1 auto; grid-auto-rows: 1fr; }
+.uical__day {
+  border-right: 1px solid var(--uical-line); border-bottom: 1px solid var(--uical-line);
+  padding: 4px 5px; min-height: 74px; cursor: pointer; overflow: hidden;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.uical__day:nth-child(7n) { border-right: none; }
+.uical__day.is-other { background: var(--ui-surface-sunken, rgba(148,163,184,.06)); color: var(--ui-text-muted, #9aa4b2); }
+.uical__day.is-today .uical__daynum { color: var(--ui-accent-brand, #37b7ff); font-weight: 700; }
+.uical__day.is-selected { box-shadow: inset 0 0 0 2px var(--ui-accent-brand, #37b7ff); }
+.uical__daynum { font-size: 12px; font-variant-numeric: tabular-nums; }
+.uical__chips { display: flex; flex-direction: column; gap: 2px; }
+.uical__chip {
+  font: inherit; font-size: 11px; text-align: left; cursor: pointer;
+  padding: 2px 6px; border-radius: 5px; border: none;
+  background: var(--ui-surface-raised, rgba(148,163,184,.12));
+  color: var(--ui-text-primary, #1f2937);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+.uical__chip-t { color: var(--ui-text-muted, #6b7280); font-variant-numeric: tabular-nums; }
+.uical__more { font-size: 10px; color: var(--ui-text-muted, #6b7280); padding-left: 4px; }
+
+.uical__agenda {
+  flex: 0 0 300px; display: flex; flex-direction: column;
+  border-left: 1px solid var(--uical-line); padding: 14px;
+  background: var(--ui-surface-sunken, rgba(148,163,184,.04));
+}
+.uical__agenda-head { font-weight: 600; margin-bottom: 12px; }
+.uical__agenda-list { flex: 1 1 auto; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
+.uical__empty { color: var(--ui-text-muted, #9aa4b2); font-size: 13px; padding: 6px 2px; }
+.uical__item {
+  font: inherit; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: var(--ui-radius-md, 9px);
+  border: 1px solid var(--uical-line); background: var(--ui-surface-panel, #fff);
+}
+.uical__item:hover { border-color: var(--ui-accent-brand, #37b7ff); }
+.uical__dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.uical__item-time { font-size: 12px; color: var(--ui-text-muted, #6b7280); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.uical__item-title { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uical__agenda-new { margin-top: 12px; }
+
+.uical__overlay {
+  position: absolute; inset: 0; background: rgba(15,23,42,.42);
+  display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 20;
+}
+.uical { position: relative; }
+.uical__editor {
+  width: 100%; max-width: 420px; box-sizing: border-box; background: var(--ui-surface-panel, #fff);
+  border: 1px solid var(--uical-line); border-radius: var(--ui-radius-lg, 14px);
+  padding: 18px; display: flex; flex-direction: column; gap: 12px;
+  max-height: 100%; overflow-y: auto; overscroll-behavior: contain;
+  box-shadow: 0 24px 60px rgba(2,8,23,.4);
+}
+
+/* Replace the chunky native scrollbars (they only appear in short windows) with
+   a thin, theme-tinted one that fades into the surface. Applies to every
+   scrollable area of the calendar. */
+.uical__editor, .uical__agenda-list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--uical-line) transparent;
+}
+.uical__editor::-webkit-scrollbar, .uical__agenda-list::-webkit-scrollbar { width: 8px; height: 8px; }
+.uical__editor::-webkit-scrollbar-track, .uical__agenda-list::-webkit-scrollbar-track { background: transparent; }
+.uical__editor::-webkit-scrollbar-thumb, .uical__agenda-list::-webkit-scrollbar-thumb {
+  background: var(--uical-line); border-radius: 999px;
+  border: 2px solid transparent; background-clip: padding-box;
+}
+.uical__editor::-webkit-scrollbar-thumb:hover, .uical__agenda-list::-webkit-scrollbar-thumb:hover {
+  background: var(--ui-text-muted, #6b7280); background-clip: padding-box;
+}
+.uical__editor-head { font-weight: 600; font-size: 15px; }
+.uical__f { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--ui-text-muted, #6b7280); min-width: 0; }
+.uical__f input, .uical__f textarea, .uical__f select {
+  font: inherit; font-size: 14px; color: var(--ui-text-primary, #1f2937);
+  padding: 9px 11px; border-radius: var(--ui-radius-md, 9px);
+  border: 1px solid var(--uical-line); background: var(--ui-surface-page, #fff); outline: none;
+  /* Contain padding+border within the field so datetime/select controls never
+     spill past the editor card (esp. the two-up Start/End row). */
+  box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%;
+}
+.uical__f textarea { resize: vertical; }
+.uical__f input:focus, .uical__f textarea:focus, .uical__f select:focus { border-color: var(--ui-accent-brand, #37b7ff); }
+.uical__f--check { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--ui-text-primary, #1f2937); }
+/* The checkbox is not a full-width field — keep it at its natural size so the
+   "All day" label stays on one line beside it. */
+.uical__f--check input { width: auto; min-width: 0; flex: 0 0 auto; margin: 0; padding: 0; }
+.uical__row { display: flex; gap: 10px; min-width: 0; }
+.uical__row .uical__f { flex: 1 1 0; min-width: 0; }
+.uical__editor-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.uical__spacer { flex: 1 1 auto; }
+
+@media (max-width: 720px) {
+  .uical__body { flex-direction: column; min-height: 0; }
+  .uical__agenda { flex-basis: auto; border-left: none; border-top: 1px solid var(--uical-line); }
+}
