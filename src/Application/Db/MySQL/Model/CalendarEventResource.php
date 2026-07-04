@@ -7,6 +7,7 @@ namespace Semitexa\PlatformUi\Application\Db\MySQL\Model;
 use Semitexa\Orm\Adapter\MySqlType;
 use Semitexa\Orm\Attribute\Column;
 use Semitexa\Orm\Attribute\FromTable;
+use Semitexa\Orm\Attribute\TenantExempt;
 use Semitexa\Orm\Attribute\Index;
 use Semitexa\Orm\Attribute\PrimaryKey;
 use Semitexa\Orm\Metadata\HasColumnReferences;
@@ -28,6 +29,7 @@ use Semitexa\Orm\Metadata\HasRelationReferences;
 #[FromTable(name: 'platform_calendar_events')]
 #[Index(columns: ['tenant_id', 'user_id', 'starts_at'], name: 'idx_platform_calendar_scope_start')]
 #[Index(columns: ['starts_at'], name: 'idx_platform_calendar_start')]
+#[TenantExempt(reason: 'tenant_id column is schema-ready but tenancy is deliberately not wired in calendar v1; flip to #[TenantScoped] when it is')]
 final readonly class CalendarEventResource
 {
     use HasColumnReferences;
