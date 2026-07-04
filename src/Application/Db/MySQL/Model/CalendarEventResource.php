@@ -7,7 +7,7 @@ namespace Semitexa\PlatformUi\Application\Db\MySQL\Model;
 use Semitexa\Orm\Adapter\MySqlType;
 use Semitexa\Orm\Attribute\Column;
 use Semitexa\Orm\Attribute\FromTable;
-use Semitexa\Orm\Attribute\TenantExempt;
+use Semitexa\Orm\Attribute\TenantScoped;
 use Semitexa\Orm\Attribute\Index;
 use Semitexa\Orm\Attribute\PrimaryKey;
 use Semitexa\Orm\Metadata\HasColumnReferences;
@@ -24,12 +24,18 @@ use Semitexa\Orm\Metadata\HasRelationReferences;
  * columns — the mutable `HasUuidV7`/`HasTimestamps` traits are incompatible with
  * a readonly resource).
  *
+ * Tenant-scoped (fail-closed): every read must declare its posture via the
+ * repository's ambient-tenant view. Rows carry the literal `'default'`
+ * sentinel for the default/single-tenant context (same convention as
+ * {@see FormCollabDraftResource}); the column stays nullable only for
+ * schema-compat with pre-tenancy rows, which the repository stamps on write.
+ *
  * v1 holds one-off events only; recurrence (RRULE / cron) is a future slice.
  */
 #[FromTable(name: 'platform_calendar_events')]
 #[Index(columns: ['tenant_id', 'user_id', 'starts_at'], name: 'idx_platform_calendar_scope_start')]
 #[Index(columns: ['starts_at'], name: 'idx_platform_calendar_start')]
-#[TenantExempt(reason: 'tenant_id column is schema-ready but tenancy is deliberately not wired in calendar v1; flip to #[TenantScoped] when it is')]
+#[TenantScoped(strategy: 'same_storage', column: 'tenant_id')]
 final readonly class CalendarEventResource
 {
     use HasColumnReferences;
@@ -77,4 +83,17 @@ final readonly class CalendarEventResource
         #[Column(type: MySqlType::Datetime)]
         public \DateTimeImmutable $updated_at,
     ) {}
+
+    /**
+     * Rebuild the row with the given property overrides (property name =>
+     * value). `updated_at` refreshes automatically unless overridden.
+     *
+     * @param array<string, mixed> $overrides
+     */
+    public function copyWith(array $overrides): self
+    {
+        $overrides += ['updated_at' => new \DateTimeImmutable()];
+
+        return new self(...array_merge(get_object_vars($this), $overrides));
+    }
 }
