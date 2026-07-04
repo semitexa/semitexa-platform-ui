@@ -47,8 +47,8 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
      * overwrite each other's in-progress edits. Null in single-tenant / default
      * contexts (e.g. the playground), which keeps that behaviour unchanged.
      */
-    #[InjectAsMutable]
-    protected ?TenantContextInterface $tenantContext = null;
+    #[InjectAsMutable(optional: true)]
+    protected TenantContextInterface $tenantContext;
 
     private ?DomainRepository $repository = null;
 
@@ -63,7 +63,11 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
     /** Test seam — production path uses property injection. */
     public function withTenantContext(?TenantContextInterface $tenantContext): self
     {
-        $this->tenantContext = $tenantContext;
+        if ($tenantContext === null) {
+            unset($this->tenantContext); // back to "absent" — same as an unbound container
+        } else {
+            $this->tenantContext = $tenantContext;
+        }
         return $this;
     }
 
@@ -75,7 +79,7 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
      */
     private function currentTenantId(): string
     {
-        return TenantContextAccess::tenantIdOrDefault($this->tenantContext);
+        return TenantContextAccess::tenantIdOrDefault($this->tenantContext ?? null);
     }
 
     public function load(string $scopeKey): ?FormCollabDraftState
