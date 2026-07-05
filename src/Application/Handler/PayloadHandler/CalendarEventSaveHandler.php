@@ -31,13 +31,18 @@ final class CalendarEventSaveHandler implements TypedHandlerInterface
         $id = $payload->getId();
         $existing = $id !== '' ? $this->events->findById($id) : null;
 
+        // A naive datetime at the boundary is interpreted in the configured
+        // calendar zone (default UTC) rather than blindly as UTC, so a
+        // direct/alternate API caller can't land the event at the wrong hour.
+        $assume = CalendarEventSavePayload::defaultZone();
+
         $event = new CalendarEventResource(
             id: $existing?->id ?? Uuid7::generate(),
             tenant_id: $existing?->tenant_id,
             user_id: $existing !== null ? $existing->user_id : $payload->getUserId(),
             title: $payload->getTitle(),
-            starts_at: $payload->getStartsAt(),
-            ends_at: $payload->getEndsAt(),
+            starts_at: $payload->getStartsAt($assume),
+            ends_at: $payload->getEndsAt($assume),
             all_day: $payload->getAllDay(),
             location: $payload->getLocation(),
             notes: $payload->getNotes(),
