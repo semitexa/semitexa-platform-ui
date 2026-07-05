@@ -4,12 +4,11 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Db\MySQL\Repository;
 
-use Semitexa\Core\Attribute\ExecutionScoped;
-use Semitexa\Core\Attribute\InjectAsMutable;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesRepositoryContract;
 use Semitexa\Core\Tenant\TenantContextAccess;
 use Semitexa\Core\Tenant\TenantContextInterface;
+use Semitexa\Core\Tenant\TenantContextStoreInterface;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
@@ -34,7 +33,6 @@ use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
  * simultaneous writers is the lock store's job (Field/Form-lock modes); the
  * Optimistic baseline intentionally tolerates the last-write-wins window.
  */
-#[ExecutionScoped]
 #[SatisfiesRepositoryContract(of: FormCollabDraftStoreInterface::class)]
 final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
 {
@@ -42,13 +40,23 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
     protected OrmManager $orm;
 
     /**
-     * The ambient tenant, so a draft row is scoped to its owner: two tenants
-     * sharing a `formKey`/`recordId` get separate rows and never read or
-     * overwrite each other's in-progress edits. Null in single-tenant / default
-     * contexts (e.g. the playground), which keeps that behaviour unchanged.
+     * The ambient-tenant seam (the {@see CalendarEventDbRepository} pattern):
+     * a singleton service whose tryGet() reads the coroutine-local request
+     * context, so the tenant is resolved AT CALL TIME and stays per-request
+     * correct WITHOUT making this repository execution-scoped. The previous
+     * `#[ExecutionScoped]` + mutable-context shape made this class
+     * un-injectable as a readonly contract into eagerly-built services, which
+     * is exactly why dev/showcase consumers had to bind the WORKER-LOCAL
+     * in-memory store instead — silently breaking cross-worker live sync
+     * (the collab-lock E2E red: a re-run on another worker served draft
+     * values from that worker's stale memory).
+     *
+     * Tenant semantics are unchanged: two tenants sharing a
+     * `formKey`/`recordId` get separate rows and never read or overwrite
+     * each other's in-progress edits.
      */
-    #[InjectAsMutable(optional: true)]
-    protected TenantContextInterface $tenantContext;
+    #[InjectAsReadonly]
+    protected TenantContextStoreInterface $tenantContextStore;
 
     private ?DomainRepository $repository = null;
 
@@ -63,11 +71,31 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
     /** Test seam — production path uses property injection. */
     public function withTenantContext(?TenantContextInterface $tenantContext): self
     {
-        if ($tenantContext === null) {
-            unset($this->tenantContext); // back to "absent" — same as an unbound container
-        } else {
-            $this->tenantContext = $tenantContext;
-        }
+        $this->tenantContextStore = new class ($tenantContext) implements TenantContextStoreInterface {
+            public function __construct(private ?TenantContextInterface $context)
+            {
+            }
+
+            public function get(): TenantContextInterface
+            {
+                return $this->context ?? throw new \LogicException('No tenant context in the fixed test store.');
+            }
+
+            public function tryGet(): ?TenantContextInterface
+            {
+                return $this->context;
+            }
+
+            public function set(TenantContextInterface $context): void
+            {
+                $this->context = $context;
+            }
+
+            public function clear(): void
+            {
+                $this->context = null;
+            }
+        };
         return $this;
     }
 
@@ -79,7 +107,9 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
      */
     private function currentTenantId(): string
     {
-        return TenantContextAccess::tenantIdOrDefault($this->tenantContext ?? null);
+        $context = isset($this->tenantContextStore) ? $this->tenantContextStore->tryGet() : null;
+
+        return TenantContextAccess::tenantIdOrDefault($context);
     }
 
     public function load(string $scopeKey): ?FormCollabDraftState
