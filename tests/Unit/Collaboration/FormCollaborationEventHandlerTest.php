@@ -9,10 +9,13 @@ use PHPUnit\Framework\TestCase;
 use Semitexa\PlatformUi\Application\Service\Collaboration\CacheBackedFormLockStore;
 use Semitexa\PlatformUi\Application\Service\Collaboration\CacheBackedFormPresenceStore;
 use Semitexa\PlatformUi\Application\Service\Collaboration\FormCollaborationEventHandler;
+use Semitexa\Core\Log\LoggerInterface;
+use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\PlatformUi\Application\Service\Collaboration\InMemoryFormCollabDraftStore;
 use Semitexa\PlatformUi\Domain\Contract\FormCollabDraftStoreInterface;
 use Semitexa\PlatformUi\Domain\Contract\FormLockStoreInterface;
 use Semitexa\PlatformUi\Domain\Contract\FormPresenceStoreInterface;
+use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventContext;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventResponseStatus;
 use Semitexa\PlatformUi\Tests\Support\ArrayCacheManager;
@@ -197,6 +200,101 @@ final class FormCollaborationEventHandlerTest extends TestCase
         self::assertCount(1, $roster);
         self::assertSame('actor-A', $roster[0]->participantId);
         self::assertContains(self::SCOPE, $this->invalidator->touched);
+    }
+
+    #[Test]
+    public function a_real_persist_failure_is_logged_structured_not_swallowed_silently(): void
+    {
+        // A genuine store failure on the form.save WRITE path (not the typed
+        // optimistic conflict) used to collapse into a generic client error with
+        // no server-side breadcrumb. The client still gets the generic error, but
+        // the failure must now be logged structured so it is diagnosable.
+        $logger = new CapturingLogger();
+        StaticLoggerBridge::set($logger);
+
+        try {
+            $handler = (new FormCollaborationEventHandler())->withCollaborationDeps(
+                new ThrowingDraftStore(),
+                $this->presence,
+                $this->lock,
+                $this->invalidator,
+            );
+
+            $resp = $handler->handle((object) [], $this->ctx('form.save', 'optimistic', [
+                'values' => ['title' => 'One'],
+                'version' => 0,
+            ]));
+
+            // The client is told generically — internals never leak.
+            self::assertSame(UiEventResponseStatus::Error, $resp->status);
+            self::assertSame('collab_error', $resp->error?->code);
+
+            // ...but the server logged the real failure with structured context.
+            self::assertCount(1, $logger->errors, 'the persist failure must be logged, not swallowed');
+            [$message, $context] = $logger->errors[0];
+            self::assertStringContainsString('Collaborative form event failed', $message);
+            self::assertSame('form.save', $context['event']);
+            self::assertSame(self::SCOPE, $context['scope']);
+            self::assertSame(\RuntimeException::class, $context['exception']);
+            self::assertSame('draft store offline', $context['message']);
+        } finally {
+            StaticLoggerBridge::reset();
+        }
+    }
+}
+
+/** A draft store whose write path fails, to drive the \Throwable catch. */
+final class ThrowingDraftStore implements FormCollabDraftStoreInterface
+{
+    public function load(string $scopeKey): ?FormCollabDraftState
+    {
+        return null;
+    }
+
+    public function open(string $scopeKey, array $seedValues, ?string $actor): FormCollabDraftState
+    {
+        throw new \RuntimeException('draft store offline');
+    }
+
+    public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor): FormCollabDraftState
+    {
+        throw new \RuntimeException('draft store offline');
+    }
+
+    public function mergeFields(string $scopeKey, array $partialValues, ?string $actor): FormCollabDraftState
+    {
+        throw new \RuntimeException('draft store offline');
+    }
+}
+
+final class CapturingLogger implements LoggerInterface
+{
+    /** @var list<array{0: string, 1: array<string, mixed>}> */
+    public array $errors = [];
+
+    public function error(string $message, array $context = []): void
+    {
+        $this->errors[] = [$message, $context];
+    }
+
+    public function critical(string $message, array $context = []): void
+    {
+    }
+
+    public function warning(string $message, array $context = []): void
+    {
+    }
+
+    public function info(string $message, array $context = []): void
+    {
+    }
+
+    public function notice(string $message, array $context = []): void
+    {
+    }
+
+    public function debug(string $message, array $context = []): void
+    {
     }
 }
 

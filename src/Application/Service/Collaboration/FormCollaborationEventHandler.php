@@ -6,6 +6,7 @@ namespace Semitexa\PlatformUi\Application\Service\Collaboration;
 
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\PlatformUi\Application\Component\Builtin\CollaborativeFormComponent;
 use Semitexa\PlatformUi\Attribute\HandlesUiEvent;
 use Semitexa\PlatformUi\Domain\Contract\FormCollabDraftStoreInterface;
@@ -107,7 +108,19 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
             };
         } catch (FormDraftVersionConflictException $e) {
             return self::error('form_draft_version_conflict', $e->getMessage(), $e->getErrorContext());
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            // A genuine failure of a collaborative WRITE (draft apply/merge, lock,
+            // presence) — NOT the typed optimistic conflict above. The client is
+            // told generically (internals never leak), but the server must not
+            // swallow it silently: log structured so a real persist/store failure
+            // is diagnosable instead of surfacing only as a client-side error.
+            StaticLoggerBridge::error('platform-ui', 'Collaborative form event failed', [
+                'event'     => $context->semanticEvent,
+                'scope'     => $scope,
+                'exception' => $e::class,
+                'message'   => $e->getMessage(),
+            ]);
+
             return self::error('collab_error', 'The collaborative action could not be completed.');
         }
     }
