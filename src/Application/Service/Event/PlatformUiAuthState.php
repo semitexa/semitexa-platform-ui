@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Event;
 
+use Semitexa\Core\Support\CoroutineLocal;
+
 /**
  * Per-request holder for the current request's authentication state,
  * consulted only to pick the DEFAULT SSE transport mode when a page
@@ -33,18 +35,21 @@ namespace Semitexa\PlatformUi\Application\Service\Event;
  * over the auth-derived default — see
  * {@see PlatformUiTransportModePolicy::resolve()}.
  *
- * Per-process, like {@see PlatformUiSseSessionState}: Swoole workers
- * persist between requests, so the value MUST be reset at the start of
- * every request or request A's authenticated state would leak into a
- * later guest request B and silently upgrade it to live.
- * {@see ResetPlatformUiSseSessionListener} performs the reset on the
- * AuthCheck phase (the canonical request-scoped join point) at the
- * lowest priority, so the reset runs before the app bridge populates
- * the fresh value.
+ * COROUTINE-LOCAL, like {@see PlatformUiSseSessionState}: a Swoole worker
+ * serves many requests concurrently on separate coroutines, so a plain
+ * process-static would be SHARED — an authenticated request A's `true`
+ * would be observable by a concurrent guest request B and silently
+ * upgrade it from DRAIN to LIVE (a cross-request auth leak). The value
+ * lives in the coroutine context, isolated per request and auto-cleaned
+ * when the coroutine ends. {@see ResetPlatformUiSseSessionListener} still
+ * resets on the AuthCheck phase (before the app bridge populates the
+ * fresh value) — required for the CLI/test fallback store, which persists
+ * across requests.
  */
 final class PlatformUiAuthState
 {
-    private static ?bool $authenticated = null;
+    /** Coroutine-local storage key for the current request's auth state. */
+    private const CTX_KEY = 'platform_ui.auth_state';
 
     /**
      * The current request's auth state, or `null` when unknown (no
@@ -54,7 +59,9 @@ final class PlatformUiAuthState
      */
     public static function current(): ?bool
     {
-        return self::$authenticated;
+        $value = CoroutineLocal::get(self::CTX_KEY);
+
+        return is_bool($value) ? $value : null;
     }
 
     /**
@@ -63,7 +70,7 @@ final class PlatformUiAuthState
      */
     public static function set(bool $authenticated): void
     {
-        self::$authenticated = $authenticated;
+        CoroutineLocal::set(self::CTX_KEY, $authenticated);
     }
 
     /**
@@ -73,6 +80,6 @@ final class PlatformUiAuthState
      */
     public static function reset(): void
     {
-        self::$authenticated = null;
+        CoroutineLocal::remove(self::CTX_KEY);
     }
 }

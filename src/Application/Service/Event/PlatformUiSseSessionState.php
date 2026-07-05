@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Event;
 
+use Semitexa\Core\Support\CoroutineLocal;
+
 /**
  * Per-render holder for the canonical SSE subscriber channel id every
  * platform-ui component on a page shares.
@@ -17,13 +19,15 @@ namespace Semitexa\PlatformUi\Application\Service\Event;
  * producing manifests with no `sub` claim — the dispatcher then
  * delivers patches inline, preserving the pre-canonical-SSE behaviour.
  *
- * The state is intentionally per-process. Swoole workers are long-
- * lived, so without an explicit reset the same id would survive
- * across requests and let a later request unknowingly publish patches
- * to an earlier request's subscriber stream. The reset is performed
- * by {@see ResetPlatformUiSseSessionListener} during the AuthCheck
- * pipeline phase (canonical request-scoped integration point per
- * AGENTS.md and the framework-traps notes).
+ * The state is COROUTINE-LOCAL ({@see CoroutineLocal}). A Swoole worker
+ * serves many requests concurrently, each on its own coroutine; a plain
+ * process-static would be SHARED across those coroutines, so two
+ * concurrent requests would read/overwrite each other's channel id and
+ * a request could publish patches to ANOTHER user's live stream. Storing
+ * the id in the coroutine context isolates it per request and auto-cleans
+ * when the coroutine ends. {@see ResetPlatformUiSseSessionListener} still
+ * resets on the AuthCheck phase — required for the CLI/test fallback
+ * store, which (unlike a coroutine context) persists across requests.
  *
  * Why not a Twig context variable: `ui_event_manifest()` is called
  * from inner component templates (e.g. platform.form, platform.field)
@@ -55,11 +59,14 @@ final class PlatformUiSseSessionState
     private const PREFIX = 'sse_';
     private const ENTROPY_BYTES = 16;
 
-    private static ?string $current = null;
+    /** Coroutine-local storage key for the current request's SSE session id. */
+    private const CTX_KEY = 'platform_ui.sse_session_id';
 
     public static function current(): ?string
     {
-        return self::$current;
+        $id = CoroutineLocal::get(self::CTX_KEY);
+
+        return is_string($id) ? $id : null;
     }
 
     /**
@@ -71,16 +78,18 @@ final class PlatformUiSseSessionState
      */
     public static function mintIfAbsent(): string
     {
-        if (self::$current !== null) {
-            return self::$current;
+        $existing = self::current();
+        if ($existing !== null) {
+            return $existing;
         }
-        self::$current = self::PREFIX . bin2hex(random_bytes(self::ENTROPY_BYTES));
-        return self::$current;
+        $id = self::PREFIX . bin2hex(random_bytes(self::ENTROPY_BYTES));
+        CoroutineLocal::set(self::CTX_KEY, $id);
+        return $id;
     }
 
     public static function reset(): void
     {
-        self::$current = null;
+        CoroutineLocal::remove(self::CTX_KEY);
     }
 
     /**
@@ -106,7 +115,7 @@ final class PlatformUiSseSessionState
         if (preg_match(self::SAFE_ID_PATTERN, $id) !== 1) {
             return;
         }
-        self::$current = $id;
+        CoroutineLocal::set(self::CTX_KEY, $id);
     }
 
     /**
@@ -123,6 +132,6 @@ final class PlatformUiSseSessionState
                 'PlatformUiSseSessionState::setForTesting() id must match ' . self::SAFE_ID_PATTERN,
             );
         }
-        self::$current = $id;
+        CoroutineLocal::set(self::CTX_KEY, $id);
     }
 }
