@@ -7,6 +7,8 @@ namespace Semitexa\PlatformUi\Application\Db\MySQL\Model;
 use Semitexa\Orm\Adapter\MySqlType;
 use Semitexa\Orm\Attribute\Column;
 use Semitexa\Orm\Attribute\FromTable;
+use Semitexa\Orm\Attribute\TenantExempt;
+use Semitexa\Orm\Attribute\ResourceKey;
 use Semitexa\Orm\Attribute\Index;
 use Semitexa\Orm\Attribute\PrimaryKey;
 use Semitexa\Orm\Metadata\HasColumnReferences;
@@ -44,6 +46,8 @@ use Semitexa\Orm\Metadata\HasRelationReferences;
 #[Index(columns: ['form_instance_id'], name: 'idx_pui_demo_form_instance')]
 #[Index(columns: ['action_name', 'submitted_at'], name: 'idx_pui_demo_action_submitted')]
 #[Index(columns: ['submitted_at', 'id'], name: 'idx_pui_demo_submitted_id')]
+#[ResourceKey('ui_playground_demo_submissions')]
+#[TenantExempt(reason: 'platform-ui demo submissions — no tenant dimension by design; never carries real tenant rows')]
 final readonly class UiFormDemoSubmissionResource
 {
     use HasColumnReferences;

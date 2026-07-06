@@ -1,0 +1,32 @@
+{#
+ # platform.calendar — the endpoint-pointer calendar shell.
+ #
+ # calendar-runtime.js discovers this root via `[data-ui-calendar]`, opens a
+ # held-open EventSource on `data-ui-calendar-endpoint` for the visible month
+ # range (first frame = initial events, later frames = live updates on any
+ # create/update/delete), and renders the month grid + day agenda + editor.
+ # Mutations POST to the save/delete routes. The shell carries only pointers.
+ #
+ # Props:
+ #   endpoint  (required string — the calendar events feed route)
+ #   view      (optional 'month'|'agenda', default 'month')
+ #   userId    (optional string — scope; omit for the shared/global calendar)
+ #}
+{%- set _cal_endpoint = endpoint|default('/platform/calendar/events') -%}
+{%- set _cal_view     = view|default('month') -%}
+{%- set _cal_user     = userId|default('') -%}
+<div
+    data-ui-component="platform.calendar"
+    data-ui-calendar="1"
+    data-ui-calendar-endpoint="{{ _cal_endpoint }}"
+    data-ui-calendar-save="{{ _cal_endpoint }}/save"
+    data-ui-calendar-delete="{{ _cal_endpoint }}/delete"
+    data-ui-calendar-view="{{ _cal_view }}"
+    {% if _cal_user is not empty %}data-ui-calendar-user="{{ _cal_user }}"{% endif %}
+    class="uical"
+>
+    <noscript>
+        <p ui-text="muted">This calendar needs JavaScript. The raw event feed is at
+            <a href="{{ _cal_endpoint }}">{{ _cal_endpoint }}</a>.</p>
+    </noscript>
+</div>
