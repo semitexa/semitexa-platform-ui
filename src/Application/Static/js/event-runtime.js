@@ -48,12 +48,26 @@
 (function () {
     'use strict';
 
-    if (window.SemitexaUi) {
+    // Extend-don't-replace: ui-core.js (and other runtimes) share the
+    // window.SemitexaUi namespace. Only bail when THIS runtime already ran —
+    // `version` is the marker this file's export sets.
+    if (window.SemitexaUi && window.SemitexaUi.version) {
         return;
     }
 
     var MANIFEST_VERSION = 1;
     var SCANNED_FLAG = '__semitexaUiScanned';
+
+    /**
+     * Echo the CSRF token on outbound POSTs via the shared core
+     * (ui-core.js, loaded before this file by assets.json priority).
+     * Resolved at call time so a missing core degrades to the legacy
+     * no-header behaviour instead of breaking the transport.
+     */
+    function withCsrfHeaders(headers) {
+        var core = window.SemitexaUi && window.SemitexaUi.core;
+        return core ? core.withCsrf('POST', headers) : headers;
+    }
 
     var captureListeners = [];
     var parsedManifests = []; // {scriptEl, payload}
@@ -575,7 +589,7 @@
             fetch(endpoint, {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
+                headers: withCsrfHeaders({ 'Content-Type': 'application/json' }),
                 body: body
             }).then(function (resp) {
                 return resp.text().then(function (text) {
@@ -1587,7 +1601,7 @@
         return true;
     }
 
-    window.SemitexaUi = {
+    window.SemitexaUi = Object.assign(window.SemitexaUi || {}, {
         version: '1.0',
         scan: scan,
         manifests: manifests,
@@ -1605,7 +1619,7 @@
             snapshot: formAggregateSnapshot,
             reset: formAggregateReset
         }
-    };
+    });
 
     /**
      * Gated auto-attach for the canonical inbound transport.
@@ -1798,7 +1812,7 @@
                 method: 'POST',
                 credentials: 'same-origin',
                 keepalive: true,
-                headers: headers
+                headers: withCsrfHeaders(headers)
             }).catch(function () { /* best-effort; reconnect re-subscribes */ });
         } catch (postErr) { /* ignore */ }
     }

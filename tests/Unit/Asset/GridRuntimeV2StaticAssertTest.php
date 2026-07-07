@@ -125,10 +125,21 @@ final class GridRuntimeV2StaticAssertTest extends TestCase
     #[Test]
     public function the_runtime_sends_the_csrf_header_on_mutations(): void
     {
+        // CSRF plumbing moved to the shared core (ui-core.js) — the grid must
+        // delegate to it (UiCoreAssetTest pins the header inside the core)
+        // and must fail fast when the core is missing rather than posting
+        // without the token.
+        $source = self::runtimeSource();
+
         self::assertStringContainsString(
-            'X-CSRF-Token',
-            self::runtimeSource(),
-            'grid-runtime-v2.js must send the X-CSRF-Token header on non-GET requests.',
+            'var withCsrf = core.withCsrf;',
+            $source,
+            'grid-runtime-v2.js must delegate CSRF header handling to SemitexaUi.core.',
+        );
+        self::assertStringContainsString(
+            'requires ui-core.js',
+            $source,
+            'grid-runtime-v2.js must fail fast with an actionable error when ui-core.js is absent.',
         );
     }
 

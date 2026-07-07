@@ -48,34 +48,20 @@
     window.SemitexaUi = window.SemitexaUi || {};
     if (window.SemitexaUi.gridV2) return;
 
+    // CSRF plumbing lives in the shared core (ui-core.js, assets.json
+    // priority 50 — always before this file). Hard dependency: fail fast
+    // with an actionable error instead of posting without the token.
+    var core = window.SemitexaUi.core;
+    if (!core) {
+        if (typeof console !== 'undefined' && console.error) {
+            console.error('[semitexa-ui] grid-runtime-v2.js requires ui-core.js to load first');
+        }
+        return;
+    }
+    var withCsrf = core.withCsrf;
+
     var CONTRACT_CACHE_PREFIX = 'semitexa:ui-grid-contract:';
     var DEFAULT_PAGE_WINDOW = 7;
-
-    // ------------------------------------------------------------------
-    // CSRF — read the non-HttpOnly XSRF-TOKEN cookie and echo it back as
-    // X-CSRF-Token on every non-GET/HEAD request. Sent only when the
-    // cookie exists: guests have no cookie and must send nothing.
-    // ------------------------------------------------------------------
-    function readCsrfToken() {
-        var pairs = document.cookie ? document.cookie.split(/;\s*/) : [];
-        for (var i = 0; i < pairs.length; i++) {
-            var eq = pairs[i].indexOf('=');
-            if (eq < 0) continue;
-            if (pairs[i].slice(0, eq) === 'XSRF-TOKEN') {
-                return decodeURIComponent(pairs[i].slice(eq + 1));
-            }
-        }
-        return '';
-    }
-
-    function withCsrf(method, headers) {
-        var out = headers || {};
-        if (method !== 'GET' && method !== 'HEAD') {
-            var token = readCsrfToken();
-            if (token) out['X-CSRF-Token'] = token;
-        }
-        return out;
-    }
 
     // ------------------------------------------------------------------
     // Contract loading — sessionStorage cache keyed by endpoint, ETag

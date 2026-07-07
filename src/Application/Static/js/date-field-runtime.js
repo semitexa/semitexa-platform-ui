@@ -8,14 +8,21 @@
   'use strict';
   window.SemitexaUi = window.SemitexaUi || {};
   if (window.SemitexaUi.dateField) return;
-  window.SemitexaUi.dateField = { version: 1 };
-  var D = window.SemitexaUi.dates;
 
-  function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
-    });
+  // Shared helpers: ui-core.js (esc) + calendar-dates.js (date math) load
+  // first (assets.json priority). Fail fast when a hand-written include
+  // list forgot one of them.
+  var core = window.SemitexaUi.core;
+  var D = window.SemitexaUi.dates;
+  if (!core || !D) {
+    if (typeof console !== 'undefined' && console.error) {
+      console.error('[semitexa-ui] date-field-runtime.js requires ui-core.js and calendar-dates.js to load first');
+    }
+    return;
   }
+  window.SemitexaUi.dateField = { version: 1 };
+
+  var esc = core.esc;
 
   function boot() {
     var nodes = document.querySelectorAll('[data-ui-date-field]');

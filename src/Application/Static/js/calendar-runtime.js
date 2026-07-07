@@ -11,19 +11,25 @@
   'use strict';
   window.SemitexaUi = window.SemitexaUi || {};
   if (window.SemitexaUi.calendar) return;
+
+  // Shared helpers: ui-core.js (esc + CSRF fetch) and calendar-dates.js
+  // (month-grid + date math) both load first — assets.json pins the order;
+  // hand-written include lists must do the same. Fail fast otherwise.
+  var core = window.SemitexaUi.core;
+  var D = window.SemitexaUi.dates;
+  if (!core || !D) {
+    if (typeof console !== 'undefined' && console.error) {
+      console.error('[semitexa-ui] calendar-runtime.js requires ui-core.js and calendar-dates.js to load first');
+    }
+    return;
+  }
   window.SemitexaUi.calendar = { version: 1 };
 
-  // Shared month-grid + date math (calendar-dates.js loads first).
-  var D = window.SemitexaUi.dates;
   var WEEKDAYS = D.WEEKDAYS, MONTHS = D.MONTHS, ymd = D.ymd, hm = D.hm,
     startOfDay = D.startOfDay, addDays = D.addDays, startOfMonth = D.startOfMonth,
     mondayIndex = D.mondayIndex, gridDays = D.gridDays, localDatetimeValue = D.localDatetimeValue;
 
-  function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
-    });
-  }
+  var esc = core.esc;
 
   function boot() {
     var nodes = document.querySelectorAll('[data-ui-calendar]');
@@ -268,17 +274,25 @@
     }
 
     function post(url, body) {
-      fetch(url, {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        body: JSON.stringify(body),
-      }).then(function (r) { return r.json(); }).then(function () {
+      // core.fetchJson sends the X-CSRF-Token header — CsrfListener rejects
+      // authenticated writes without it.
+      core.fetchJson(url, { method: 'POST', body: body }).then(function (res) {
+        if (!res.ok) {
+          if (typeof console !== 'undefined' && console.warn) {
+            console.warn('[semitexa-ui] calendar write failed', res.status, res.data);
+          }
+          return;
+        }
         S.editing = null;
         // The SSE stream re-runs on the auto-published invalidation; reload too
         // for immediate feedback if the stream is degraded.
         load();
         render();
-      }).catch(function () {});
+      }).catch(function (err) {
+        if (typeof console !== 'undefined' && console.warn) {
+          console.warn('[semitexa-ui] calendar write failed', err);
+        }
+      });
     }
   }
 

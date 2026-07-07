@@ -26,6 +26,12 @@
             "position": "head",
             "priority": 42
         },
+        "js/ui-core.js": {
+            "scope": "global",
+            "position": "body",
+            "priority": 50,
+            "attributes": { "defer": true }
+        },
         "js/event-runtime.js": {
             "scope": "global",
             "position": "body",
