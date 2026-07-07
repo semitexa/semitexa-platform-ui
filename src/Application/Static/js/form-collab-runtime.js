@@ -711,7 +711,8 @@
             fetch(this.m.eventUrl, {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
+                // CsrfListener rejects authenticated writes without the token.
+                headers: core.withCsrf('POST', { 'Content-Type': 'application/json' }),
                 body: JSON.stringify(body),
                 keepalive: true
             }).catch(function () { /* best-effort; the next edit/heartbeat retries state */ });
@@ -735,7 +736,7 @@
             return fetch(this.m.eventUrl, {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
+                headers: core.withCsrf('POST', { 'Content-Type': 'application/json' }),
                 body: JSON.stringify(body)
             }).then(function (r) {
                 return r.json().catch(function () { return null; });

@@ -87,12 +87,11 @@
         }
         var body;
         if ('body' in opts && opts.body != null) {
-            if (typeof opts.body === 'string') {
-                body = opts.body;
-            } else {
-                body = JSON.stringify(opts.body);
-                if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
-            }
+            // JSON conventions: a string body is treated as pre-stringified
+            // JSON; an object body is stringified. Anything else (FormData,
+            // Blob) is out of scope for fetchJson — use fetch directly.
+            body = typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body);
+            if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
         }
         withCsrf(method, headers);
         return fetch(url, {

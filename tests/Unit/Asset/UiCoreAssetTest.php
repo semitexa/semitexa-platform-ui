@@ -135,6 +135,25 @@ final class UiCoreAssetTest extends TestCase
     }
 
     #[Test]
+    public function every_write_path_delegates_csrf_to_the_core(): void
+    {
+        // CsrfListener rejects authenticated unsafe requests without the
+        // X-CSRF-Token header. Every runtime that POSTs must therefore route
+        // its headers through the core — a bare Content-Type-only header
+        // object on a fetch is exactly the hole this pin exists to prevent
+        // (collab shipped one until the pre-push review caught it).
+        $jsDir = \dirname(self::CORE_PATH);
+        foreach (['grid-runtime-v2.js', 'form-collab-runtime.js', 'calendar-runtime.js', 'event-runtime.js'] as $file) {
+            $source = (string) file_get_contents($jsDir . '/' . $file);
+            self::assertDoesNotMatchRegularExpression(
+                "/headers:\\s*\\{\\s*'Content-Type':\\s*'application\\/json'\\s*\\}/",
+                $source,
+                "{$file} must not POST with a bare Content-Type header — wrap it in core.withCsrf().",
+            );
+        }
+    }
+
+    #[Test]
     public function the_core_owns_the_declarative_form_behaviours(): void
     {
         // data-ui-inert-form / data-ui-confirm replaced the inline
