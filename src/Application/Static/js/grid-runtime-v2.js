@@ -296,9 +296,7 @@
             everStreamed: false,  // any frame on ANY connection — gates permanent degrade
             reconnectAttempts: 0,
         };
-        var source = null;          // the dedicated held-open EventSource (degrade path only)
-        var sub = null;             // SSE unification: the shared-connection subscription handle (multiplex path)
-        var reconnectTimer = null;
+        var channel = null;         // core.openFeedChannel handle (shared KISS or dedicated stream)
         var sseAdvertised = Array.isArray(contract.modes) && contract.modes.indexOf('sse') >= 0;
         Object.keys(filterFields).forEach(function (field) {
             state.filters[field] = { op: defaultOperatorFor(filterFields[field]), value: '' };
@@ -592,58 +590,70 @@
 
         // ---- One Way Phase 4: SSE transport -----------------------------
         // start() decides the transport ONCE from the contract: SSE when the
-        // route advertises it and the browser can; plain pull otherwise.
+        // route advertises it and the browser can; plain pull otherwise. The
+        // connection dance itself (shared KISS subscribe, dedicated
+        // EventSource degrade, stream-id adoption, backoff reconnect,
+        // permanent pull degrade) lives in core.openFeedChannel.
         function start() {
             if (sseAdvertised && typeof window.EventSource !== 'undefined') {
                 state.transport = 'sse';
-                // Prefer the ONE shared KISS connection (SSE transport
-                // unification); fall back to a dedicated EventSource when the
-                // shared subscriber is unavailable (asset order / no session).
-                if (!trySharedSubscribe()) {
-                    openStream();
-                }
+                channel = core.openFeedChannel({
+                    url: endpoint,
+                    params: currentViewParams,
+                    dataEvent: 'ui.collection.data',
+                    errorEvent: 'ui.collection.error',
+                    onData: onDataEnvelope,
+                    onError: function (envelope) {
+                        state.gotFrame = true;
+                        state.everStreamed = true;
+                        if (!envelope) { showError('The grid stream reported an error.'); return; }
+                        handleErrorEnvelope(envelope);
+                    },
+                    onBadFrame: function (e) { showError('Bad frame: ' + e.message); },
+                    onStreamId: function (id, mode) {
+                        if (mode === 'shared') {
+                            // The subscription id IS the view-change addressing
+                            // coordinate (the server keys tier-2 re-run state by
+                            // it). Client-minted → commands un-gated immediately.
+                            state.subscriptionId = id;
+                        }
+                        state.streamId = id;
+                    },
+                    onConnecting: function () {
+                        // Re-gate on every dedicated (re)connect: the OLD id is
+                        // dead; the new connection mints a fresh one.
+                        state.streamId = null;
+                        state.gotFrame = false;
+                        root.setAttribute('data-ui-grid-v2-state', 'loading');
+                    },
+                    permanentPullDegrade: true,
+                    onPermanentDegrade: function () {
+                        // NEVER delivered a frame on ANY connection → SSE is not
+                        // usable here; documented PERMANENT degrade to plain
+                        // JSON pull.
+                        state.transport = 'pull';
+                        state.streamId = null;
+                        channel = null;
+                        pull();
+                    }
+                });
             } else {
                 state.transport = 'pull';
                 pull();
             }
         }
 
-        // Subscribe this grid as one multiplexed feed on the page's single shared
-        // KISS connection. Returns true when attached; false to degrade to a
-        // dedicated EventSource. No per-grid connection, no per-grid reconnect —
-        // the shared connection owns both (resubscribe-on-reconnect is automatic).
-        function trySharedSubscribe() {
-            var mgr = window.SemitexaUi && window.SemitexaUi.sse;
-            if (!mgr || typeof mgr.subscribe !== 'function') return false;
-            var handle = mgr.subscribe({ url: endpoint }, currentViewParams(), onFrame);
-            if (!handle || handle.degraded) return false;
-            sub = handle;
-            state.subscriptionId = handle.subscriptionId;
-            // The subscription id IS the view-change addressing coordinate (the
-            // server keys tier-2 re-run state by it). No `ui.stream.id` to adopt:
-            // the client minted the id, so commands are un-gated immediately.
-            state.streamId = handle.subscriptionId;
-            return true;
-        }
-
-        // A frame the shared subscriber demuxed to THIS grid (by streaming_id);
-        // route by type through the SAME render/error paths the dedicated stream
-        // uses (the body is the same `{data, meta}` envelope).
-        function onFrame(frame) {
-            if (!frame || typeof frame._type !== 'string') return;
-            if (frame._type === 'ui.collection.data') {
-                state.gotFrame = true;
-                state.everStreamed = true;
-                state.reconnectAttempts = 0;
-                if (!Array.isArray(frame.data)) { handleErrorEnvelope(frame); return; }
-                state.recovered = false;
-                refs.error.setAttribute('hidden', '');
-                render(frame);
-            } else if (frame._type === 'ui.collection.error') {
-                state.gotFrame = true;
-                state.everStreamed = true;
-                handleErrorEnvelope(frame);
-            }
+        // A data frame from EITHER path (shared demux or dedicated stream) —
+        // the body is the same canonical `{data, meta}` envelope a pull body
+        // carries, so it routes through the SAME render/error paths.
+        function onDataEnvelope(envelope) {
+            state.gotFrame = true;
+            state.everStreamed = true;
+            state.reconnectAttempts = 0;
+            if (!envelope || !Array.isArray(envelope.data)) { handleErrorEnvelope(envelope); return; }
+            state.recovered = false;
+            refs.error.setAttribute('hidden', '');
+            render(envelope);
         }
 
         // The current view as a plain params object (q/sort/filter/perPage/page/
@@ -652,83 +662,6 @@
             var p = {};
             buildQuery().forEach(function (value, key) { p[key] = value; });
             return p;
-        }
-
-        // The ONLY place a connection is created. Called once from start()
-        // and again ONLY on an actual transport drop — NEVER on a view
-        // change (those are re-hydrate COMMANDS on the open stream).
-        function openStream() {
-            if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-            if (source) { try { source.close(); } catch (e) {} source = null; }
-            // Re-gate on every (re)connect: the OLD id is dead; the new
-            // connection mints a fresh server id adopted below.
-            state.streamId = null;
-            state.gotFrame = false;
-            root.setAttribute('data-ui-grid-v2-state', 'loading');
-            var qs = buildQuery().toString();
-            source = new EventSource(qs === '' ? endpoint : endpoint + '?' + qs, { withCredentials: true });
-
-            // Adopt the server-minted id — the ONLY assignment to streamId.
-            source.addEventListener('ui.stream.id', function (ev) {
-                try {
-                    var d = JSON.parse(ev.data);
-                    if (d && typeof d.stream_id === 'string' && d.stream_id) {
-                        state.streamId = d.stream_id;
-                    }
-                } catch (e) { /* malformed id frame → commands stay gated */ }
-            });
-
-            // A data frame IS the canonical `{data, meta}` envelope (plus the
-            // `_type` discriminator) — same render path as a pull body.
-            source.addEventListener('ui.collection.data', function (ev) {
-                state.gotFrame = true;
-                state.everStreamed = true;
-                state.reconnectAttempts = 0;
-                try {
-                    var envelope = JSON.parse(ev.data);
-                    if (!envelope || !Array.isArray(envelope.data)) {
-                        handleErrorEnvelope(envelope);
-                        return;
-                    }
-                    state.recovered = false;
-                    refs.error.setAttribute('hidden', '');
-                    render(envelope);
-                } catch (e) { showError('Bad frame: ' + e.message); }
-            });
-
-            source.addEventListener('ui.collection.error', function (ev) {
-                state.gotFrame = true;
-                state.everStreamed = true;
-                try { handleErrorEnvelope(JSON.parse(ev.data)); }
-                catch (e) { showError('The grid stream reported an error.'); }
-            });
-
-            source.onerror = function () {
-                if (!state.gotFrame && !state.everStreamed) {
-                    // NEVER delivered a frame on ANY connection → SSE is not
-                    // usable here; documented PERMANENT degrade to plain JSON
-                    // pull. A reconnect attempt that errors before its first
-                    // frame (server mid-restart) is NOT that case — the
-                    // endpoint already proved it can stream, so it stays on
-                    // the backoff path below.
-                    if (source) { try { source.close(); } catch (e) {} source = null; }
-                    state.transport = 'pull';
-                    state.streamId = null;
-                    pull();
-                    return;
-                }
-                // Had a live stream and it dropped → reconnect the SAME
-                // logical stream (latest view) with exponential backoff.
-                if (source) { try { source.close(); } catch (e) {} source = null; }
-                scheduleReconnect();
-            };
-        }
-
-        function scheduleReconnect() {
-            if (reconnectTimer) return;
-            var delay = Math.min(30000, 1000 * Math.pow(2, state.reconnectAttempts));
-            state.reconnectAttempts += 1;
-            reconnectTimer = setTimeout(function () { reconnectTimer = null; openStream(); }, delay);
         }
 
         // One-URL re-hydrate: the view-change command POSTs the SAME endpoint
@@ -1049,15 +982,14 @@
             refresh();
         }
 
-        // Tear down: unsubscribe from the shared connection (so the server reaps
-        // this grid's record) and close any dedicated stream/timers.
+        // Tear down: the channel hard-unsubscribes the shared subscription (so
+        // the server reaps this grid's record) and/or closes the dedicated
+        // stream + pending reconnect timer.
         function destroy() {
-            if (sub) {
-                try { sub.unsubscribe(); } catch (e) { /* noop */ }
-                sub = null;
+            if (channel) {
+                channel.close();
+                channel = null;
             }
-            if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-            if (source) { try { source.close(); } catch (e) { /* noop */ } source = null; }
         }
 
         // Expose for diagnostics + E2E assertions.

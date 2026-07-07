@@ -104,7 +104,7 @@ final class UiCoreAssetTest extends TestCase
     {
         $source = self::coreSource();
 
-        foreach (['esc:', 'readCsrfToken:', 'withCsrf:', 'fetchJson:', 'onReady:'] as $key) {
+        foreach (['esc:', 'readCsrfToken:', 'withCsrf:', 'fetchJson:', 'openFeedChannel:', 'onReady:'] as $key) {
             self::assertStringContainsString(
                 $key,
                 $source,
@@ -132,6 +132,32 @@ final class UiCoreAssetTest extends TestCase
         self::assertDoesNotMatchRegularExpression('/\beval\s*\(/', $source);
         self::assertDoesNotMatchRegularExpression('/\bnew\s+Function\s*\(/', $source);
         self::assertStringNotContainsString('document.write', $source);
+    }
+
+    #[Test]
+    public function feed_consumers_never_open_their_own_event_source(): void
+    {
+        // The feed transport (shared KISS subscribe → dedicated EventSource
+        // degrade with backoff) lives ONLY in core.openFeedChannel. The two
+        // feed consumers must never grow a private copy back. (event-runtime
+        // owns the shared KISS connection itself and calendar-runtime's
+        // reopen-per-range stream predates the canonical envelope — both are
+        // pinned by their own tests.)
+        $jsDir = \dirname(self::CORE_PATH);
+        foreach (['grid-runtime-v2.js', 'form-collab-runtime.js'] as $file) {
+            $source = (string) file_get_contents($jsDir . '/' . $file);
+            self::assertStringNotContainsString(
+                'new EventSource(',
+                $source,
+                "{$file} must open live feeds via SemitexaUi.core.openFeedChannel only.",
+            );
+        }
+
+        self::assertSame(
+            1,
+            substr_count(self::coreSource(), 'new EventSource('),
+            'ui-core.js must construct the dedicated EventSource in exactly one place (openFeedChannel).',
+        );
     }
 
     #[Test]

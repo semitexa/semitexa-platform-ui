@@ -5,9 +5,10 @@
  * grid-runtime-v2.js: where the grid runtime subscribes a list route and
  * re-renders rows on `ui.collection.data`, this subscribes ONE collaborative
  * document at `/__ui/form-doc` and re-applies field values on
- * `ui.document.data`. It mirrors the grid runtime's transport verbatim — native
- * EventSource, server-minted stream-id adoption, exponential-backoff reconnect,
- * a DOMContentLoaded + MutationObserver boot scan — and adds the form-specific
+ * `ui.document.data`. Both runtimes ride the SAME transport —
+ * core.openFeedChannel in ui-core.js (shared KISS subscribe, dedicated
+ * EventSource degrade, stream-id adoption, backoff reconnect) — plus a
+ * DOMContentLoaded + MutationObserver boot scan; this adds the form-specific
  * behaviour: apply remote field deltas, render the presence roster, and emit
  * each local edit back as a `field.edit` event on the canonical `/__ui/event`
  * write path (the same signed-context envelope event-runtime.js uses).
@@ -37,6 +38,17 @@
  */
 (function () {
     'use strict';
+
+    // Live-feed transport lives in the shared core (ui-core.js, assets.json
+    // priority 50 — always before this file). Fail fast when a hand-written
+    // include list forgot it.
+    var core = window.SemitexaUi && window.SemitexaUi.core;
+    if (!core) {
+        if (typeof console !== 'undefined' && console.error) {
+            console.error('[semitexa-ui] form-collab-runtime.js requires ui-core.js to load first');
+        }
+        return;
+    }
 
     var SCHEMA_VERSION = 1;
     var MANIFEST_SELECTOR = 'script[type="application/json"][data-ui-collab-manifest]';
@@ -91,11 +103,8 @@
     function CollabForm(rootEl, manifest) {
         this.root = rootEl;
         this.m = manifest;
-        this.sub = null;
-        this.source = null;
+        this.channel = null;
         this.streamId = null;
-        this.reconnectAttempts = 0;
-        this.reconnectTimer = null;
         this.heartbeatTimer = null;
         this.closed = false;
         // Fields the local user is actively editing — never overwritten by a
@@ -155,127 +164,29 @@
         }
     };
 
-    // -- transport: ride the ONE shared KISS connection (SSE transport
-    //    unification), degrading to a dedicated EventSource only when the
-    //    shared subscriber is unavailable -----------------------------------
+    // -- transport: core.openFeedChannel owns the whole connection dance —
+    //    shared KISS subscribe first, dedicated EventSource degrade with
+    //    stream-id adoption + backoff reconnect (this file used to mirror
+    //    grid-runtime-v2's copy verbatim) ------------------------------------
 
     CollabForm.prototype.subscribe = function () {
         if (this.closed) {
             return;
         }
-        var mgr = window.SemitexaUi && window.SemitexaUi.sse;
-        if (mgr && typeof mgr.subscribe === 'function') {
-            var self = this;
-            var handle = mgr.subscribe(
-                { url: this.m.feedUrl },
-                { ctx: this.m.feedCtx },
-                function (frame) { self.onFrame(frame); }
-            );
-            if (handle && !handle.degraded) {
-                // Multiplexed over the page's single connection — no per-form
-                // EventSource, no per-form reconnect (the shared connection owns
-                // both; resubscribe-on-reconnect is automatic).
-                this.sub = handle;
-                this.setStatus('live');
-                return;
-            }
-        }
-        // Degrade (no KISS session / no EventSource / asset ordering): keep the
-        // legacy dedicated stream so collab still works standalone.
-        this.openStream();
-    };
-
-    /**
-     * A frame the shared subscriber demuxed to THIS subscription (by streaming_id);
-     * dispatch by its type. The body is the same `{_type, data, meta}` envelope the
-     * dedicated EventSource path parses, so applySnapshot/onDocumentError are reused.
-     */
-    CollabForm.prototype.onFrame = function (frame) {
-        if (!frame || typeof frame._type !== 'string') {
-            return;
-        }
-        if (frame._type === 'ui.document.data') {
-            this.reconnectAttempts = 0;
-            this.applySnapshot(frame);
-        } else if (frame._type === 'ui.document.error') {
-            this.onDocumentError(frame);
-        }
-    };
-
-    // -- legacy dedicated stream (degrade path; mirrors grid-runtime-v2) -----
-
-    CollabForm.prototype.openStream = function () {
-        if (this.closed) {
-            return;
-        }
-        this.closeSource();
-
-        var url = this.m.feedUrl + (this.m.feedUrl.indexOf('?') === -1 ? '?' : '&') + 'ctx=' + encodeURIComponent(this.m.feedCtx);
         var self = this;
-        var source;
-        try {
-            source = new EventSource(url, { withCredentials: true });
-        } catch (e) {
-            this.scheduleReconnect();
-            return;
-        }
-        this.source = source;
-
-        source.addEventListener('ui.stream.id', function (ev) {
-            try {
-                var body = JSON.parse(ev.data);
-                if (body && typeof body.stream_id === 'string') {
-                    self.streamId = body.stream_id;
-                }
-            } catch (e) { /* ignore malformed id frame */ }
+        this.channel = core.openFeedChannel({
+            url: this.m.feedUrl,
+            params: { ctx: this.m.feedCtx },
+            dataEvent: 'ui.document.data',
+            errorEvent: 'ui.document.error',
+            maxBackoffMs: MAX_BACKOFF_MS,
+            // The envelope is the same `{_type, data, meta}` shape on both
+            // paths, so applySnapshot/onDocumentError are shared.
+            onData: function (envelope) { self.applySnapshot(envelope); },
+            onError: function (envelope) { self.onDocumentError(envelope || {}); },
+            onStreamId: function (id) { self.streamId = id; },
+            onStatus: function (status) { self.setStatus(status); }
         });
-
-        source.addEventListener('ui.document.data', function (ev) {
-            self.reconnectAttempts = 0;
-            var envelope;
-            try {
-                envelope = JSON.parse(ev.data);
-            } catch (e) {
-                return;
-            }
-            self.applySnapshot(envelope);
-        });
-
-        source.addEventListener('ui.document.error', function (ev) {
-            var envelope;
-            try {
-                envelope = JSON.parse(ev.data);
-            } catch (e) {
-                envelope = {};
-            }
-            self.onDocumentError(envelope);
-        });
-
-        source.onerror = function () {
-            self.setStatus('reconnecting');
-            self.closeSource();
-            self.scheduleReconnect();
-        };
-    };
-
-    CollabForm.prototype.scheduleReconnect = function () {
-        if (this.closed || this.reconnectTimer !== null) {
-            return;
-        }
-        var delay = Math.min(MAX_BACKOFF_MS, 1000 * Math.pow(2, this.reconnectAttempts));
-        this.reconnectAttempts += 1;
-        var self = this;
-        this.reconnectTimer = setTimeout(function () {
-            self.reconnectTimer = null;
-            self.openStream();
-        }, delay);
-    };
-
-    CollabForm.prototype.closeSource = function () {
-        if (this.source) {
-            try { this.source.close(); } catch (e) { /* noop */ }
-            this.source = null;
-        }
     };
 
     // -- applying a remote snapshot -----------------------------------------
@@ -989,17 +900,14 @@
         // still-open shared connection).
         this.releaseLock();
         this.releaseAllFieldLocks();
-        if (this.sub) {
-            // Hard unsubscribe over the shared connection so the server reaps this
-            // subscription's record (a surviving KISS connection would otherwise
-            // keep it registered — the orphaned-on-teardown failure mode).
-            try { this.sub.unsubscribe(); } catch (e) { /* noop */ }
-            this.sub = null;
-        }
-        this.closeSource();
-        if (this.reconnectTimer !== null) {
-            clearTimeout(this.reconnectTimer);
-            this.reconnectTimer = null;
+        if (this.channel) {
+            // channel.close() hard-unsubscribes over the shared connection so
+            // the server reaps this subscription's record (a surviving KISS
+            // connection would otherwise keep it registered — the
+            // orphaned-on-teardown failure mode) and/or closes the dedicated
+            // stream + pending reconnect timer.
+            this.channel.close();
+            this.channel = null;
         }
         if (this.heartbeatTimer !== null) {
             clearInterval(this.heartbeatTimer);

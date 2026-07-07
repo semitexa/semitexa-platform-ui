@@ -175,16 +175,22 @@ final class GridRuntimeV2StaticAssertTest extends TestCase
     #[Test]
     public function a_failed_reconnect_does_not_permanently_degrade_a_proven_stream(): void
     {
+        // The never-streamed gate moved into core.openFeedChannel with the
+        // rest of the transport; the grid must opt into it explicitly.
         $source = self::runtimeSource();
 
         self::assertStringContainsString(
-            'everStreamed',
+            'permanentPullDegrade: true',
             $source,
-            'the runtime must track whether ANY connection ever streamed a frame.',
+            'the grid must opt into the permanent degrade-to-pull gate.',
+        );
+
+        $core = (string) file_get_contents(
+            \dirname(self::RUNTIME_PATH) . '/ui-core.js',
         );
         self::assertStringContainsString(
-            '!state.gotFrame && !state.everStreamed',
-            $source,
+            '!gotFrame && !everStreamed',
+            $core,
             'permanent degrade-to-pull must require that NO connection ever delivered a frame — a dropped-then-failed reconnect stays on the backoff path.',
         );
     }
