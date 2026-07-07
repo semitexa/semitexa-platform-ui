@@ -50,7 +50,7 @@ final class UiCoreAssetTest extends TestCase
     }
 
     #[Test]
-    public function the_core_is_a_global_deferred_body_asset(): void
+    public function the_core_is_a_global_module_body_asset(): void
     {
         $override = self::overrides()['js/ui-core.js'] ?? null;
         self::assertIsArray(
@@ -59,7 +59,27 @@ final class UiCoreAssetTest extends TestCase
         );
         self::assertSame('global', $override['scope']);
         self::assertSame('body', $override['position']);
-        self::assertTrue($override['attributes']['defer'] ?? false);
+        // The core is an ES module (its ESM exports are the migration path
+        // for every runtime) and the import-map anchor for bare imports.
+        self::assertSame('module', $override['attributes']['type'] ?? null);
+        self::assertSame('platform-ui/core', $override['specifier'] ?? null);
+    }
+
+    #[Test]
+    public function the_core_exposes_the_esm_surface(): void
+    {
+        // Dual-mode during the migration: the window shim for classic
+        // runtimes AND named ESM exports for module runtimes. Both must
+        // expose the same helpers.
+        $source = self::coreSource();
+
+        foreach (['esc', 'withCsrf', 'fetchJson', 'openFeedChannel', 'onReady'] as $name) {
+            self::assertStringContainsString(
+                'export const ' . $name,
+                $source,
+                "ui-core.js must export {$name} as a named ESM export.",
+            );
+        }
     }
 
     #[Test]

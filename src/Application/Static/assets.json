@@ -30,7 +30,8 @@
             "scope": "global",
             "position": "body",
             "priority": 50,
-            "attributes": { "defer": true }
+            "attributes": { "type": "module" },
+            "specifier": "platform-ui/core"
         },
         "js/event-runtime.js": {
             "scope": "global",
@@ -66,7 +67,7 @@
             "scope": "global",
             "position": "body",
             "priority": 74,
-            "attributes": { "defer": true }
+            "attributes": { "type": "module" }
         }
     }
 }

@@ -4,25 +4,27 @@
  * only makes it read-only and, on a pick, writes the value + dispatches
  * `change` so the field's own handlers capture it. Uses the shared date core.
  */
+// ES module (the ESM-migration pilot): esc comes in through the import map
+// ('platform-ui/core' → fingerprinted ui-core.js URL) instead of the window
+// shim. Import order guarantees the core is initialized before this runs.
+import { esc } from 'platform-ui/core';
+
 (function () {
   'use strict';
   window.SemitexaUi = window.SemitexaUi || {};
   if (window.SemitexaUi.dateField) return;
 
-  // Shared helpers: ui-core.js (esc) + calendar-dates.js (date math) load
-  // first (assets.json priority). Fail fast when a hand-written include
-  // list forgot one of them.
-  var core = window.SemitexaUi.core;
+  // Shared month-grid + date math still arrives via the classic global
+  // (calendar-dates.js predates the module migration). Fail fast when a
+  // hand-written include list forgot it.
   var D = window.SemitexaUi.dates;
-  if (!core || !D) {
+  if (!D) {
     if (typeof console !== 'undefined' && console.error) {
-      console.error('[semitexa-ui] date-field-runtime.js requires ui-core.js and calendar-dates.js to load first');
+      console.error('[semitexa-ui] date-field-runtime.js requires calendar-dates.js to load first');
     }
     return;
   }
   window.SemitexaUi.dateField = { version: 1 };
-
-  var esc = core.esc;
 
   function boot() {
     var nodes = document.querySelectorAll('[data-ui-date-field]');

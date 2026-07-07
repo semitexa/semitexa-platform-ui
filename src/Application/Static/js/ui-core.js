@@ -335,3 +335,17 @@
         onReady: onReady
     };
 })();
+
+/*
+ * ESM surface — this file loads as <script type="module"> (importable via
+ * the server-generated import map as 'platform-ui/core'). The IIFE above
+ * still populates window.SemitexaUi.core for the classic runtimes during
+ * the runtime-by-runtime migration; both surfaces expose the SAME objects.
+ */
+const __core = window.SemitexaUi.core;
+export const esc = __core.esc;
+export const readCsrfToken = __core.readCsrfToken;
+export const withCsrf = __core.withCsrf;
+export const fetchJson = __core.fetchJson;
+export const openFeedChannel = __core.openFeedChannel;
+export const onReady = __core.onReady;
