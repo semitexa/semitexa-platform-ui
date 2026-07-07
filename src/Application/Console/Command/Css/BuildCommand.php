@@ -100,7 +100,7 @@ final class BuildCommand extends Command
         }
         $output->writeln('');
         $output->writeln('Register in your layout:');
-        $output->writeln('  <link rel="stylesheet" href="/assets/platform-ui/css/full.css">          <!-- grammar + primitives -->');
+        $output->writeln("  <link rel=\"stylesheet\" href=\"{{ asset('css/full.css', 'platform-ui') }}\">   <!-- grammar + primitives -->");
         $output->writeln('  <link rel="stylesheet" href="{{ theme_skin_css() }}">                   <!-- active skin tokens -->');
         $output->writeln('Or via ssr asset pipeline: $collector->requireModule("platform-ui");');
 
