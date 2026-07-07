@@ -7,29 +7,20 @@
  * and renders a month grid + selected-day agenda + a create/edit editor.
  * Mutations POST to the save/delete routes. Month-start = Monday.
  */
+// ES module: shared helpers arrive through the import map ('platform-ui/*'
+// -> fingerprinted URLs) — import order guarantees both are initialized
+// before this executes; no manual load-order contract to uphold.
+import { esc, fetchJson } from 'platform-ui/core';
+import {
+  WEEKDAYS, MONTHS, ymd, hm, startOfDay, addDays, startOfMonth,
+  mondayIndex, gridDays, localDatetimeValue
+} from 'platform-ui/dates';
+
 (function () {
   'use strict';
   window.SemitexaUi = window.SemitexaUi || {};
   if (window.SemitexaUi.calendar) return;
-
-  // Shared helpers: ui-core.js (esc + CSRF fetch) and calendar-dates.js
-  // (month-grid + date math) both load first — assets.json pins the order;
-  // hand-written include lists must do the same. Fail fast otherwise.
-  var core = window.SemitexaUi.core;
-  var D = window.SemitexaUi.dates;
-  if (!core || !D) {
-    if (typeof console !== 'undefined' && console.error) {
-      console.error('[semitexa-ui] calendar-runtime.js requires ui-core.js and calendar-dates.js to load first');
-    }
-    return;
-  }
   window.SemitexaUi.calendar = { version: 1 };
-
-  var WEEKDAYS = D.WEEKDAYS, MONTHS = D.MONTHS, ymd = D.ymd, hm = D.hm,
-    startOfDay = D.startOfDay, addDays = D.addDays, startOfMonth = D.startOfMonth,
-    mondayIndex = D.mondayIndex, gridDays = D.gridDays, localDatetimeValue = D.localDatetimeValue;
-
-  var esc = core.esc;
 
   function boot() {
     var nodes = document.querySelectorAll('[data-ui-calendar]');
@@ -274,9 +265,9 @@
     }
 
     function post(url, body) {
-      // core.fetchJson sends the X-CSRF-Token header — CsrfListener rejects
+      // fetchJson sends the X-CSRF-Token header — CsrfListener rejects
       // authenticated writes without it.
-      core.fetchJson(url, { method: 'POST', body: body }).then(function (res) {
+      fetchJson(url, { method: 'POST', body: body }).then(function (res) {
         if (!res.ok) {
           if (typeof console !== 'undefined' && console.warn) {
             console.warn('[semitexa-ui] calendar write failed', res.status, res.data);

@@ -2,8 +2,12 @@
     "$schema": "semitexa://asset-manifest/v2",
     "module": "platform-ui",
     "include": {
-        "css": ["css/*.css"],
-        "js": ["js/*.js"]
+        "css": [
+            "css/*.css"
+        ],
+        "js": [
+            "js/*.js"
+        ]
     },
     "overrides": {
         "css/full.css": {
@@ -30,44 +34,59 @@
             "scope": "global",
             "position": "body",
             "priority": 50,
-            "attributes": { "type": "module" },
+            "attributes": {
+                "type": "module"
+            },
             "specifier": "platform-ui/core"
         },
         "js/event-runtime.js": {
             "scope": "global",
             "position": "body",
             "priority": 60,
-            "attributes": { "defer": true }
+            "attributes": {
+                "defer": true
+            }
         },
         "js/grid-runtime-v2.js": {
             "scope": "global",
             "position": "body",
             "priority": 71,
-            "attributes": { "defer": true }
+            "attributes": {
+                "defer": true
+            }
         },
         "js/form-collab-runtime.js": {
             "scope": "global",
             "position": "body",
             "priority": 72,
-            "attributes": { "defer": true }
+            "attributes": {
+                "defer": true
+            }
         },
         "js/calendar-dates.js": {
             "scope": "global",
             "position": "body",
             "priority": 70,
-            "attributes": { "defer": true }
+            "attributes": {
+                "type": "module"
+            },
+            "specifier": "platform-ui/dates"
         },
         "js/calendar-runtime.js": {
             "scope": "global",
             "position": "body",
             "priority": 73,
-            "attributes": { "defer": true }
+            "attributes": {
+                "type": "module"
+            }
         },
         "js/date-field-runtime.js": {
             "scope": "global",
             "position": "body",
             "priority": 74,
-            "attributes": { "type": "module" }
+            "attributes": {
+                "type": "module"
+            }
         }
     }
 }
