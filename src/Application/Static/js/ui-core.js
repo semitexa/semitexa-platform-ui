@@ -301,6 +301,31 @@
         }
     }
 
+    // Declarative form behaviours — the platform grammar's replacement for
+    // inline handler sprinkles (CSP-hostile and un-greppable):
+    //   <form data-ui-inert-form>            JS-managed; native submit never
+    //                                        navigates (was onsubmit="event.
+    //                                        preventDefault()" per form)
+    //   <form data-ui-confirm="Really?">     native submit gated behind a
+    //                                        confirm() prompt (destructive
+    //                                        actions)
+    // One capture-phase listener serves every current and future form.
+    document.addEventListener('submit', function (ev) {
+        var form = ev.target;
+        if (!form || !form.matches) return;
+        if (form.matches('form[data-ui-inert-form]')) {
+            ev.preventDefault();
+            return;
+        }
+        if (form.matches('form[data-ui-confirm]')) {
+            var message = form.getAttribute('data-ui-confirm') || 'Are you sure?';
+            if (!window.confirm(message)) {
+                ev.preventDefault();
+                ev.stopImmediatePropagation();
+            }
+        }
+    }, true);
+
     ns.core = {
         version: 1,
         esc: esc,

@@ -135,6 +135,18 @@ final class UiCoreAssetTest extends TestCase
     }
 
     #[Test]
+    public function the_core_owns_the_declarative_form_behaviours(): void
+    {
+        // data-ui-inert-form / data-ui-confirm replaced the inline
+        // onsubmit sprinkles across playground templates; the delegated
+        // listener must stay in the core so the attributes keep working.
+        $source = self::coreSource();
+
+        self::assertStringContainsString('data-ui-inert-form', $source);
+        self::assertStringContainsString('data-ui-confirm', $source);
+    }
+
+    #[Test]
     public function feed_consumers_never_open_their_own_event_source(): void
     {
         // The feed transport (shared KISS subscribe → dedicated EventSource
