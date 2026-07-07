@@ -44,8 +44,9 @@
             "position": "body",
             "priority": 60,
             "attributes": {
-                "defer": true
-            }
+                "type": "module"
+            },
+            "specifier": "platform-ui/events"
         },
         "js/grid-runtime-v2.js": {
             "scope": "global",

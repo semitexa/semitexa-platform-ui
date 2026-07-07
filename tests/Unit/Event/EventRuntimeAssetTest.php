@@ -934,7 +934,10 @@ final class EventRuntimeAssetTest extends TestCase
         self::assertSame('body', $entry['position']);
         self::assertIsInt($entry['priority']);
         self::assertArrayHasKey('attributes', $entry);
-        self::assertTrue($entry['attributes']['defer'] ?? false);
+        // ES module since the ESM migration (implicitly deferred), importable
+        // as 'platform-ui/events' via the server-generated import map.
+        self::assertSame('module', $entry['attributes']['type'] ?? null);
+        self::assertSame('platform-ui/events', $entry['specifier'] ?? null);
     }
 
     #[Test]
