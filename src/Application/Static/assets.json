@@ -52,7 +52,7 @@
             "position": "body",
             "priority": 71,
             "attributes": {
-                "defer": true
+                "type": "module"
             }
         },
         "js/form-collab-runtime.js": {
@@ -60,7 +60,7 @@
             "position": "body",
             "priority": 72,
             "attributes": {
-                "defer": true
+                "type": "module"
             }
         },
         "js/calendar-dates.js": {

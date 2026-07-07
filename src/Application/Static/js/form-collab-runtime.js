@@ -36,19 +36,13 @@
  *     fields, heartbeatMs         managed field names + presence cadence
  *   }
  */
+// ES module: the live-feed transport + CSRF plumbing arrive through the
+// import map ('platform-ui/core' -> fingerprinted URL); the import graph
+// guarantees the core is initialized before this executes.
+import { withCsrf, openFeedChannel } from 'platform-ui/core';
+
 (function () {
     'use strict';
-
-    // Live-feed transport lives in the shared core (ui-core.js, assets.json
-    // priority 50 — always before this file). Fail fast when a hand-written
-    // include list forgot it.
-    var core = window.SemitexaUi && window.SemitexaUi.core;
-    if (!core) {
-        if (typeof console !== 'undefined' && console.error) {
-            console.error('[semitexa-ui] form-collab-runtime.js requires ui-core.js to load first');
-        }
-        return;
-    }
 
     var SCHEMA_VERSION = 1;
     var MANIFEST_SELECTOR = 'script[type="application/json"][data-ui-collab-manifest]';
@@ -164,7 +158,7 @@
         }
     };
 
-    // -- transport: core.openFeedChannel owns the whole connection dance —
+    // -- transport: openFeedChannel (platform-ui/core) owns the whole connection dance —
     //    shared KISS subscribe first, dedicated EventSource degrade with
     //    stream-id adoption + backoff reconnect (this file used to mirror
     //    grid-runtime-v2's copy verbatim) ------------------------------------
@@ -174,7 +168,7 @@
             return;
         }
         var self = this;
-        this.channel = core.openFeedChannel({
+        this.channel = openFeedChannel({
             url: this.m.feedUrl,
             params: { ctx: this.m.feedCtx },
             dataEvent: 'ui.document.data',
@@ -712,7 +706,7 @@
                 method: 'POST',
                 credentials: 'same-origin',
                 // CsrfListener rejects authenticated writes without the token.
-                headers: core.withCsrf('POST', { 'Content-Type': 'application/json' }),
+                headers: withCsrf('POST', { 'Content-Type': 'application/json' }),
                 body: JSON.stringify(body),
                 keepalive: true
             }).catch(function () { /* best-effort; the next edit/heartbeat retries state */ });
@@ -736,7 +730,7 @@
             return fetch(this.m.eventUrl, {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers: core.withCsrf('POST', { 'Content-Type': 'application/json' }),
+                headers: withCsrf('POST', { 'Content-Type': 'application/json' }),
                 body: JSON.stringify(body)
             }).then(function (r) {
                 return r.json().catch(function () { return null; });

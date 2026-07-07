@@ -42,23 +42,16 @@
  *     covers action invocations and the OPTIONS revalidation is harmless;
  *   - all row/contract values reach the DOM via textContent only.
  */
+// ES module: CSRF plumbing + the live-feed transport arrive through the
+// import map ('platform-ui/core' -> fingerprinted URL); the import graph
+// guarantees the core is initialized before this executes.
+import { withCsrf, openFeedChannel } from 'platform-ui/core';
+
 (function () {
     'use strict';
 
     window.SemitexaUi = window.SemitexaUi || {};
     if (window.SemitexaUi.gridV2) return;
-
-    // CSRF plumbing lives in the shared core (ui-core.js, assets.json
-    // priority 50 — always before this file). Hard dependency: fail fast
-    // with an actionable error instead of posting without the token.
-    var core = window.SemitexaUi.core;
-    if (!core) {
-        if (typeof console !== 'undefined' && console.error) {
-            console.error('[semitexa-ui] grid-runtime-v2.js requires ui-core.js to load first');
-        }
-        return;
-    }
-    var withCsrf = core.withCsrf;
 
     var CONTRACT_CACHE_PREFIX = 'semitexa:ui-grid-contract:';
     var DEFAULT_PAGE_WINDOW = 7;
@@ -296,7 +289,7 @@
             everStreamed: false,  // any frame on ANY connection — gates permanent degrade
             reconnectAttempts: 0,
         };
-        var channel = null;         // core.openFeedChannel handle (shared KISS or dedicated stream)
+        var channel = null;         // openFeedChannel handle (shared KISS or dedicated stream)
         var sseAdvertised = Array.isArray(contract.modes) && contract.modes.indexOf('sse') >= 0;
         Object.keys(filterFields).forEach(function (field) {
             state.filters[field] = { op: defaultOperatorFor(filterFields[field]), value: '' };
@@ -593,11 +586,11 @@
         // route advertises it and the browser can; plain pull otherwise. The
         // connection dance itself (shared KISS subscribe, dedicated
         // EventSource degrade, stream-id adoption, backoff reconnect,
-        // permanent pull degrade) lives in core.openFeedChannel.
+        // permanent pull degrade) lives in openFeedChannel (platform-ui/core).
         function start() {
             if (sseAdvertised && typeof window.EventSource !== 'undefined') {
                 state.transport = 'sse';
-                channel = core.openFeedChannel({
+                channel = openFeedChannel({
                     url: endpoint,
                     params: currentViewParams,
                     dataEvent: 'ui.collection.data',

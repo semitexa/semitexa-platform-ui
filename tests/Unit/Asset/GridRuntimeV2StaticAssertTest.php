@@ -53,7 +53,9 @@ final class GridRuntimeV2StaticAssertTest extends TestCase
         );
         self::assertSame('global', $override['scope']);
         self::assertSame('body', $override['position']);
-        self::assertTrue($override['attributes']['defer'] ?? false);
+        // ES module since the ESM migration — implicitly deferred, executes
+        // in document order with the remaining classic deferred runtimes.
+        self::assertSame('module', $override['attributes']['type'] ?? null);
     }
 
     #[Test]
@@ -125,21 +127,13 @@ final class GridRuntimeV2StaticAssertTest extends TestCase
     #[Test]
     public function the_runtime_sends_the_csrf_header_on_mutations(): void
     {
-        // CSRF plumbing moved to the shared core (ui-core.js) — the grid must
-        // delegate to it (UiCoreAssetTest pins the header inside the core)
-        // and must fail fast when the core is missing rather than posting
-        // without the token.
-        $source = self::runtimeSource();
-
-        self::assertStringContainsString(
-            'var withCsrf = core.withCsrf;',
-            $source,
-            'grid-runtime-v2.js must delegate CSRF header handling to SemitexaUi.core.',
-        );
-        self::assertStringContainsString(
-            'requires ui-core.js',
-            $source,
-            'grid-runtime-v2.js must fail fast with an actionable error when ui-core.js is absent.',
+        // CSRF plumbing lives in the shared core (UiCoreAssetTest pins the
+        // header inside it); the grid imports it — the import graph
+        // guarantees the core is initialized, no fail-fast guard needed.
+        self::assertMatchesRegularExpression(
+            "/import \\{[^}]*withCsrf[^}]*\\} from 'platform-ui\\/core'/",
+            self::runtimeSource(),
+            'grid-runtime-v2.js must import CSRF header handling from platform-ui/core.',
         );
     }
 
