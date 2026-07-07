@@ -1,7 +1,11 @@
 /*
  * Shared calendar date utilities — the common month-grid + date math used by
  * BOTH the events calendar (calendar-runtime.js) and the date-field picker
- * (date-field-runtime.js). Loaded before either. Monday-based weeks.
+ * (date-field-runtime.js). Monday-based weeks.
+ *
+ * Dual-mode ES module: importable as 'platform-ui/dates' (server-generated
+ * import map -> fingerprinted URL) with named exports, AND still populating
+ * the window.SemitexaUi.dates shim for any remaining classic consumer.
  */
 (function () {
   'use strict';
@@ -47,3 +51,18 @@
     localDatetimeValue: localDatetimeValue, parseLocal: parseLocal,
   };
 })();
+
+/* ESM surface — same objects the window shim exposes. */
+const __dates = window.SemitexaUi.dates;
+export const WEEKDAYS = __dates.WEEKDAYS;
+export const MONTHS = __dates.MONTHS;
+export const pad = __dates.pad;
+export const ymd = __dates.ymd;
+export const hm = __dates.hm;
+export const startOfDay = __dates.startOfDay;
+export const addDays = __dates.addDays;
+export const startOfMonth = __dates.startOfMonth;
+export const mondayIndex = __dates.mondayIndex;
+export const gridDays = __dates.gridDays;
+export const localDatetimeValue = __dates.localDatetimeValue;
+export const parseLocal = __dates.parseLocal;

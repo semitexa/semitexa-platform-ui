@@ -53,7 +53,9 @@ final class GridRuntimeV2StaticAssertTest extends TestCase
         );
         self::assertSame('global', $override['scope']);
         self::assertSame('body', $override['position']);
-        self::assertTrue($override['attributes']['defer'] ?? false);
+        // ES module since the ESM migration — implicitly deferred, executes
+        // in document order with the remaining classic deferred runtimes.
+        self::assertSame('module', $override['attributes']['type'] ?? null);
     }
 
     #[Test]
@@ -125,10 +127,13 @@ final class GridRuntimeV2StaticAssertTest extends TestCase
     #[Test]
     public function the_runtime_sends_the_csrf_header_on_mutations(): void
     {
-        self::assertStringContainsString(
-            'X-CSRF-Token',
+        // CSRF plumbing lives in the shared core (UiCoreAssetTest pins the
+        // header inside it); the grid imports it — the import graph
+        // guarantees the core is initialized, no fail-fast guard needed.
+        self::assertMatchesRegularExpression(
+            "/import \\{[^}]*withCsrf[^}]*\\} from 'platform-ui\\/core'/",
             self::runtimeSource(),
-            'grid-runtime-v2.js must send the X-CSRF-Token header on non-GET requests.',
+            'grid-runtime-v2.js must import CSRF header handling from platform-ui/core.',
         );
     }
 
@@ -164,16 +169,22 @@ final class GridRuntimeV2StaticAssertTest extends TestCase
     #[Test]
     public function a_failed_reconnect_does_not_permanently_degrade_a_proven_stream(): void
     {
+        // The never-streamed gate moved into core.openFeedChannel with the
+        // rest of the transport; the grid must opt into it explicitly.
         $source = self::runtimeSource();
 
         self::assertStringContainsString(
-            'everStreamed',
+            'permanentPullDegrade: true',
             $source,
-            'the runtime must track whether ANY connection ever streamed a frame.',
+            'the grid must opt into the permanent degrade-to-pull gate.',
+        );
+
+        $core = (string) file_get_contents(
+            \dirname(self::RUNTIME_PATH) . '/ui-core.js',
         );
         self::assertStringContainsString(
-            '!state.gotFrame && !state.everStreamed',
-            $source,
+            '!gotFrame && !everStreamed',
+            $core,
             'permanent degrade-to-pull must require that NO connection ever delivered a frame — a dropped-then-failed reconnect stays on the backoff path.',
         );
     }

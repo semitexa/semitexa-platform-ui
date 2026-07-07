@@ -402,9 +402,10 @@ final class EventRuntimeAssetTest extends TestCase
         // attachSse closure.
         self::assertSame(1, substr_count($code, 'new EventSource('));
 
-        // Initialisation code (everything after `window.SemitexaUi = {`)
-        // must not create an EventSource or open an SSE stream.
-        $initSection = self::tail($code, 'window.SemitexaUi = {');
+        // Initialisation code (everything after the namespace export —
+        // extend-don't-replace so ui-core.js survives) must not create an
+        // EventSource or open an SSE stream.
+        $initSection = self::tail($code, 'window.SemitexaUi = Object.assign(');
         self::assertNotSame('', $initSection);
         self::assertStringNotContainsString('new EventSource(', $initSection);
     }
@@ -933,7 +934,10 @@ final class EventRuntimeAssetTest extends TestCase
         self::assertSame('body', $entry['position']);
         self::assertIsInt($entry['priority']);
         self::assertArrayHasKey('attributes', $entry);
-        self::assertTrue($entry['attributes']['defer'] ?? false);
+        // ES module since the ESM migration (implicitly deferred), importable
+        // as 'platform-ui/events' via the server-generated import map.
+        self::assertSame('module', $entry['attributes']['type'] ?? null);
+        self::assertSame('platform-ui/events', $entry['specifier'] ?? null);
     }
 
     #[Test]

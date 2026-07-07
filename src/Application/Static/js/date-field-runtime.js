@@ -4,18 +4,17 @@
  * only makes it read-only and, on a pick, writes the value + dispatches
  * `change` so the field's own handlers capture it. Uses the shared date core.
  */
+// ES module: every shared helper arrives through the import map
+// ('platform-ui/*' → fingerprinted URLs); import order guarantees both
+// modules are initialized before this runs.
+import { esc } from 'platform-ui/core';
+import * as D from 'platform-ui/dates';
+
 (function () {
   'use strict';
   window.SemitexaUi = window.SemitexaUi || {};
   if (window.SemitexaUi.dateField) return;
   window.SemitexaUi.dateField = { version: 1 };
-  var D = window.SemitexaUi.dates;
-
-  function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
-    });
-  }
 
   function boot() {
     var nodes = document.querySelectorAll('[data-ui-date-field]');

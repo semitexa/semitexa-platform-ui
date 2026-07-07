@@ -45,15 +45,25 @@
  *
  * Idempotent: re-evaluating this script is a no-op.
  */
+// ES module: CSRF plumbing arrives through the import map
+// ('platform-ui/core' -> fingerprinted URL); the import graph guarantees
+// the core is initialized before this executes. This file itself is
+// importable as 'platform-ui/events' (named exports appended at the end).
+import { withCsrf } from 'platform-ui/core';
+
 (function () {
     'use strict';
 
-    if (window.SemitexaUi) {
+    // Extend-don't-replace: ui-core.js (and other runtimes) share the
+    // window.SemitexaUi namespace. Only bail when THIS runtime already ran —
+    // `version` is the marker this file's export sets.
+    if (window.SemitexaUi && window.SemitexaUi.version) {
         return;
     }
 
     var MANIFEST_VERSION = 1;
     var SCANNED_FLAG = '__semitexaUiScanned';
+
 
     var captureListeners = [];
     var parsedManifests = []; // {scriptEl, payload}
@@ -575,7 +585,7 @@
             fetch(endpoint, {
                 method: 'POST',
                 credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
+                headers: withCsrf('POST', { 'Content-Type': 'application/json' }),
                 body: body
             }).then(function (resp) {
                 return resp.text().then(function (text) {
@@ -1587,7 +1597,7 @@
         return true;
     }
 
-    window.SemitexaUi = {
+    window.SemitexaUi = Object.assign(window.SemitexaUi || {}, {
         version: '1.0',
         scan: scan,
         manifests: manifests,
@@ -1605,7 +1615,7 @@
             snapshot: formAggregateSnapshot,
             reset: formAggregateReset
         }
-    };
+    });
 
     /**
      * Gated auto-attach for the canonical inbound transport.
@@ -1798,7 +1808,7 @@
                 method: 'POST',
                 credentials: 'same-origin',
                 keepalive: true,
-                headers: headers
+                headers: withCsrf('POST', headers)
             }).catch(function () { /* best-effort; reconnect re-subscribes */ });
         } catch (postErr) { /* ignore */ }
     }
@@ -2083,3 +2093,18 @@
         maybeAutoOpenSse();
     }
 })();
+
+/*
+ * ESM surface — importable as 'platform-ui/events'. Same objects the
+ * window.SemitexaUi API exposes (the window surface stays until every
+ * consumer of the shared KISS manager imports this module instead).
+ */
+const __events = window.SemitexaUi;
+export const version = __events.version;
+export const scan = __events.scan;
+export const manifests = __events.manifests;
+export const onCapture = __events.onCapture;
+export const dispatch = __events.dispatch;
+export const transport = __events.transport;
+export const sse = __events.sse;
+export const forms = __events.forms;
