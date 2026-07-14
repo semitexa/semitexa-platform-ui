@@ -469,6 +469,38 @@ function useDismiss(root, { onDismiss, esc = true, outside = true } = {}) {
     return { activate, release };
 }
 
+/**
+ * Observe when an element enters/leaves the viewport (IntersectionObserver).
+ * Auto-disconnects when the given AbortSignal aborts. Powers scrollspy reveals
+ * and the sticky "stuck" sentinel. Degrades to an immediate onEnter when IO is
+ * unavailable.
+ */
+function useInView(el, { onEnter, onLeave, once = false, threshold = 0, rootMargin = '0px', signal } = {}) {
+    if (typeof IntersectionObserver === 'undefined') {
+        if (onEnter) onEnter(null);
+        return { destroy() {} };
+    }
+    const io = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+            if (e.isIntersecting) { if (onEnter) onEnter(e); if (once) io.disconnect(); }
+            else if (onLeave) onLeave(e);
+        }
+    }, { threshold, rootMargin });
+    io.observe(el);
+    if (signal) signal.addEventListener('abort', () => io.disconnect(), { once: true });
+    return { destroy() { io.disconnect(); } };
+}
+
+// Ref-counted body scroll lock — shared by modal/offcanvas so nested overlays
+// don't unlock the page prematurely.
+let scrollLockCount = 0;
+function useScrollLock() {
+    return {
+        lock() { if (scrollLockCount++ === 0) document.documentElement.style.overflow = 'hidden'; },
+        unlock() { if (scrollLockCount > 0 && --scrollLockCount === 0) document.documentElement.style.overflow = ''; },
+    };
+}
+
 // -----------------------------------------------------------------------------
 // Public API + boot.
 // -----------------------------------------------------------------------------
@@ -499,5 +531,7 @@ export {
     useFloating,
     useFocusTrap,
     useDismiss,
+    useInView,
+    useScrollLock,
 };
 export default api;

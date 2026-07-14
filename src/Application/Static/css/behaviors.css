@@ -108,3 +108,97 @@
     }
   }
 }
+
+/* --- F2 batch B: offcanvas, toast, sticky, scrollspy --- */
+@layer platform-ui.primitives {
+  /* Shared overlay backdrop (offcanvas; modal uses ::backdrop). */
+  .sx-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1090;
+    background: rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    transition: opacity var(--ui-motion-duration-fast, 120ms) ease;
+  }
+  .sx-backdrop.sx-open { opacity: 1; }
+
+  /* Offcanvas panel — slides from the inline start/end. */
+  [ui-behavior~="offcanvas"] {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    z-index: 1095;
+    width: min(20rem, 80vw);
+    padding: var(--ui-space-4, 1rem);
+    background: var(--ui-surface-panel, #fff);
+    color: var(--ui-text-primary, #16222e);
+    box-shadow: var(--ui-elevation-3, 0 16px 48px rgba(0, 0, 0, 0.24));
+    transition: transform var(--ui-motion-duration-base, 220ms) ease;
+    overflow: auto;
+  }
+  [ui-behavior~="offcanvas"][data-side="start"] { inset-inline-start: 0; transform: translateX(-100%); }
+  [ui-behavior~="offcanvas"][data-side="end"]   { inset-inline-end: 0;   transform: translateX(100%); }
+  [ui-behavior~="offcanvas"][data-side="end"]:dir(rtl) { transform: translateX(-100%); }
+  [ui-behavior~="offcanvas"].sx-open { transform: translateX(0); }
+
+  /* Toast region + toasts. */
+  .sx-toast-region {
+    position: fixed;
+    z-index: 1200;
+    display: flex;
+    flex-direction: column;
+    gap: var(--ui-space-2, 0.5rem);
+    padding: var(--ui-space-3, 0.75rem);
+    pointer-events: none;
+  }
+  .sx-toast-top-end    { top: 0; inset-inline-end: 0; }
+  .sx-toast-top-start  { top: 0; inset-inline-start: 0; }
+  .sx-toast-bottom-end   { bottom: 0; inset-inline-end: 0; flex-direction: column-reverse; }
+  .sx-toast-bottom-start { bottom: 0; inset-inline-start: 0; flex-direction: column-reverse; }
+  .sx-toast {
+    pointer-events: auto;
+    min-width: 12rem;
+    max-width: 22rem;
+    padding: var(--ui-space-2, 0.5rem) var(--ui-space-3, 0.75rem);
+    border-radius: var(--ui-radius-md, 0.5rem);
+    background: var(--ui-surface-panel, #fff);
+    color: var(--ui-text-primary, #16222e);
+    border-inline-start: 4px solid var(--ui-border-subtle, rgba(0, 0, 0, 0.1));
+    box-shadow: var(--ui-elevation-2, 0 8px 24px rgba(0, 0, 0, 0.12));
+    opacity: 0;
+    transform: translateY(-6px);
+    transition:
+      opacity var(--ui-motion-duration-fast, 120ms) ease,
+      transform var(--ui-motion-duration-fast, 120ms) ease;
+    cursor: pointer;
+  }
+  .sx-toast.sx-open { opacity: 1; transform: translateY(0); }
+  .sx-toast-status-success { border-inline-start-color: var(--ui-state-success, #2e9e4f); }
+  .sx-toast-status-warning { border-inline-start-color: var(--ui-state-warning, #d9a520); }
+  .sx-toast-status-danger  { border-inline-start-color: var(--ui-state-danger,  #c0392b); }
+  .sx-toast-status-info    { border-inline-start-color: var(--ui-accent-brand,  #1e7fb8); }
+
+  /* Sticky — style the stuck state. */
+  [ui-behavior~="sticky"].sx-stuck {
+    box-shadow: var(--ui-elevation-1, 0 2px 8px rgba(0, 0, 0, 0.12));
+    background: var(--ui-surface-panel, #fff);
+  }
+
+  /* Scrollspy — default reveal-on-enter. */
+  [ui-behavior~="scrollspy"] {
+    opacity: 0;
+    transform: translateY(12px);
+    transition:
+      opacity var(--ui-motion-duration-base, 220ms) ease,
+      transform var(--ui-motion-duration-base, 220ms) ease;
+  }
+  [ui-behavior~="scrollspy"].sx-inview { opacity: 1; transform: translateY(0); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sx-backdrop,
+    [ui-behavior~="offcanvas"],
+    .sx-toast,
+    [ui-behavior~="scrollspy"] { transition: none; }
+    [ui-behavior~="scrollspy"] { opacity: 1; transform: none; }
+  }
+}

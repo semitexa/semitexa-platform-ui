@@ -9,7 +9,11 @@ use PHPUnit\Framework\TestCase;
 use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\AccordionBehavior;
 use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\DropdownBehavior;
 use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\ModalBehavior;
+use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\OffcanvasBehavior;
+use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\ScrollspyBehavior;
+use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\StickyBehavior;
 use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\TabsBehavior;
+use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\ToastBehavior;
 use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\ToggleBehavior;
 use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\TooltipBehavior;
 use Semitexa\PlatformUi\Application\Service\Behavior\UiBehaviorMetadataFactory;
@@ -54,6 +58,30 @@ final class BuiltinBehaviorsTest extends TestCase
         // The a11y capability manifest the showcase will assert against.
         self::assertTrue($dropdown->declaresA11y('focus-trap'));
         self::assertTrue($dropdown->declaresA11y('esc-dismiss'));
+    }
+
+    #[Test]
+    public function f2b_behaviors_register_with_expected_identity(): void
+    {
+        $factory = new UiBehaviorMetadataFactory();
+        foreach ([OffcanvasBehavior::class, ToastBehavior::class, StickyBehavior::class, ScrollspyBehavior::class] as $class) {
+            UiBehaviorRegistry::register($factory->fromClass($class));
+        }
+
+        $offcanvas = UiBehaviorRegistry::getByUi('offcanvas');
+        self::assertNotNull($offcanvas);
+        self::assertTrue($offcanvas->declaresA11y('scroll-lock'));
+        self::assertContains('start', $offcanvas->option('side')?->values ?? []);
+
+        $toast = UiBehaviorRegistry::getByUi('toast');
+        self::assertNotNull($toast);
+        self::assertTrue($toast->declaresA11y('aria-live'));
+        self::assertNotNull($toast->option('timeout'));
+
+        self::assertNotNull(UiBehaviorRegistry::getByName('platform.sticky'));
+        $scrollspy = UiBehaviorRegistry::getByUi('scrollspy');
+        self::assertNotNull($scrollspy);
+        self::assertSame('sx-inview', $scrollspy->option('cls')?->default);
     }
 
     #[Test]

@@ -15,6 +15,8 @@ import {
     useFloating,
     useFocusTrap,
     useDismiss,
+    useInView,
+    useScrollLock,
 } from 'platform-ui/behaviors';
 
 // -----------------------------------------------------------------------------
@@ -275,5 +277,154 @@ registerBehavior({
             if (opts.bgClose) ctx.on(el, 'click', (e) => { if (e.target === el) close(); }); // backdrop
         }
         return { open, close, destroy() { unlock(); } };
+    },
+});
+
+// -----------------------------------------------------------------------------
+// offcanvas — slide-in side panel (trap + dismiss + scroll-lock + backdrop).
+// -----------------------------------------------------------------------------
+registerBehavior({
+    name: 'platform.offcanvas',
+    ui: 'offcanvas',
+    options: [
+        { name: 'side', type: 'enum', default: 'start', values: ['start', 'end'] },
+        { name: 'bgClose', type: 'bool', default: true },
+    ],
+    connect(el, opts, ctx) {
+        const focus = useFocusTrap(el, { returnTo: null });
+        const scroll = useScrollLock();
+        const dismiss = useDismiss(el, { onDismiss: () => close(), esc: true, outside: false });
+        let backdrop = null; let openState = false;
+        el.setAttribute('data-side', opts.side);
+        function open() {
+            if (openState) return; openState = true;
+            el.hidden = false;
+            backdrop = document.createElement('div');
+            backdrop.className = 'sx-backdrop';
+            document.body.appendChild(backdrop);
+            scroll.lock();
+            requestAnimationFrame(() => { el.classList.add('sx-open'); backdrop.classList.add('sx-open'); });
+            focus.activate();
+            dismiss.activate();
+            if (opts.bgClose) backdrop.addEventListener('click', () => close());
+            ctx.emit('open', {});
+        }
+        function close() {
+            if (!openState) return; openState = false;
+            el.classList.remove('sx-open');
+            if (backdrop) backdrop.classList.remove('sx-open');
+            focus.release();
+            dismiss.release();
+            setTimeout(() => {
+                el.hidden = true;
+                if (backdrop) { backdrop.remove(); backdrop = null; }
+                scroll.unlock();
+                ctx.emit('close', {});
+            }, 250);
+        }
+        const selfId = el.id ? '#' + el.id : null;
+        if (selfId) {
+            document.querySelectorAll('[ui-behavior-open]').forEach((t) => {
+                if (t.getAttribute('ui-behavior-open') === selfId) ctx.on(t, 'click', (e) => { e.preventDefault(); open(); });
+            });
+        }
+        ctx.qa('[ui-behavior-dismiss]').forEach((d) => ctx.on(d, 'click', (e) => { e.preventDefault(); close(); }));
+        return { open, close, destroy() { scroll.unlock(); if (backdrop) backdrop.remove(); focus.release(); } };
+    },
+});
+
+// -----------------------------------------------------------------------------
+// toast — transient corner notifications (programmatic API + declarative trigger).
+// -----------------------------------------------------------------------------
+function ensureToastRegion(pos) {
+    const id = 'sx-toast-region-' + pos;
+    let region = document.getElementById(id);
+    if (!region) {
+        region = document.createElement('div');
+        region.id = id;
+        region.className = 'sx-toast-region sx-toast-' + pos;
+        region.setAttribute('aria-live', 'polite');
+        region.setAttribute('role', 'status');
+        document.body.appendChild(region);
+    }
+    return region;
+}
+function showToast(message, o) {
+    o = o || {};
+    const region = ensureToastRegion(o.pos || 'top-end');
+    const t = document.createElement('div');
+    t.className = 'sx-toast sx-toast-status-' + (o.status || 'info');
+    t.textContent = message;
+    region.appendChild(t);
+    requestAnimationFrame(() => t.classList.add('sx-open'));
+    const remove = () => { t.classList.remove('sx-open'); setTimeout(() => { if (t.parentNode) t.remove(); }, 200); };
+    const timeout = (o.timeout == null) ? 4000 : o.timeout;
+    if (timeout > 0) setTimeout(remove, timeout);
+    t.addEventListener('click', remove);
+    return remove;
+}
+if (typeof window !== 'undefined') { window.SemitexaUi = window.SemitexaUi || {}; window.SemitexaUi.toast = showToast; }
+registerBehavior({
+    name: 'platform.toast',
+    ui: 'toast',
+    options: [
+        { name: 'message', type: 'string' },
+        { name: 'status', type: 'enum', default: 'info', values: ['info', 'success', 'warning', 'danger'] },
+        { name: 'pos', type: 'enum', default: 'top-end', values: ['top-end', 'top-start', 'bottom-end', 'bottom-start'] },
+        { name: 'timeout', type: 'number', default: 4000 },
+    ],
+    connect(el, opts, ctx) {
+        ctx.on(el, 'click', () => showToast(opts.message || (el.textContent || '').trim(), { status: opts.status, pos: opts.pos, timeout: opts.timeout }));
+        return {};
+    },
+});
+
+// -----------------------------------------------------------------------------
+// sticky — native position:sticky + a sentinel that toggles a `sx-stuck` class.
+// -----------------------------------------------------------------------------
+registerBehavior({
+    name: 'platform.sticky',
+    ui: 'sticky',
+    options: [{ name: 'offset', type: 'number', default: 0 }],
+    connect(el, opts, ctx) {
+        const offset = Number(opts.offset) || 0;
+        el.style.position = 'sticky';
+        el.style.top = offset + 'px';
+        const sentinel = document.createElement('div');
+        sentinel.setAttribute('aria-hidden', 'true');
+        sentinel.style.cssText = 'position:absolute;height:1px;width:1px;visibility:hidden;pointer-events:none;';
+        if (el.parentNode) el.parentNode.insertBefore(sentinel, el);
+        const view = useInView(sentinel, {
+            threshold: 0,
+            rootMargin: (-offset) + 'px 0px 0px 0px',
+            onEnter: () => el.classList.remove('sx-stuck'),
+            onLeave: () => el.classList.add('sx-stuck'),
+            signal: ctx.signal,
+        });
+        return { destroy() { view.destroy(); if (sentinel.parentNode) sentinel.remove(); el.classList.remove('sx-stuck'); } };
+    },
+});
+
+// -----------------------------------------------------------------------------
+// scrollspy — add a class when the element scrolls into view (reveal-on-enter).
+// -----------------------------------------------------------------------------
+registerBehavior({
+    name: 'platform.scrollspy',
+    ui: 'scrollspy',
+    options: [
+        { name: 'cls', type: 'string', default: 'sx-inview' },
+        { name: 'repeat', type: 'bool', default: false },
+        { name: 'threshold', type: 'number', default: 0 },
+    ],
+    connect(el, opts, ctx) {
+        const cls = opts.cls || 'sx-inview';
+        const view = useInView(el, {
+            threshold: Number(opts.threshold) || 0,
+            once: !opts.repeat,
+            onEnter: () => { el.classList.add(cls); ctx.emit('inview', {}); },
+            onLeave: opts.repeat ? () => el.classList.remove(cls) : undefined,
+            signal: ctx.signal,
+        });
+        return { destroy() { view.destroy(); } };
     },
 });
