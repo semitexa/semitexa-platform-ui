@@ -1,0 +1,37 @@
+{#
+ # platform.table — data-driven table. No events.
+ #
+ # Props: columns (list of { key, label?, align? }), rows (list of assoc
+ # arrays keyed by column key), caption (optional string).
+ # Slots: toolbar (above the table), empty (shown when rows is empty).
+ #}
+{%- set _columns = columns|default([]) -%}
+{%- set _rows = rows|default([]) -%}
+{%- set _toolbar = slot('toolbar')|trim -%}
+{%- set _empty = slot('empty')|trim -%}
+<div data-ui-component="platform.table" ui-component="table">
+{%- if _toolbar %}<div ui-table="toolbar">{{ _toolbar|raw }}</div>{% endif -%}
+    <table ui-table="grid">
+        {%- if caption|default(null) %}<caption>{{ caption }}</caption>{% endif -%}
+        <thead>
+            <tr>
+                {%- for col in _columns -%}
+                    <th scope="col"{% if col.align|default(null) %} ui-align="{{ col.align }}"{% endif %}>{{ col.label|default(col.key) }}</th>
+                {%- endfor -%}
+            </tr>
+        </thead>
+        <tbody>
+            {%- if _rows is empty and _empty -%}
+                <tr><td ui-table="empty" colspan="{{ _columns|length }}">{{ _empty|raw }}</td></tr>
+            {%- else -%}
+                {%- for row in _rows -%}
+                    <tr>
+                        {%- for col in _columns -%}
+                            <td{% if col.align|default(null) %} ui-align="{{ col.align }}"{% endif %}>{{ row[col.key]|default('') }}</td>
+                        {%- endfor -%}
+                    </tr>
+                {%- endfor -%}
+            {%- endif -%}
+        </tbody>
+    </table>
+</div>

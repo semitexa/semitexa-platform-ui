@@ -1,0 +1,53 @@
+{#
+ # platform.pagination — windowed page navigation. No events.
+ #
+ # Props: current, total (page counts), hrefTemplate (URL with a `{page}`
+ # placeholder), window (links each side of current, default 1), ariaLabel.
+ # Slot: summary (leading text such as a result count).
+ #}
+{%- set _current = current|default(1) -%}
+{%- set _total = total|default(1) -%}
+{%- set _tpl = hrefTemplate|default('#') -%}
+{%- set _window = window|default(1) -%}
+{%- set _label = ariaLabel|default('Pagination') -%}
+{%- set _summary = slot('summary')|trim -%}
+{#- Visible page numbers: first, last, and a window around current. -#}
+{%- set _pages = [] -%}
+{%- for p in 1.._total -%}
+    {%- if p == 1 or p == _total or (p >= _current - _window and p <= _current + _window) -%}
+        {%- set _pages = _pages|merge([p]) -%}
+    {%- endif -%}
+{%- endfor -%}
+<nav data-ui-component="platform.pagination" ui-component="pagination" aria-label="{{ _label }}">
+{%- if _summary %}<div ui-pagination="summary">{{ _summary|raw }}</div>{% endif -%}
+    <ul ui-pagination="pages">
+        <li>
+            {%- if _current > 1 -%}
+                <a href="{{ _tpl|replace({'{page}': _current - 1}) }}" ui-pagination="prev" rel="prev" aria-label="Previous page">&lsaquo;</a>
+            {%- else -%}
+                <span ui-pagination="prev" aria-disabled="true">&lsaquo;</span>
+            {%- endif -%}
+        </li>
+        {%- set _prev = 0 -%}
+        {%- for p in _pages -%}
+            {%- if p - _prev > 1 -%}
+                <li><span ui-pagination="gap" aria-hidden="true">&hellip;</span></li>
+            {%- endif -%}
+            <li>
+                {%- if p == _current -%}
+                    <span ui-pagination="page" aria-current="page">{{ p }}</span>
+                {%- else -%}
+                    <a href="{{ _tpl|replace({'{page}': p}) }}" ui-pagination="page">{{ p }}</a>
+                {%- endif -%}
+            </li>
+            {%- set _prev = p -%}
+        {%- endfor -%}
+        <li>
+            {%- if _current < _total -%}
+                <a href="{{ _tpl|replace({'{page}': _current + 1}) }}" ui-pagination="next" rel="next" aria-label="Next page">&rsaquo;</a>
+            {%- else -%}
+                <span ui-pagination="next" aria-disabled="true">&rsaquo;</span>
+            {%- endif -%}
+        </li>
+    </ul>
+</nav>
