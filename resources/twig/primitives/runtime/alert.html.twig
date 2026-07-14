@@ -1,0 +1,11 @@
+{%- set _tone = tone|default('info') -%}
+{%- set _defaultIcon = {'info': 'info', 'success': 'check-circle', 'warning': 'alert-triangle', 'danger': 'alert-circle'}[_tone]|default('info') -%}
+{%- set _iconName = icon|default(_defaultIcon) -%}
+{%- set _role = role|default((_tone == 'danger' or _tone == 'warning') ? 'alert' : 'status') -%}
+<div ui="{{ _primitive.ui }}" data-ui-primitive="{{ _primitive.name }}"
+{%- if tone|default(null) %} ui-tone="{{ tone }}"{% endif %} role="{{ _role }}">
+{%- if _iconName %}{{ icon(_iconName) }}{% endif -%}
+<div data-alert-body>
+{%- if title|default(null) %}<div data-alert-title>{{ title }}</div>{% endif -%}
+{{ text|default('') }}</div>
+</div>

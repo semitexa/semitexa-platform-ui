@@ -1,0 +1,8 @@
+{# @platform-ui/avatar — circular user indicator (image or initials) #}
+{% macro render(initials, options = {}) %}
+    {%- set size = options.size|default(null) -%}
+    {%- set src = options.src|default(null) -%}
+<span ui="avatar"{% if size %} ui-size="{{ size }}"{% endif %}
+    {%- if options.label|default(null) %} role="img" aria-label="{{ options.label }}"{% else %} aria-hidden="true"{% endif -%}
+>{% if src %}<img src="{{ src }}" alt="{{ options.alt|default('') }}">{% else %}{{ initials }}{% endif %}</span>
+{% endmacro %}

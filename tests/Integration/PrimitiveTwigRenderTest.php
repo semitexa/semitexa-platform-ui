@@ -6,15 +6,21 @@ namespace Semitexa\PlatformUi\Tests\Integration;
 
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Semitexa\PlatformUi\Application\Service\Icon\IconRegistry;
+use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\AlertPrimitive;
+use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\AvatarPrimitive;
 use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\BadgePrimitive;
 use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\ButtonPrimitive;
 use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\InputPrimitive;
+use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\SpinnerPrimitive;
 use Semitexa\PlatformUi\Application\Service\Primitive\PrimitiveRenderer;
 use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveMetadataFactory;
 use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveRegistry;
 use Semitexa\Ssr\Application\Service\Asset\AssetCollectorStore;
 use Twig\Environment as TwigEnvironment;
 use Twig\Loader\FilesystemLoader;
+use Twig\Markup;
+use Twig\TwigFunction;
 
 /**
  * Drives PrimitiveRenderer through a real Twig environment loaded against
@@ -38,6 +44,14 @@ final class PrimitiveTwigRenderTest extends TestCase
             'strict_variables' => false,
             'autoescape' => 'html',
         ]);
+
+        // Mirror the production wiring: the same extension that registers
+        // primitive() also registers icon(), which the alert runtime template uses.
+        $this->twig->addFunction(new TwigFunction(
+            'icon',
+            static fn (string $name, array $opts = []): Markup => new Markup(IconRegistry::render($name, $opts), 'UTF-8'),
+            ['is_safe' => ['html']],
+        ));
     }
 
     protected function tearDown(): void
@@ -198,6 +212,80 @@ final class PrimitiveTwigRenderTest extends TestCase
         self::assertStringContainsString('ui-tone="success"', $html);
         self::assertStringContainsString('ui-variant="soft"', $html);
         self::assertStringContainsString('Active', $html);
+    }
+
+    #[Test]
+    public function alert_template_renders_tone_role_and_auto_icon(): void
+    {
+        $factory = new UiPrimitiveMetadataFactory();
+        UiPrimitiveRegistry::register($factory->fromClass(AlertPrimitive::class));
+
+        $html = $this->renderer()->render('alert', [
+            'tone' => 'danger',
+            'title' => 'Payment failed',
+            'text' => 'Your card was declined.',
+        ]);
+
+        self::assertStringContainsString('ui="alert"', $html);
+        self::assertStringContainsString('data-ui-primitive="platform.alert"', $html);
+        self::assertStringContainsString('ui-tone="danger"', $html);
+        self::assertStringContainsString('role="alert"', $html); // danger => assertive
+        self::assertStringContainsString('<div data-alert-title>Payment failed</div>', $html);
+        self::assertStringContainsString('Your card was declined.', $html);
+        // auto-icon for danger is alert-circle, rendered inline as an sx-icon
+        self::assertStringContainsString('class="sx-icon"', $html);
+    }
+
+    #[Test]
+    public function alert_template_info_tone_is_polite_status(): void
+    {
+        $factory = new UiPrimitiveMetadataFactory();
+        UiPrimitiveRegistry::register($factory->fromClass(AlertPrimitive::class));
+
+        $html = $this->renderer()->render('alert', ['text' => 'Heads up.']);
+
+        self::assertStringContainsString('role="status"', $html); // info default => polite
+        self::assertStringNotContainsString('ui-tone=', $html); // no tone attr when default
+    }
+
+    #[Test]
+    public function avatar_template_renders_initials_or_image(): void
+    {
+        $factory = new UiPrimitiveMetadataFactory();
+        UiPrimitiveRegistry::register($factory->fromClass(AvatarPrimitive::class));
+
+        $initials = $this->renderer()->render('avatar', [
+            'initials' => 'TG',
+            'size' => 'lg',
+            'label' => 'Taras G',
+        ]);
+        self::assertStringContainsString('ui="avatar"', $initials);
+        self::assertStringContainsString('data-ui-primitive="platform.avatar"', $initials);
+        self::assertStringContainsString('ui-size="lg"', $initials);
+        self::assertStringContainsString('role="img"', $initials);
+        self::assertStringContainsString('aria-label="Taras G"', $initials);
+        self::assertStringContainsString('TG', $initials);
+        self::assertStringNotContainsString('<img', $initials);
+
+        $image = $this->renderer()->render('avatar', ['src' => '/u/1.png', 'alt' => 'Photo']);
+        self::assertStringContainsString('<img src="/u/1.png" alt="Photo">', $image);
+        self::assertStringContainsString('aria-hidden="true"', $image);
+    }
+
+    #[Test]
+    public function spinner_template_renders_status_role_and_size(): void
+    {
+        $factory = new UiPrimitiveMetadataFactory();
+        UiPrimitiveRegistry::register($factory->fromClass(SpinnerPrimitive::class));
+
+        $html = $this->renderer()->render('spinner', ['size' => 'lg', 'tone' => 'neutral']);
+
+        self::assertStringContainsString('ui="spinner"', $html);
+        self::assertStringContainsString('data-ui-primitive="platform.spinner"', $html);
+        self::assertStringContainsString('ui-size="lg"', $html);
+        self::assertStringContainsString('ui-tone="neutral"', $html);
+        self::assertStringContainsString('role="status"', $html);
+        self::assertStringContainsString('aria-label="Loading"', $html);
     }
 
     #[Test]

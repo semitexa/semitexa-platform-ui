@@ -1,0 +1,31 @@
+@layer platform-ui.primitives {
+    [ui="avatar"] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: var(--sx-avatar-size, 2.5rem);
+        height: var(--sx-avatar-size, 2.5rem);
+        border-radius: var(--ui-radius-pill, 9999px);
+        background: var(--ui-surface-panel);
+        color: var(--ui-text-primary);
+        border: 1px solid var(--ui-border-subtle);
+        font-size: calc(var(--sx-avatar-size, 2.5rem) * 0.4);
+        font-weight: 600;
+        line-height: 1;
+        overflow: hidden;
+        user-select: none;
+        flex-shrink: 0;
+        vertical-align: middle;
+    }
+
+    [ui="avatar"] img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    [ui="avatar"][ui-size="sm"] { --sx-avatar-size: 1.75rem; }
+    [ui="avatar"][ui-size="lg"] { --sx-avatar-size: 3.5rem; }
+    [ui="avatar"][ui-size="xl"] { --sx-avatar-size: 5rem; }
+}

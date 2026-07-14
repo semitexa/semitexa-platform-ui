@@ -1,0 +1,4 @@
+<span ui="{{ _primitive.ui }}" data-ui-primitive="{{ _primitive.name }}"
+{%- if size|default(null) %} ui-size="{{ size }}"{% endif -%}
+{%- if label|default(null) %} role="img" aria-label="{{ label }}"{% else %} aria-hidden="true"{% endif -%}
+>{% if src|default(null) %}<img src="{{ src }}" alt="{{ alt|default('') }}">{% else %}{{ initials|default(text|default('')) }}{% endif %}</span>
