@@ -115,6 +115,11 @@
             "scope": "global",
             "position": "head",
             "priority": 44
+        },
+        "css/components.css": {
+            "scope": "global",
+            "position": "head",
+            "priority": 45
         }
     }
 }
