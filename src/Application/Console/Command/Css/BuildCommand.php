@@ -138,6 +138,17 @@ final class BuildCommand extends Command
 
     private function packageRoot(): string
     {
-        return dirname((new ReflectionClass($this))->getFileName(), 4);
+        // Walk up from this file until the package composer.json — robust to the
+        // command's nesting depth (it lives under src/Application/Console/Command/Css/).
+        $dir = dirname((string) (new ReflectionClass($this))->getFileName());
+        while ($dir !== dirname($dir)) {
+            if (is_file($dir . '/composer.json')) {
+                return $dir;
+            }
+            $dir = dirname($dir);
+        }
+
+        // Fallback: src/Application/Console/Command/Css → package root is 6 up.
+        return dirname((string) (new ReflectionClass($this))->getFileName(), 6);
     }
 }

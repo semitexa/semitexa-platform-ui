@@ -104,6 +104,15 @@ final class InspectCommand extends Command
 
     private function packageRoot(): string
     {
-        return dirname((new ReflectionClass($this))->getFileName(), 4);
+        // Walk up to the package composer.json — robust to command nesting depth.
+        $dir = dirname((string) (new ReflectionClass($this))->getFileName());
+        while ($dir !== dirname($dir)) {
+            if (is_file($dir . '/composer.json')) {
+                return $dir;
+            }
+            $dir = dirname($dir);
+        }
+
+        return dirname((string) (new ReflectionClass($this))->getFileName(), 6);
     }
 }
