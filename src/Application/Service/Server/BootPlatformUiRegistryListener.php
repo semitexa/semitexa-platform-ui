@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Server;
 
 use Semitexa\Core\Attribute\AsServerLifecycleListener;
+use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Discovery\ClassDiscovery;
 use Semitexa\Core\Server\Lifecycle\ServerLifecycleContext;
 use Semitexa\Core\Server\Lifecycle\ServerLifecycleListenerInterface;
 use Semitexa\Core\Server\Lifecycle\ServerLifecyclePhase;
+use Semitexa\PlatformUi\Application\Service\Behavior\UiBehaviorMetadataFactory;
+use Semitexa\PlatformUi\Application\Service\Behavior\UiBehaviorRegistry;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentMetadataFactory;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
 use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveMetadataFactory;
@@ -37,17 +40,32 @@ use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistryInterf
 )]
 final class BootPlatformUiRegistryListener implements ServerLifecycleListenerInterface
 {
-    public function __construct(
-        private readonly ClassDiscovery $classDiscovery,
-        private readonly UiFieldRuleRegistryInterface $fieldRuleRegistry,
-        private readonly UiFormSubmitActionRegistryInterface $formSubmitActionRegistry,
-        private readonly UiFormSubmitActionAuthorizerInterface $formSubmitActionAuthorizer,
-        private readonly UiFormSubmitSecurityPolicyInterface $formSubmitSecurityPolicy,
-        private readonly UiFormSubmitCsrfTokenStoreInterface $formSubmitCsrfTokenStore,
-        private readonly UiFormDemoSubmissionRepositoryInterface $formDemoSubmissionRepository,
-        private readonly UiFormDatabaseDemoSubmissionRepositoryInterface $formDatabaseDemoSubmissionRepository,
-        private readonly UiDemoSubmissionAdminAuthorizerInterface $demoSubmissionAdminAuthorizer,
-    ) {}
+    #[InjectAsReadonly]
+    protected ClassDiscovery $classDiscovery;
+
+    #[InjectAsReadonly]
+    protected UiFieldRuleRegistryInterface $fieldRuleRegistry;
+
+    #[InjectAsReadonly]
+    protected UiFormSubmitActionRegistryInterface $formSubmitActionRegistry;
+
+    #[InjectAsReadonly]
+    protected UiFormSubmitActionAuthorizerInterface $formSubmitActionAuthorizer;
+
+    #[InjectAsReadonly]
+    protected UiFormSubmitSecurityPolicyInterface $formSubmitSecurityPolicy;
+
+    #[InjectAsReadonly]
+    protected UiFormSubmitCsrfTokenStoreInterface $formSubmitCsrfTokenStore;
+
+    #[InjectAsReadonly]
+    protected UiFormDemoSubmissionRepositoryInterface $formDemoSubmissionRepository;
+
+    #[InjectAsReadonly]
+    protected UiFormDatabaseDemoSubmissionRepositoryInterface $formDatabaseDemoSubmissionRepository;
+
+    #[InjectAsReadonly]
+    protected UiDemoSubmissionAdminAuthorizerInterface $demoSubmissionAdminAuthorizer;
 
     public function handle(ServerLifecycleContext $context): void
     {
@@ -58,6 +76,13 @@ final class BootPlatformUiRegistryListener implements ServerLifecycleListenerInt
         UiComponentRegistry::setClassDiscovery($this->classDiscovery);
         UiComponentRegistry::setFactory(new UiComponentMetadataFactory());
         UiComponentRegistry::initialize();
+
+        // Third tier: client-only behaviors (#[AsUiBehavior]). Same discovery
+        // seam as primitives/components — dropping in an attributed class is the
+        // whole registration step.
+        UiBehaviorRegistry::setClassDiscovery($this->classDiscovery);
+        UiBehaviorRegistry::setFactory(new UiBehaviorMetadataFactory());
+        UiBehaviorRegistry::initialize();
 
         // Stash the container-bound rule registry so the
         // `ui_field_rules` Twig helper (instantiated via reflection
