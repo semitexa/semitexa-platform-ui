@@ -1,0 +1,110 @@
+/*
+ * Semitexa Platform UI — behavior interaction styles.
+ *
+ * Presentation for the client-only behavior tier (toggle, dropdown). Structure
+ * and positioning come from the ESM runtime; this file owns only the visual
+ * open/closed states and the floating-panel surface. Token-first: every value
+ * is a `var(--ui-*)` (elevation/motion tokens land in tk-ui-tokens; fallbacks
+ * keep it correct until then). Lives in @layer platform-ui.primitives so skin
+ * tokens (loaded later) still win.
+ */
+@layer platform-ui.primitives {
+  /* The floating panel of a dropdown. `hidden` is the closed state (UA display:none);
+     the runtime removes it, then toggles `sx-open` for the animated reveal. */
+  [ui-behavior~="dropdown"] > [ui-behavior-content] {
+    position: fixed;
+    z-index: 1000;
+    min-width: 10rem;
+    padding: var(--ui-space-1, 0.25rem);
+    background: var(--ui-surface-panel, #fff);
+    color: var(--ui-text-primary, #16222e);
+    border: 1px solid var(--ui-border-subtle, rgba(0, 0, 0, 0.1));
+    border-radius: var(--ui-radius-md, 0.5rem);
+    box-shadow: var(--ui-elevation-2, 0 8px 24px rgba(0, 0, 0, 0.12));
+    opacity: 0;
+    transform: translateY(-4px);
+    transition:
+      opacity var(--ui-motion-duration-fast, 120ms) ease,
+      transform var(--ui-motion-duration-fast, 120ms) ease;
+  }
+
+  [ui-behavior~="dropdown"] > [ui-behavior-content].sx-open {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* Menu items inside a dropdown panel. */
+  [ui-behavior~="dropdown"] [ui-behavior-item] {
+    display: block;
+    width: 100%;
+    padding: var(--ui-space-2, 0.5rem) var(--ui-space-3, 0.75rem);
+    border-radius: var(--ui-radius-sm, 0.375rem);
+    color: inherit;
+    text-align: start;
+    text-decoration: none;
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+
+  [ui-behavior~="dropdown"] [ui-behavior-item]:hover,
+  [ui-behavior~="dropdown"] [ui-behavior-item]:focus-visible {
+    background: color-mix(in oklab, var(--ui-accent-brand, #1e7fb8) 12%, transparent);
+    outline: none;
+  }
+
+  /* Generic toggle target: animate the open state when it is a fade/collapse. */
+  [ui-behavior~="toggle"] + [hidden] {
+    display: none;
+  }
+
+  /* Tooltip — floating label. */
+  [role="tooltip"] {
+    position: fixed;
+    z-index: 1100;
+    max-width: 18rem;
+    padding: var(--ui-space-1, 0.25rem) var(--ui-space-2, 0.5rem);
+    font-size: 0.8125rem;
+    background: var(--ui-surface-inverse, #1f2933);
+    color: var(--ui-text-on-inverse, #fff);
+    border-radius: var(--ui-radius-sm, 0.375rem);
+    box-shadow: var(--ui-elevation-1, 0 2px 8px rgba(0, 0, 0, 0.18));
+    opacity: 0;
+    transition: opacity var(--ui-motion-duration-fast, 120ms) ease;
+    pointer-events: none;
+  }
+  [role="tooltip"].sx-open { opacity: 1; }
+
+  /* Accordion — collapse the section body. */
+  [ui-behavior~="accordion"] [ui-behavior-content] {
+    overflow: hidden;
+  }
+
+  /* Modal — native <dialog> surface + animated backdrop. */
+  dialog[ui-behavior~="modal"] {
+    padding: 0;
+    border: 0;
+    border-radius: var(--ui-radius-lg, 0.75rem);
+    background: var(--ui-surface-panel, #fff);
+    color: var(--ui-text-primary, #16222e);
+    box-shadow: var(--ui-elevation-3, 0 16px 48px rgba(0, 0, 0, 0.24));
+    opacity: 0;
+    transform: scale(0.97);
+    transition:
+      opacity var(--ui-motion-duration-fast, 120ms) ease,
+      transform var(--ui-motion-duration-fast, 120ms) ease;
+  }
+  dialog[ui-behavior~="modal"].sx-open { opacity: 1; transform: scale(1); }
+  dialog[ui-behavior~="modal"] > [ui-behavior-content] { padding: var(--ui-space-4, 1rem); }
+  dialog[ui-behavior~="modal"]::backdrop {
+    background: rgba(0, 0, 0, 0.4);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [ui-behavior~="dropdown"] > [ui-behavior-content],
+    [role="tooltip"],
+    dialog[ui-behavior~="modal"] {
+      transition: none;
+    }
+  }
+}

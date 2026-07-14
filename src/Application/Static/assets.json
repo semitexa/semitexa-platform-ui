@@ -48,6 +48,28 @@
             },
             "specifier": "platform-ui/events"
         },
+        "js/behavior-runtime.js": {
+            "scope": "global",
+            "position": "body",
+            "priority": 61,
+            "attributes": {
+                "type": "module"
+            },
+            "specifier": "platform-ui/behaviors"
+        },
+        "js/behavior-builtin.js": {
+            "scope": "global",
+            "position": "body",
+            "priority": 62,
+            "attributes": {
+                "type": "module"
+            }
+        },
+        "css/behaviors.css": {
+            "scope": "global",
+            "position": "head",
+            "priority": 43
+        },
         "js/grid-runtime-v2.js": {
             "scope": "global",
             "position": "body",
