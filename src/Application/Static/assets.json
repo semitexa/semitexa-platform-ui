@@ -110,6 +110,11 @@
             "attributes": {
                 "type": "module"
             }
+        },
+        "css/icons.css": {
+            "scope": "global",
+            "position": "head",
+            "priority": 44
         }
     }
 }

@@ -6,6 +6,7 @@ namespace Semitexa\PlatformUi\Application\Service\Twig;
 
 use Semitexa\PlatformUi\Application\Service\Collaboration\CollabManifestBuilder;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
+use Semitexa\PlatformUi\Application\Service\Icon\IconRegistry;
 use Semitexa\PlatformUi\Application\Service\Component\UiPartPropResolver;
 use Semitexa\PlatformUi\Application\Service\Event\PlatformUiAuthState;
 use Semitexa\PlatformUi\Application\Service\Event\PlatformUiSseSessionState;
@@ -35,6 +36,22 @@ final class PlatformUiTwigExtension
             static function (string $name, array $props = []): Markup {
                 $renderer = new PrimitiveRenderer();
                 return new Markup($renderer->render($name, $props), 'UTF-8');
+            },
+            ['is_safe' => ['html']],
+        );
+
+        /**
+         * icon(name, opts = [])
+         *
+         * Emit an inline, currentColor SVG from the SX icon registry (Lucide-style).
+         * SSR-first — no client hydration, no HTTP request. opts: size (px int or
+         * CSS length), class, label (accessible image; omitted => decorative),
+         * strokeWidth. Unknown names render nothing.
+         */
+        TwigExtensionRegistry::registerFunction(
+            'icon',
+            static function (string $name, array $opts = []): Markup {
+                return new Markup(IconRegistry::render($name, $opts), 'UTF-8');
             },
             ['is_safe' => ['html']],
         );
