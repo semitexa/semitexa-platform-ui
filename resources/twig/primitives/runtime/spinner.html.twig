@@ -1,0 +1,3 @@
+<span ui="{{ _primitive.ui }}" data-ui-primitive="{{ _primitive.name }}"
+{%- if size|default(null) %} ui-size="{{ size }}"{% endif -%}
+{%- if tone|default(null) %} ui-tone="{{ tone }}"{% endif %} role="status" aria-label="{{ label|default('Loading') }}"></span>

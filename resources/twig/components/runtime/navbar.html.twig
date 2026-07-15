@@ -1,0 +1,27 @@
+{#
+ # platform.navbar — brand + data-driven links + actions. No events.
+ #
+ # Props: items (list of { label, href?, current? }), ariaLabel (default "Main").
+ # Slots: brand, actions.
+ #}
+{%- set _items = items|default([]) -%}
+{%- set _label = ariaLabel|default('Main') -%}
+{%- set _brand = slot('brand')|trim -%}
+{%- set _actions = slot('actions')|trim -%}
+<nav data-ui-component="platform.navbar" ui-component="navbar" aria-label="{{ _label }}">
+{%- if _brand %}<div ui-navbar="brand">{{ _brand|raw }}</div>{% endif -%}
+{%- if _items is not empty %}
+    <ul ui-navbar="items">
+        {%- for item in _items -%}
+            <li ui-navbar="item">
+                {%- if item.href|default(null) -%}
+                    <a href="{{ item.href }}"{% if item.current|default(false) %} aria-current="page"{% endif %}>{{ item.label }}</a>
+                {%- else -%}
+                    <span{% if item.current|default(false) %} aria-current="page"{% endif %}>{{ item.label }}</span>
+                {%- endif -%}
+            </li>
+        {%- endfor -%}
+    </ul>
+{%- endif -%}
+{%- if _actions %}<div ui-navbar="actions">{{ _actions|raw }}</div>{% endif -%}
+</nav>

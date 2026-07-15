@@ -79,6 +79,25 @@ final class PrimitiveRegistry
                 variants: ['solid', 'soft'],
                 tones: ['neutral', 'brand', 'success', 'warning', 'danger'],
             ),
+            new Primitive(
+                id: 'alert',
+                cssPath: $base . '/primitives/alert.css',
+                twigPath: $base . '/twig/primitives/alert.twig',
+                tones: ['info', 'success', 'warning', 'danger'],
+            ),
+            new Primitive(
+                id: 'avatar',
+                cssPath: $base . '/primitives/avatar.css',
+                twigPath: $base . '/twig/primitives/avatar.twig',
+                sizes: ['sm', 'md', 'lg', 'xl'],
+            ),
+            new Primitive(
+                id: 'spinner',
+                cssPath: $base . '/primitives/spinner.css',
+                twigPath: $base . '/twig/primitives/spinner.twig',
+                tones: ['brand', 'neutral'],
+                sizes: ['sm', 'md', 'lg'],
+            ),
         ];
     }
 }

@@ -1,0 +1,17 @@
+/*
+ * SX icons — inline currentColor SVGs (Lucide-style). The <svg> carries its own
+ * width/height; this only fixes alignment + provides a spin utility for loaders.
+ */
+@layer platform-ui.primitives {
+  .sx-icon {
+    display: inline-block;
+    vertical-align: middle;
+    flex-shrink: 0;
+    line-height: 0;
+  }
+  .sx-icon-spin { animation: sx-icon-spin 0.9s linear infinite; }
+  @keyframes sx-icon-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .sx-icon-spin { animation-duration: 2s; }
+  }
+}

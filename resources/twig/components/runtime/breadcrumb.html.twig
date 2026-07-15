@@ -1,0 +1,27 @@
+{#
+ # platform.breadcrumb — data-driven navigation trail. No slots, no events.
+ #
+ # Props:
+ #   items     — list of { label, href? } in order; the last is the current
+ #               page (aria-current="page", never linked).
+ #   ariaLabel — accessible name for the <nav> (default "Breadcrumb").
+ # Slot:
+ #   trailing  — optional inline actions rendered after the trail.
+ #}
+{%- set _items = items|default([]) -%}
+{%- set _label = ariaLabel|default('Breadcrumb') -%}
+{%- set _trailing = slot('trailing')|trim -%}
+<nav data-ui-component="platform.breadcrumb" ui-component="breadcrumb" aria-label="{{ _label }}">
+    <ol ui-crumbs>
+        {%- for item in _items -%}
+            <li ui-crumb>
+                {%- if item.href|default(null) and not loop.last -%}
+                    <a href="{{ item.href }}">{{ item.label }}</a>
+                {%- else -%}
+                    <span{% if loop.last %} aria-current="page"{% endif %}>{{ item.label }}</span>
+                {%- endif -%}
+            </li>
+        {%- endfor -%}
+    </ol>
+    {%- if _trailing %}<div ui-crumbs-trailing>{{ _trailing|raw }}</div>{% endif -%}
+</nav>

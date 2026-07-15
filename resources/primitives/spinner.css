@@ -1,0 +1,26 @@
+@layer platform-ui.primitives {
+    [ui="spinner"] {
+        display: inline-block;
+        width: var(--sx-spinner-size, 1.25rem);
+        height: var(--sx-spinner-size, 1.25rem);
+        border: var(--sx-spinner-weight, 2px) solid var(--ui-border-subtle);
+        border-top-color: var(--ui-accent-brand);
+        border-radius: var(--ui-radius-pill, 9999px);
+        vertical-align: middle;
+        flex-shrink: 0;
+        animation: sx-spinner-spin var(--ui-motion-duration-slow, 720ms) linear infinite;
+    }
+
+    [ui="spinner"][ui-size="sm"] { --sx-spinner-size: 0.875rem; --sx-spinner-weight: 2px; }
+    [ui="spinner"][ui-size="lg"] { --sx-spinner-size: 2rem; --sx-spinner-weight: 3px; }
+
+    [ui="spinner"][ui-tone="neutral"] { border-top-color: var(--ui-text-muted); }
+
+    @media (prefers-reduced-motion: reduce) {
+        [ui="spinner"] { animation-duration: 1600ms; }
+    }
+
+    @keyframes sx-spinner-spin {
+        to { transform: rotate(360deg); }
+    }
+}

@@ -1,0 +1,385 @@
+/*
+ * Platform UI composed components — token-first, skin-neutral.
+ * Kept in @layer platform-ui.primitives so component rules sit at the same
+ * cascade level as primitives and stay overridable by app CSS outside the
+ * layer. Values come exclusively from --ui-* tokens (fallbacks are neutral).
+ */
+@layer platform-ui.primitives {
+    /* ---- platform.card ---------------------------------------------- */
+    [ui-component="card"] {
+        display: flex;
+        flex-direction: column;
+        background: var(--ui-surface-panel);
+        color: var(--ui-text-primary);
+        border-radius: var(--ui-radius-lg, 0.75rem);
+        overflow: hidden;
+    }
+
+    [ui-component="card"]:where(:not([ui-variant]), [ui-variant="elevated"]) {
+        border: 1px solid var(--ui-border-subtle);
+        box-shadow: var(--ui-shadow-md, 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 6px rgba(0, 0, 0, 0.08));
+    }
+    [ui-component="card"][ui-variant="outlined"] {
+        border: 1px solid var(--ui-border-subtle);
+    }
+    [ui-component="card"][ui-variant="plain"] {
+        background: transparent;
+    }
+
+    [ui-component="card"] [ui-card="media"] {
+        line-height: 0;
+    }
+    [ui-component="card"] [ui-card="media"] img,
+    [ui-component="card"] [ui-card="media"] video {
+        display: block;
+        width: 100%;
+        height: auto;
+    }
+
+    [ui-component="card"] [ui-card="header"] {
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid var(--ui-border-subtle);
+    }
+    [ui-component="card"] [ui-card="title"] {
+        font-weight: 600;
+        font-size: 1.0625rem;
+        line-height: 1.35;
+    }
+    [ui-component="card"] [ui-card="subtitle"] {
+        color: var(--ui-text-muted);
+        font-size: 0.875rem;
+        margin-top: 0.125rem;
+    }
+
+    [ui-component="card"] [ui-card="body"] {
+        padding: 1.25rem;
+        flex: 1 1 auto;
+    }
+
+    [ui-component="card"] [ui-card="footer"] {
+        padding: 0.875rem 1.25rem;
+        border-top: 1px solid var(--ui-border-subtle);
+    }
+
+    /* When header is the first visible block, drop its top rounding seam. */
+    [ui-component="card"][ui-variant="plain"] [ui-card="header"],
+    [ui-component="card"][ui-variant="plain"] [ui-card="footer"] {
+        padding-left: 0;
+        padding-right: 0;
+    }
+
+    /* ---- platform.breadcrumb ---------------------------------------- */
+    [ui-component="breadcrumb"] {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    [ui-component="breadcrumb"] [ui-crumbs-trailing] {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-left: auto;
+    }
+    [ui-component="breadcrumb"] [ui-crumbs] {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.375rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        font-size: 0.875rem;
+    }
+    [ui-component="breadcrumb"] [ui-crumb] {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        color: var(--ui-text-muted);
+    }
+    /* Separator is decorative — a CSS ::before so it is never in the a11y tree. */
+    [ui-component="breadcrumb"] [ui-crumb] + [ui-crumb]::before {
+        content: "/";
+        color: var(--ui-border-strong, var(--ui-text-muted));
+        user-select: none;
+    }
+    [ui-component="breadcrumb"] [ui-crumb] a {
+        color: var(--ui-text-muted);
+        text-decoration: none;
+    }
+    [ui-component="breadcrumb"] [ui-crumb] a:hover {
+        color: var(--ui-accent-brand);
+        text-decoration: underline;
+    }
+    [ui-component="breadcrumb"] [ui-crumb] [aria-current="page"] {
+        color: var(--ui-text-primary);
+        font-weight: 500;
+    }
+
+    /* ---- platform.navbar -------------------------------------------- */
+    [ui-component="navbar"] {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        padding: 0.625rem 1rem;
+        background: var(--ui-surface-panel);
+        border-bottom: 1px solid var(--ui-border-subtle);
+    }
+    [ui-component="navbar"] [ui-navbar="brand"] {
+        font-weight: 600;
+        font-size: 1.0625rem;
+        color: var(--ui-text-primary);
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    [ui-component="navbar"] [ui-navbar="items"] {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.25rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+    [ui-component="navbar"] [ui-navbar="item"] a,
+    [ui-component="navbar"] [ui-navbar="item"] span {
+        display: inline-block;
+        padding: 0.375rem 0.75rem;
+        border-radius: var(--ui-radius-md, 0.5rem);
+        color: var(--ui-text-muted);
+        text-decoration: none;
+        line-height: 1.4;
+    }
+    [ui-component="navbar"] [ui-navbar="item"] a:hover {
+        color: var(--ui-text-primary);
+        background: var(--ui-surface-page);
+    }
+    [ui-component="navbar"] [ui-navbar="item"] [aria-current="page"] {
+        color: var(--ui-accent-brand);
+        font-weight: 500;
+    }
+    [ui-component="navbar"] [ui-navbar="actions"] {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-left: auto;
+    }
+
+    /* ---- platform.table --------------------------------------------- */
+    [ui-component="table"] [ui-table="toolbar"] {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+    }
+    [ui-component="table"] [ui-table="grid"] {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.9375rem;
+    }
+    [ui-component="table"] caption {
+        text-align: start;
+        color: var(--ui-text-muted);
+        font-size: 0.875rem;
+        padding-bottom: 0.5rem;
+    }
+    [ui-component="table"] th,
+    [ui-component="table"] td {
+        padding: 0.625rem 0.875rem;
+        text-align: start;
+        border-bottom: 1px solid var(--ui-border-subtle);
+    }
+    [ui-component="table"] thead th {
+        font-weight: 600;
+        color: var(--ui-text-muted);
+        font-size: 0.8125rem;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+    [ui-component="table"] tbody tr:last-child td {
+        border-bottom: none;
+    }
+    [ui-component="table"] [ui-align="center"] { text-align: center; }
+    [ui-component="table"] [ui-align="end"] { text-align: end; }
+    [ui-component="table"] [ui-table="empty"] {
+        text-align: center;
+        color: var(--ui-text-muted);
+        padding: 2rem 0.875rem;
+    }
+
+    /* ---- platform.pagination ---------------------------------------- */
+    [ui-component="pagination"] {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    [ui-component="pagination"] [ui-pagination="summary"] {
+        color: var(--ui-text-muted);
+        font-size: 0.875rem;
+    }
+    [ui-component="pagination"] [ui-pagination="pages"] {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+    [ui-component="pagination"] [ui-pagination="page"],
+    [ui-component="pagination"] [ui-pagination="prev"],
+    [ui-component="pagination"] [ui-pagination="next"] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 2rem;
+        height: 2rem;
+        padding: 0 0.5rem;
+        border-radius: var(--ui-radius-md, 0.5rem);
+        color: var(--ui-text-muted);
+        text-decoration: none;
+        line-height: 1;
+    }
+    [ui-component="pagination"] a[ui-pagination="page"]:hover,
+    [ui-component="pagination"] a[ui-pagination="prev"]:hover,
+    [ui-component="pagination"] a[ui-pagination="next"]:hover {
+        color: var(--ui-text-primary);
+        background: var(--ui-surface-panel);
+    }
+    [ui-component="pagination"] [ui-pagination="page"][aria-current="page"] {
+        background: var(--ui-accent-brand);
+        color: var(--ui-text-on-accent);
+        font-weight: 500;
+    }
+    [ui-component="pagination"] [aria-disabled="true"] {
+        opacity: 0.45;
+        pointer-events: none;
+    }
+    [ui-component="pagination"] [ui-pagination="gap"] {
+        display: inline-flex;
+        align-items: flex-end;
+        padding: 0 0.25rem;
+        color: var(--ui-text-muted);
+        user-select: none;
+    }
+
+    /* ---- platform.list ---------------------------------------------- */
+    [ui-component="list"] [ui-list="header"] {
+        font-weight: 600;
+        color: var(--ui-text-primary);
+        padding-bottom: 0.5rem;
+    }
+    [ui-component="list"] [ui-list="items"] {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+    [ui-component="list"] [ui-list="item"] {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.5rem;
+        padding: 0.625rem 0;
+        border-bottom: 1px solid var(--ui-border-subtle);
+    }
+    [ui-component="list"] [ui-list="item"]:last-child {
+        border-bottom: none;
+    }
+    [ui-component="list"] [ui-list="title"] {
+        font-weight: 500;
+        color: var(--ui-text-primary);
+        text-decoration: none;
+    }
+    [ui-component="list"] a[ui-list="title"]:hover {
+        color: var(--ui-accent-brand);
+        text-decoration: underline;
+    }
+    [ui-component="list"] [ui-list="meta"] {
+        margin-left: auto;
+        color: var(--ui-text-muted);
+        font-size: 0.8125rem;
+    }
+    [ui-component="list"] [ui-list="description"] {
+        flex-basis: 100%;
+        color: var(--ui-text-muted);
+        font-size: 0.875rem;
+    }
+    [ui-component="list"] [ui-list="empty"] {
+        color: var(--ui-text-muted);
+        text-align: center;
+        padding: 1.5rem 0;
+    }
+
+    /* ---- platform.stat ---------------------------------------------- */
+    [ui-component="stat"] {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.875rem;
+        padding: 1rem 1.25rem;
+        background: var(--ui-surface-panel);
+        border: 1px solid var(--ui-border-subtle);
+        border-radius: var(--ui-radius-lg, 0.75rem);
+    }
+    [ui-component="stat"] [ui-stat="visual"] {
+        color: var(--ui-accent-brand);
+        flex-shrink: 0;
+    }
+    [ui-component="stat"] [ui-stat="label"] {
+        color: var(--ui-text-muted);
+        font-size: 0.8125rem;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+    [ui-component="stat"] [ui-stat="value"] {
+        font-size: 1.75rem;
+        font-weight: 700;
+        line-height: 1.1;
+        margin-top: 0.125rem;
+        color: var(--ui-text-primary);
+    }
+    [ui-component="stat"] [ui-stat="delta"] {
+        font-size: 0.8125rem;
+        font-weight: 500;
+        margin-top: 0.25rem;
+    }
+    [ui-component="stat"] [ui-stat="delta"][ui-trend="up"] { color: var(--ui-state-success); }
+    [ui-component="stat"] [ui-stat="delta"][ui-trend="down"] { color: var(--ui-state-danger); }
+    [ui-component="stat"] [ui-stat="delta"][ui-trend="flat"] { color: var(--ui-text-muted); }
+    [ui-component="stat"] [ui-stat="caption"] {
+        color: var(--ui-text-muted);
+        font-size: 0.8125rem;
+        margin-top: 0.25rem;
+    }
+
+    /* ---- platform.empty-state --------------------------------------- */
+    [ui-component="empty-state"] {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 0.5rem;
+        padding: 2.5rem 1.5rem;
+    }
+    [ui-component="empty-state"] [ui-empty="media"] {
+        color: var(--ui-text-muted);
+        margin-bottom: 0.25rem;
+    }
+    [ui-component="empty-state"] [ui-empty="title"] {
+        font-weight: 600;
+        font-size: 1.0625rem;
+        color: var(--ui-text-primary);
+    }
+    [ui-component="empty-state"] [ui-empty="description"] {
+        color: var(--ui-text-muted);
+        font-size: 0.9375rem;
+        max-width: 36ch;
+    }
+    [ui-component="empty-state"] [ui-empty="actions"] {
+        display: inline-flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+    }
+}

@@ -1,0 +1,6 @@
+{# @platform-ui/spinner — indeterminate loading indicator #}
+{% macro render(options = {}) %}
+    {%- set size = options.size|default(null) -%}
+    {%- set tone = options.tone|default(null) -%}
+<span ui="spinner"{% if size %} ui-size="{{ size }}"{% endif %}{% if tone %} ui-tone="{{ tone }}"{% endif %} role="status" aria-label="{{ options.label|default('Loading') }}"></span>
+{% endmacro %}
