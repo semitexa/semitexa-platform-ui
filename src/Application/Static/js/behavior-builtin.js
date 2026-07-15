@@ -38,6 +38,11 @@ registerBehavior({
             ctx.on(el, 'mouseenter', () => t.show());
             ctx.on(el, 'mouseleave', () => t.hide());
             ctx.on(el, 'focusin', () => t.show());
+            // Keyboard parity for mouseleave: close once focus leaves both the
+            // trigger and the revealed content (relatedTarget null => focus lost).
+            ctx.on(el, 'focusout', (e) => {
+                if (!el.contains(e.relatedTarget) && !target.contains(e.relatedTarget)) t.hide();
+            });
         } else {
             ctx.on(el, 'click', (e) => { e.preventDefault(); t.toggle(); });
         }
@@ -248,10 +253,12 @@ registerBehavior({
     options: [{ name: 'bgClose', type: 'bool', default: true }],
     connect(el, opts, ctx) {
         const isDialog = typeof el.showModal === 'function';
-        const unlock = () => { document.documentElement.style.overflow = ''; };
+        // Share the ref-counted scroll lock so nested overlays (a dropdown/
+        // offcanvas opened from within a modal) don't unlock the page early.
+        const scroll = useScrollLock();
         function open() {
             if (isDialog) el.showModal(); else { el.hidden = false; el.setAttribute('open', ''); }
-            document.documentElement.style.overflow = 'hidden';
+            scroll.lock();
             requestAnimationFrame(() => el.classList.add('sx-open'));
             ctx.emit('open', {});
         }
@@ -259,9 +266,9 @@ registerBehavior({
             el.classList.remove('sx-open');
             setTimeout(() => {
                 if (isDialog) el.close(); else { el.hidden = true; el.removeAttribute('open'); }
-                unlock();
+                scroll.unlock();
                 ctx.emit('close', {});
-            }, 150);
+            }, ctx.reduceMotion ? 0 : 150);
         }
         const selfId = el.id ? '#' + el.id : null;
         if (selfId) {
@@ -276,7 +283,7 @@ registerBehavior({
             ctx.on(el, 'cancel', (e) => { e.preventDefault(); close(); }); // Esc
             if (opts.bgClose) ctx.on(el, 'click', (e) => { if (e.target === el) close(); }); // backdrop
         }
-        return { open, close, destroy() { unlock(); } };
+        return { open, close, destroy() { scroll.unlock(); } };
     },
 });
 
@@ -320,7 +327,7 @@ registerBehavior({
                 if (backdrop) { backdrop.remove(); backdrop = null; }
                 scroll.unlock();
                 ctx.emit('close', {});
-            }, 250);
+            }, ctx.reduceMotion ? 0 : 250);
         }
         const selfId = el.id ? '#' + el.id : null;
         if (selfId) {

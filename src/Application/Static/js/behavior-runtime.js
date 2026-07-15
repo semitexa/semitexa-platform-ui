@@ -120,6 +120,7 @@ function coerce(value, opt) {
 const byName = new Map();     // canonical name -> def
 const byUi = new Map();       // ui alias -> canonical name
 let booted = false;
+let observer = null;          // the single document MutationObserver (rebuilt on late registration)
 
 function registerBehavior(def) {
     if (!def || typeof def.connect !== 'function') {
@@ -138,7 +139,10 @@ function registerBehavior(def) {
     def = Object.assign({ name, ui, options: def.options || [] }, def);
     byName.set(name, def);
     byUi.set(ui, name);
-    if (booted) connect(document.body); // live match for late registration
+    if (booted) {
+        connect(document.body);   // live match for late registration
+        installObserver();        // widen the observer's attributeFilter for the new alias
+    }
     return def;
 }
 
@@ -228,7 +232,11 @@ function installObserver() {
     if (typeof MutationObserver === 'undefined' || !document.body) return;
     const attrFilter = ['ui-behavior'];
     byUi.forEach((_n, ui) => attrFilter.push('ui-' + ui));
-    const observer = new MutationObserver((mutations) => {
+    // Rebuild from scratch so a behavior registered AFTER boot widens the
+    // attributeFilter to include its new `ui-<alias>` (else its option changes
+    // would never reach reconfigureEl).
+    if (observer) observer.disconnect();
+    observer = new MutationObserver((mutations) => {
         for (const m of mutations) {
             if (m.type === 'childList') {
                 m.addedNodes.forEach((n) => walk(n, connectEl));
@@ -412,14 +420,18 @@ function positionFallback(anchor, floater, pos, offset, flip, boundary) {
  * restore focus on release. Fixes UIkit's missing trap.
  */
 function useFocusTrap(container, { returnTo = null } = {}) {
+    const explicitReturnTo = returnTo;
     let controller = null;
     let inerted = [];
+    let restoreTarget = null;
     const focusables = () => Array.prototype.slice.call(
         container.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'),
     ).filter((el) => el.offsetParent !== null || el === document.activeElement);
     function activate() {
         controller = new AbortController();
-        returnTo = returnTo || document.activeElement;
+        // Recompute each cycle: an explicit returnTo always wins, otherwise
+        // capture whatever is focused NOW (not a stale value from a prior open).
+        restoreTarget = explicitReturnTo || document.activeElement;
         // inert everything outside the container
         let node = container;
         while (node && node !== document.body && node.parentElement) {
@@ -443,7 +455,8 @@ function useFocusTrap(container, { returnTo = null } = {}) {
         if (controller) controller.abort();
         inerted.forEach((el) => el.removeAttribute('inert'));
         inerted = [];
-        if (returnTo && typeof returnTo.focus === 'function') returnTo.focus({ preventScroll: true });
+        if (restoreTarget && typeof restoreTarget.focus === 'function') restoreTarget.focus({ preventScroll: true });
+        restoreTarget = null;
     }
     return { activate, release };
 }

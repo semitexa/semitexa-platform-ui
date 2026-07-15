@@ -97,7 +97,7 @@
   dialog[ui-behavior~="modal"].sx-open { opacity: 1; transform: scale(1); }
   dialog[ui-behavior~="modal"] > [ui-behavior-content] { padding: var(--ui-space-4, 1rem); }
   dialog[ui-behavior~="modal"]::backdrop {
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--ui-overlay-scrim, rgba(0, 0, 0, 0.4));
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -116,7 +116,7 @@
     position: fixed;
     inset: 0;
     z-index: 1090;
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--ui-overlay-scrim, rgba(0, 0, 0, 0.4));
     opacity: 0;
     transition: opacity var(--ui-motion-duration-fast, 120ms) ease;
   }
@@ -137,6 +137,7 @@
     overflow: auto;
   }
   [ui-behavior~="offcanvas"][data-side="start"] { inset-inline-start: 0; transform: translateX(-100%); }
+  [ui-behavior~="offcanvas"][data-side="start"]:dir(rtl) { transform: translateX(100%); }
   [ui-behavior~="offcanvas"][data-side="end"]   { inset-inline-end: 0;   transform: translateX(100%); }
   [ui-behavior~="offcanvas"][data-side="end"]:dir(rtl) { transform: translateX(-100%); }
   [ui-behavior~="offcanvas"].sx-open { transform: translateX(0); }

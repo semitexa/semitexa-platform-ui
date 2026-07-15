@@ -47,10 +47,11 @@ final class UiBehaviorRegistry
             return;
         }
 
-        // No ClassDiscovery wired? Honour any register()ed entries but skip
-        // attribute discovery (test/dev path).
+        // No ClassDiscovery wired yet? Honour any register()ed entries but skip
+        // attribute discovery — WITHOUT latching $initialized, so a later
+        // initialize() after the boot listener wires ClassDiscovery can still
+        // run the discovery pass (get()/has()/all() lazily call initialize()).
         if (self::$classDiscovery === null) {
-            self::$initialized = true;
             return;
         }
 
@@ -157,5 +158,7 @@ final class UiBehaviorRegistry
         self::$byName = [];
         self::$byUi = [];
         self::$initialized = false;
+        self::$classDiscovery = null;
+        self::$factory = null;
     }
 }

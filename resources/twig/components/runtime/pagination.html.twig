@@ -8,7 +8,7 @@
 {%- set _current = current|default(1) -%}
 {%- set _total = total|default(1) -%}
 {%- set _tpl = hrefTemplate|default('#') -%}
-{%- set _window = window|default(1) -%}
+{%- set _window = window ?? 1 -%}
 {%- set _label = ariaLabel|default('Pagination') -%}
 {%- set _summary = slot('summary')|trim -%}
 {#- Visible page numbers: first, last, and a window around current. -#}

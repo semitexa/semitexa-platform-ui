@@ -118,6 +118,22 @@ final class PaginationComponentRenderTest extends TestCase
     }
 
     #[Test]
+    public function window_zero_shows_only_first_last_and_current(): void
+    {
+        // Regression: `window: 0` must be honoured (Twig `default` would coerce
+        // 0 -> 1); the runtime uses `?? 1`. current=5 of 10 => 1, …, 5, …, 10.
+        $html = $this->render(['current' => 5, 'total' => 10, 'window' => 0, 'hrefTemplate' => '/p/{page}']);
+
+        self::assertStringContainsString('aria-current="page">5</span>', $html);
+        self::assertStringContainsString('>1</a>', $html);
+        self::assertStringContainsString('>10</a>', $html);
+        // window=0 => neighbours 4 and 6 are NOT shown.
+        self::assertStringNotContainsString('>4</a>', $html);
+        self::assertStringNotContainsString('>6</a>', $html);
+        self::assertSame(2, substr_count($html, 'ui-pagination="gap"'));
+    }
+
+    #[Test]
     public function single_page_has_both_controls_disabled_and_no_gaps(): void
     {
         $html = $this->render(['current' => 1, 'total' => 1, 'hrefTemplate' => '/p/{page}']);

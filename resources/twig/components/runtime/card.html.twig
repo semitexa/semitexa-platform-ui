@@ -6,13 +6,12 @@
  # slot is empty. `variant` = elevated (default) | outlined | plain.
  # Slots: media, header, body, footer
  #}
-{%- set _variant = variant|default('elevated') -%}
 {%- set _media = slot('media')|trim -%}
 {%- set _header = slot('header')|trim -%}
 {%- set _body = slot('body')|trim -%}
 {%- set _footer = slot('footer')|trim -%}
 {%- set _has_title = title|default(null) is not null and title != '' -%}
-<div data-ui-component="platform.card" ui-component="card"{% if variant|default(null) %} ui-variant="{{ _variant }}"{% endif %}>
+<div data-ui-component="platform.card" ui-component="card"{% if variant|default(null) %} ui-variant="{{ variant }}"{% endif %}>
 {%- if _media %}<div ui-card="media">{{ _media|raw }}</div>{% endif -%}
 {%- if _header or _has_title %}
     <div ui-card="header">

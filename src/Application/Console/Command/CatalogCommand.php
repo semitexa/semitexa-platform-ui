@@ -73,7 +73,7 @@ final class CatalogCommand extends Command
                 'primitives' => array_map(static fn (PrimitiveMetadata $p): array => $p->toArray(), $primitives),
                 'components' => array_map(self::componentToArray(...), $components),
                 'behaviors' => array_map(static fn (BehaviorMetadata $b): array => $b->toArray(), $behaviors),
-            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
 
             return Command::SUCCESS;
         }

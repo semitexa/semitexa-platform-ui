@@ -124,7 +124,18 @@ final class UiBehaviorMetadataFactory
                 ));
             }
 
-            $options[] = $option;
+            // Store with the validated (trimmed) name so the DSL attribute the
+            // client coerces matches exactly what toDescriptor() ships — never
+            // the raw, possibly-padded, attribute value.
+            $options[] = $option->name === $optionName
+                ? $option
+                : new UiBehaviorOption(
+                    $optionName,
+                    $option->type,
+                    $option->default,
+                    $option->values,
+                    $option->description,
+                );
         }
 
         return new BehaviorMetadata(

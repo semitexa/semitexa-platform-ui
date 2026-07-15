@@ -144,6 +144,18 @@ final class TableComponentRenderTest extends TestCase
     }
 
     #[Test]
+    public function numeric_zero_cell_value_is_not_suppressed(): void
+    {
+        // Regression: Twig's `default` filter treats 0 as empty; the runtime
+        // uses `?? ''` so a genuine zero renders.
+        $html = $this->render([
+            'columns' => [['key' => 'count', 'label' => 'Count']],
+            'rows' => [['count' => 0]],
+        ]);
+        self::assertStringContainsString('<td>0</td>', $html);
+    }
+
+    #[Test]
     public function toolbar_slot_renders_above_the_table(): void
     {
         $html = $this->render(

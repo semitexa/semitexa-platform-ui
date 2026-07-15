@@ -91,6 +91,21 @@ final class UiBehaviorRegistryTest extends TestCase
     }
 
     #[Test]
+    public function stores_the_trimmed_option_name_so_the_client_dsl_matches(): void
+    {
+        $factory = new UiBehaviorMetadataFactory();
+        $meta = $factory->fromAttribute(self::class, new AsUiBehavior(
+            name: 'platform.x',
+            options: [new UiBehaviorOption('  mode  ')],
+        ));
+
+        // The stored option — and the descriptor shipped to the client — must
+        // carry the validated (trimmed) name, not the padded original.
+        self::assertSame('mode', $meta->options[0]->name);
+        self::assertSame('mode', $meta->options[0]->toDescriptor()['name']);
+    }
+
+    #[Test]
     public function registry_resolves_by_name_and_by_ui_alias(): void
     {
         $factory = new UiBehaviorMetadataFactory();

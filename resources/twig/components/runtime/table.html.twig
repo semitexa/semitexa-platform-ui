@@ -27,7 +27,7 @@
                 {%- for row in _rows -%}
                     <tr>
                         {%- for col in _columns -%}
-                            <td{% if col.align|default(null) %} ui-align="{{ col.align }}"{% endif %}>{{ row[col.key]|default('') }}</td>
+                            <td{% if col.align|default(null) %} ui-align="{{ col.align }}"{% endif %}>{{ row[col.key] ?? '' }}</td>
                         {%- endfor -%}
                     </tr>
                 {%- endfor -%}
