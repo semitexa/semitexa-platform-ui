@@ -1,0 +1,17 @@
+{#
+ # platform.stat — a single KPI / metric. No events.
+ #
+ # Props: label, value, delta?, trend? (up|down|flat), caption?.
+ # Slot: visual (optional leading icon/chart).
+ #}
+{%- set _trend = trend|default('flat') -%}
+{%- set _visual = slot('visual')|trim -%}
+<div data-ui-component="platform.stat" ui-component="stat">
+{%- if _visual %}<div ui-stat="visual">{{ _visual|raw }}</div>{% endif -%}
+    <div ui-stat="body">
+        {%- if label|default(null) %}<div ui-stat="label">{{ label }}</div>{% endif -%}
+        <div ui-stat="value">{{ value|default('') }}</div>
+        {%- if delta|default(null) %}<div ui-stat="delta" ui-trend="{{ _trend }}">{{ delta }}</div>{% endif -%}
+        {%- if caption|default(null) %}<div ui-stat="caption">{{ caption }}</div>{% endif -%}
+    </div>
+</div>

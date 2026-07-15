@@ -1,0 +1,29 @@
+{#
+ # platform.list — data-driven vertical list. No events.
+ #
+ # Props: items (list of { title, description?, meta?, href? }).
+ # Slots: header (above the list), empty (when items is empty).
+ #}
+{%- set _items = items|default([]) -%}
+{%- set _header = slot('header')|trim -%}
+{%- set _empty = slot('empty')|trim -%}
+<div data-ui-component="platform.list" ui-component="list">
+{%- if _header %}<div ui-list="header">{{ _header|raw }}</div>{% endif -%}
+{%- if _items is empty and _empty %}
+    <div ui-list="empty">{{ _empty|raw }}</div>
+{%- else %}
+    <ul ui-list="items">
+        {%- for item in _items -%}
+            <li ui-list="item">
+                {%- if item.href|default(null) -%}
+                    <a ui-list="title" href="{{ item.href }}">{{ item.title }}</a>
+                {%- else -%}
+                    <span ui-list="title">{{ item.title }}</span>
+                {%- endif -%}
+                {%- if item.meta|default(null) %}<span ui-list="meta">{{ item.meta }}</span>{% endif -%}
+                {%- if item.description|default(null) %}<span ui-list="description">{{ item.description }}</span>{% endif -%}
+            </li>
+        {%- endfor -%}
+    </ul>
+{%- endif -%}
+</div>

@@ -263,4 +263,123 @@
         color: var(--ui-text-muted);
         user-select: none;
     }
+
+    /* ---- platform.list ---------------------------------------------- */
+    [ui-component="list"] [ui-list="header"] {
+        font-weight: 600;
+        color: var(--ui-text-primary);
+        padding-bottom: 0.5rem;
+    }
+    [ui-component="list"] [ui-list="items"] {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+    }
+    [ui-component="list"] [ui-list="item"] {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 0.5rem;
+        padding: 0.625rem 0;
+        border-bottom: 1px solid var(--ui-border-subtle);
+    }
+    [ui-component="list"] [ui-list="item"]:last-child {
+        border-bottom: none;
+    }
+    [ui-component="list"] [ui-list="title"] {
+        font-weight: 500;
+        color: var(--ui-text-primary);
+        text-decoration: none;
+    }
+    [ui-component="list"] a[ui-list="title"]:hover {
+        color: var(--ui-accent-brand);
+        text-decoration: underline;
+    }
+    [ui-component="list"] [ui-list="meta"] {
+        margin-left: auto;
+        color: var(--ui-text-muted);
+        font-size: 0.8125rem;
+    }
+    [ui-component="list"] [ui-list="description"] {
+        flex-basis: 100%;
+        color: var(--ui-text-muted);
+        font-size: 0.875rem;
+    }
+    [ui-component="list"] [ui-list="empty"] {
+        color: var(--ui-text-muted);
+        text-align: center;
+        padding: 1.5rem 0;
+    }
+
+    /* ---- platform.stat ---------------------------------------------- */
+    [ui-component="stat"] {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.875rem;
+        padding: 1rem 1.25rem;
+        background: var(--ui-surface-panel);
+        border: 1px solid var(--ui-border-subtle);
+        border-radius: var(--ui-radius-lg, 0.75rem);
+    }
+    [ui-component="stat"] [ui-stat="visual"] {
+        color: var(--ui-accent-brand);
+        flex-shrink: 0;
+    }
+    [ui-component="stat"] [ui-stat="label"] {
+        color: var(--ui-text-muted);
+        font-size: 0.8125rem;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+    [ui-component="stat"] [ui-stat="value"] {
+        font-size: 1.75rem;
+        font-weight: 700;
+        line-height: 1.1;
+        margin-top: 0.125rem;
+        color: var(--ui-text-primary);
+    }
+    [ui-component="stat"] [ui-stat="delta"] {
+        font-size: 0.8125rem;
+        font-weight: 500;
+        margin-top: 0.25rem;
+    }
+    [ui-component="stat"] [ui-stat="delta"][ui-trend="up"] { color: var(--ui-state-success); }
+    [ui-component="stat"] [ui-stat="delta"][ui-trend="down"] { color: var(--ui-state-danger); }
+    [ui-component="stat"] [ui-stat="delta"][ui-trend="flat"] { color: var(--ui-text-muted); }
+    [ui-component="stat"] [ui-stat="caption"] {
+        color: var(--ui-text-muted);
+        font-size: 0.8125rem;
+        margin-top: 0.25rem;
+    }
+
+    /* ---- platform.empty-state --------------------------------------- */
+    [ui-component="empty-state"] {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 0.5rem;
+        padding: 2.5rem 1.5rem;
+    }
+    [ui-component="empty-state"] [ui-empty="media"] {
+        color: var(--ui-text-muted);
+        margin-bottom: 0.25rem;
+    }
+    [ui-component="empty-state"] [ui-empty="title"] {
+        font-weight: 600;
+        font-size: 1.0625rem;
+        color: var(--ui-text-primary);
+    }
+    [ui-component="empty-state"] [ui-empty="description"] {
+        color: var(--ui-text-muted);
+        font-size: 0.9375rem;
+        max-width: 36ch;
+    }
+    [ui-component="empty-state"] [ui-empty="actions"] {
+        display: inline-flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 0.5rem;
+        margin-top: 0.75rem;
+    }
 }

@@ -1,0 +1,18 @@
+{#
+ # platform.empty-state — centered no-data placeholder. No events.
+ #
+ # Props: icon? (name), title, description?.
+ # Slots: media (custom illustration, overrides icon), actions.
+ #}
+{%- set _media = slot('media')|trim -%}
+{%- set _actions = slot('actions')|trim -%}
+<div data-ui-component="platform.empty-state" ui-component="empty-state">
+    {%- if _media -%}
+        <div ui-empty="media">{{ _media|raw }}</div>
+    {%- elseif icon|default(null) -%}
+        <div ui-empty="media">{{ icon(icon, { size: 40 }) }}</div>
+    {%- endif -%}
+    {%- if title|default(null) %}<div ui-empty="title">{{ title }}</div>{% endif -%}
+    {%- if description|default(null) %}<div ui-empty="description">{{ description }}</div>{% endif -%}
+    {%- if _actions %}<div ui-empty="actions">{{ _actions|raw }}</div>{% endif -%}
+</div>
