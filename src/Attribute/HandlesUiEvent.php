@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Attribute;
 
 use Attribute;
+use Semitexa\Core\Attribute\Capability;
 
 /**
  * Class-level binding from an external service handler to one (component,
@@ -45,6 +46,16 @@ use Attribute;
  * Validation is performed at discovery time by UiComponentRegistry —
  * this attribute is a pure value carrier with no constructor checks.
  */
+#[Capability(
+    id: 'ui.event-handler',
+    summary: 'Binds a separate service class to one (component, part, event) triple.',
+    useWhen: 'The handler has dependencies, lives in another module, or would bloat a deliberately thin component.',
+    avoidWhen: 'The handler is a few lines with no dependencies - keep it on the component.',
+    replaces: [
+        'putting handler logic with its dependencies inside the component class',
+    ],
+    seeAlso: 'ui.event-intent',
+)]
 #[Attribute(Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE)]
 final class HandlesUiEvent
 {

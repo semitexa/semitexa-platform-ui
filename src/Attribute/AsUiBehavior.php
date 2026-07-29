@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Attribute;
 
 use Attribute;
+use Semitexa\Core\Attribute\Capability;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiBehaviorOption;
 
 /**
@@ -25,6 +26,17 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiBehaviorOption;
  *
  * @see UiBehaviorOption for the typed option schema.
  */
+#[Capability(
+    id: 'ui.behavior',
+    summary: 'A client-only interaction (dropdown, modal, tabs, tooltip) bound declaratively through a ui-<alias> markup attribute.',
+    useWhen: 'An element needs interactive behaviour that carries no server state.',
+    avoidWhen: 'The interaction needs server state or persistence - that is a component with an event handler, not a behavior.',
+    replaces: [
+        'a bespoke ESM module wired by hand per page',
+        'inline onclick handlers, which the CSP forbids anyway',
+    ],
+    seeAlso: 'ui.primitive',
+)]
 #[Attribute(Attribute::TARGET_CLASS)]
 final class AsUiBehavior
 {

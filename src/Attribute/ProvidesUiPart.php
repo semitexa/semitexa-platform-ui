@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Attribute;
 
 use Attribute;
+use Semitexa\Core\Attribute\Capability;
 
 /**
  * Marks a component method as the deterministic provider of one named
@@ -27,6 +28,16 @@ use Attribute;
  *
  * Not repeatable — one #[ProvidesUiPart] per method.
  */
+#[Capability(
+    id: 'ui.part-provider',
+    summary: 'Marks a component method as the single deterministic provider of one part prop map.',
+    useWhen: 'A part props must be computed from the component props rather than passed in.',
+    avoidWhen: 'The part props are supplied by the caller and need no derivation.',
+    replaces: [
+        'computing part props inline in the template',
+    ],
+    seeAlso: 'ui.part',
+)]
 #[Attribute(Attribute::TARGET_METHOD)]
 final class ProvidesUiPart
 {
