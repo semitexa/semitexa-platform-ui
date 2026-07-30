@@ -31,7 +31,7 @@ use Semitexa\Core\Attribute\Capability;
 #[Capability(
     id: 'ui.part-provider',
     summary: 'Marks a component method as the single deterministic provider of one part prop map.',
-    useWhen: 'A part props must be computed from the component props rather than passed in.',
+    useWhen: "A part's props must be computed from the component's props rather than passed in.",
     avoidWhen: 'The part props are supplied by the caller and need no derivation.',
     replaces: [
         'computing part props inline in the template',
