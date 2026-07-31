@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Attribute;
 
 use Attribute;
+use Semitexa\Core\Attribute\Capability;
 
 /**
  * Declares — as metadata only — which (part, event) pair a method is the
@@ -33,6 +34,16 @@ use Attribute;
  * handlers across different methods, but each (part, event) pair is
  * unique within one component (enforced by the factory).
  */
+#[Capability(
+    id: 'ui.event-intent',
+    summary: 'Declares which (part, event) pair a component method is the intended handler for, and optionally the value path it updates.',
+    useWhen: 'The handler logic belongs to the component itself.',
+    avoidWhen: 'The handler needs services or belongs to another module - bind a service class instead.',
+    replaces: [
+        'wiring an event listener in page JavaScript and posting to an ad-hoc route',
+    ],
+    seeAlso: 'ui.event-handler',
+)]
 #[Attribute(Attribute::TARGET_METHOD)]
 final class UiOn
 {

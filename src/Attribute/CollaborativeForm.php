@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Attribute;
 
 use Attribute;
+use Semitexa\Core\Attribute\Capability;
 use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollaborationMode;
 
 /**
@@ -26,6 +27,17 @@ use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollaborationMode;
  * becomes a segment of the public invalidation channel name; an invalid key
  * fails fast at construction (attribute instantiation), never at publish time.
  */
+#[Capability(
+    id: 'ui.collaborative-form',
+    summary: 'Declares a form as a live collaborative document and pins the concurrency mode it runs under.',
+    useWhen: 'More than one person may edit the same record at the same time.',
+    avoidWhen: 'The record has a single owner and concurrent editing cannot occur. The live document machinery is not free.',
+    replaces: [
+        'a last-write-wins form that silently discards a concurrent edit',
+        'a hand-built polling or locking scheme over a plain form',
+    ],
+    seeAlso: 'ssr.transport',
+)]
 #[Attribute(Attribute::TARGET_CLASS)]
 final class CollaborativeForm
 {

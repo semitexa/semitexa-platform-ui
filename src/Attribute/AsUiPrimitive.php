@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Attribute;
 
 use Attribute;
+use Semitexa\Core\Attribute\Capability;
 use Semitexa\PlatformUi\Domain\Model\Primitive\UiPrimitiveEvent;
 
 /**
@@ -20,6 +21,15 @@ use Semitexa\PlatformUi\Domain\Model\Primitive\UiPrimitiveEvent;
  *
  * @see UiPrimitiveEvent for event metadata.
  */
+#[Capability(
+    id: 'ui.primitive',
+    summary: 'A named UI primitive with its own template, script and style, addressable from markup by a short alias.',
+    useWhen: 'A basic element (button, input, badge) should look and behave the same everywhere.',
+    avoidWhen: 'The element is used once in one template and has no shared identity.',
+    replaces: [
+        're-declaring the same markup and classes in every template',
+    ],
+)]
 #[Attribute(Attribute::TARGET_CLASS)]
 final class AsUiPrimitive
 {
