@@ -10,6 +10,7 @@ use Semitexa\PlatformUi\Application\Service\Event\PlatformUiSseSessionState;
 use Semitexa\PlatformUi\Application\Service\Event\PlatformUiTransportModePolicy;
 use Semitexa\PlatformUi\Application\Service\Twig\PlatformUiTwigExtension;
 use Semitexa\PlatformUi\Domain\Exception\UiTransportModeException;
+use Semitexa\Ssr\Application\Service\Extension\TwigExtensionCatalog;
 use Semitexa\Ssr\Application\Service\Extension\TwigExtensionRegistry;
 use Twig\Markup;
 
@@ -71,11 +72,17 @@ final class UiPageSseSessionMetaHelperTest extends TestCase
      */
     private function call(?string $mode = null): string
     {
-        $rc = new \ReflectionClass(TwigExtensionRegistry::class);
-        $prop = $rc->getProperty('functions');
+        // Read the registered map off the catalog directly. Going through
+        // TwigExtensionRegistry::getFunctions() would trigger initialize(),
+        // which needs a ClassDiscovery this unit test deliberately has not
+        // wired; the point here is only the callback the module registered.
+        $catalog = (new \ReflectionClass(TwigExtensionRegistry::class))
+            ->getProperty('catalog')->getValue();
+        self::assertInstanceOf(TwigExtensionCatalog::class, $catalog);
+        $prop = (new \ReflectionClass($catalog))->getProperty('functions');
         $prop->setAccessible(true);
         /** @var array<string, array{callback: callable, options: array}> $functions */
-        $functions = $prop->getValue();
+        $functions = $prop->getValue($catalog);
         self::assertArrayHasKey('ui_page_sse_session_meta', $functions);
         $callback = $functions['ui_page_sse_session_meta']['callback'];
         $markup = $callback($mode);
