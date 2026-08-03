@@ -5,163 +5,88 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Primitive;
 
 use Semitexa\Core\Discovery\ClassDiscovery;
-use Semitexa\PlatformUi\Attribute\AsUiPrimitive;
-use Semitexa\PlatformUi\Domain\Exception\PrimitiveRegistryException;
 use Semitexa\PlatformUi\Domain\Model\Primitive\PrimitiveMetadata;
 
 /**
- * Registry of #[AsUiPrimitive]-marked classes.
+ * Static entry point for the Platform UI primitive catalog.
  *
- * Identity model:
- *   - canonical $name  (e.g. "platform.button")  — used everywhere internally.
- *   - $ui alias        (e.g. "button")           — CSS/markup hook only.
+ * One wired slot and no logic — discovery, indexing and lookup live in
+ * {@see UiPrimitiveCatalog}, which container-managed callers inject directly.
+ * Retained while the Twig extension, the CLI catalog command and the module
+ * test bootstraps still reach for the class-level API.
  *
- * Both identities must be unique within the registry.
- *
- * Mirrors the static/lazy initialization pattern of Semitexa\Ssr ComponentRegistry
- * so the same boot-time wiring fits both registries.
+ * De-staticised by ep-kill-static-facades. Not documented public API, so this is
+ * a full deletion candidate once the last static caller is migrated.
  */
 final class UiPrimitiveRegistry
 {
-    /** @var array<string, PrimitiveMetadata> */
-    private static array $byName = [];
+    private static ?UiPrimitiveCatalog $catalog = null;
 
-    /** @var array<string, string> */
-    private static array $byUi = [];
-
-    private static bool $initialized = false;
-    private static ?ClassDiscovery $classDiscovery = null;
-    private static ?UiPrimitiveMetadataFactory $factory = null;
+    public static function setCatalog(UiPrimitiveCatalog $catalog): void
+    {
+        self::$catalog = $catalog;
+    }
 
     public static function setClassDiscovery(ClassDiscovery $classDiscovery): void
     {
-        self::$classDiscovery = $classDiscovery;
+        self::catalog()->setClassDiscovery($classDiscovery);
     }
 
     public static function setFactory(UiPrimitiveMetadataFactory $factory): void
     {
-        self::$factory = $factory;
+        self::catalog()->setFactory($factory);
     }
 
     public static function initialize(): void
     {
-        if (self::$initialized) {
-            return;
-        }
-
-        // No ClassDiscovery wired? Treat the registry as manually-seeded:
-        // we still honour any entries provided via register() but skip
-        // attribute discovery. This is the test/dev path and is also the
-        // current quarantined production state — the registry is not yet
-        // bootstrapped by SSR's lifecycle listener. Production wiring lands
-        // in the explicit Platform UI runtime step.
-        if (self::$classDiscovery === null) {
-            self::$initialized = true;
-            return;
-        }
-
-        $factory = self::$factory ?? new UiPrimitiveMetadataFactory();
-        $classes = self::$classDiscovery->findClassesWithAttribute(AsUiPrimitive::class);
-
-        foreach ($classes as $class) {
-            self::registerInternal($factory->fromClass($class));
-        }
-
-        self::$initialized = true;
+        self::catalog()->initialize();
     }
 
-    /**
-     * Register a metadata entry manually (test helper / non-discovery flows).
-     */
     public static function register(PrimitiveMetadata $metadata): void
     {
-        self::registerInternal($metadata);
-    }
-
-    private static function registerInternal(PrimitiveMetadata $metadata): void
-    {
-        if (isset(self::$byName[$metadata->name])) {
-            $existing = self::$byName[$metadata->name];
-            if ($existing->class === $metadata->class) {
-                return;
-            }
-
-            throw new PrimitiveRegistryException(sprintf(
-                'Duplicate UI primitive name "%s" — declared by %s and %s.',
-                $metadata->name,
-                $existing->class,
-                $metadata->class,
-            ));
-        }
-
-        if (isset(self::$byUi[$metadata->ui])) {
-            $owner = self::$byUi[$metadata->ui];
-            throw new PrimitiveRegistryException(sprintf(
-                'Duplicate UI primitive alias "%s" — already used by "%s" (declared by %s), conflict comes from %s.',
-                $metadata->ui,
-                $owner,
-                self::$byName[$owner]->class,
-                $metadata->class,
-            ));
-        }
-
-        self::$byName[$metadata->name] = $metadata;
-        self::$byUi[$metadata->ui] = $metadata->name;
+        self::catalog()->register($metadata);
     }
 
     public static function get(string $nameOrAlias): ?PrimitiveMetadata
     {
-        self::initialize();
-
-        if (isset(self::$byName[$nameOrAlias])) {
-            return self::$byName[$nameOrAlias];
-        }
-
-        if (isset(self::$byUi[$nameOrAlias])) {
-            return self::$byName[self::$byUi[$nameOrAlias]];
-        }
-
-        return null;
+        return self::catalog()->get($nameOrAlias);
     }
 
     public static function getByName(string $name): ?PrimitiveMetadata
     {
-        self::initialize();
-
-        return self::$byName[$name] ?? null;
+        return self::catalog()->getByName($name);
     }
 
     public static function getByUi(string $ui): ?PrimitiveMetadata
     {
-        self::initialize();
-
-        $name = self::$byUi[$ui] ?? null;
-
-        return $name !== null ? self::$byName[$name] : null;
+        return self::catalog()->getByUi($ui);
     }
 
     public static function has(string $nameOrAlias): bool
     {
-        return self::get($nameOrAlias) !== null;
+        return self::catalog()->has($nameOrAlias);
     }
 
-    /**
-     * @return list<PrimitiveMetadata>
-     */
+    /** @return list<PrimitiveMetadata> */
     public static function all(): array
     {
-        self::initialize();
-
-        return array_values(self::$byName);
+        return self::catalog()->all();
     }
 
     /**
-     * Reset (test helper).
+     * Drop every registration AND the catalog itself.
+     *
+     * Replacing the catalog rather than only clearing it also discards whatever
+     * collaborators were wired into it, so one test cannot inherit the previous
+     * one's discovery.
      */
     public static function reset(): void
     {
-        self::$byName = [];
-        self::$byUi = [];
-        self::$initialized = false;
+        self::$catalog = null;
+    }
+
+    private static function catalog(): UiPrimitiveCatalog
+    {
+        return self::$catalog ??= new UiPrimitiveCatalog();
     }
 }

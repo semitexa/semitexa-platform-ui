@@ -8,10 +8,13 @@ use Semitexa\Core\Attribute\AsCommand;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Discovery\ClassDiscovery;
 use Semitexa\PlatformUi\Application\Service\Behavior\UiBehaviorMetadataFactory;
+use Semitexa\PlatformUi\Application\Service\Behavior\UiBehaviorCatalog;
 use Semitexa\PlatformUi\Application\Service\Behavior\UiBehaviorRegistry;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentMetadataFactory;
+use Semitexa\PlatformUi\Application\Service\Component\UiComponentCatalog;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
 use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveMetadataFactory;
+use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveCatalog;
 use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveRegistry;
 use Semitexa\PlatformUi\Domain\Model\Behavior\BehaviorMetadata;
 use Semitexa\PlatformUi\Domain\Model\Component\UiComponentMetadata;
@@ -127,16 +130,23 @@ final class CatalogCommand extends Command
      */
     private function seedRegistries(): void
     {
-        UiPrimitiveRegistry::setClassDiscovery($this->classDiscovery);
-        UiPrimitiveRegistry::setFactory(new UiPrimitiveMetadataFactory());
+        $primitiveCatalog = new UiPrimitiveCatalog();
+        $primitiveCatalog->setClassDiscovery($this->classDiscovery);
+        $primitiveCatalog->setFactory(new UiPrimitiveMetadataFactory());
+        UiPrimitiveRegistry::setCatalog($primitiveCatalog);
         UiPrimitiveRegistry::initialize();
 
-        UiComponentRegistry::setClassDiscovery($this->classDiscovery);
-        UiComponentRegistry::setFactory(new UiComponentMetadataFactory());
+        // CLI has no worker boot, so the catalog is built here and pushed in.
+        $componentCatalog = new UiComponentCatalog();
+        $componentCatalog->setClassDiscovery($this->classDiscovery);
+        $componentCatalog->setFactory(new UiComponentMetadataFactory());
+        UiComponentRegistry::setCatalog($componentCatalog);
         UiComponentRegistry::initialize();
 
-        UiBehaviorRegistry::setClassDiscovery($this->classDiscovery);
-        UiBehaviorRegistry::setFactory(new UiBehaviorMetadataFactory());
+        $behaviorCatalog = new UiBehaviorCatalog();
+        $behaviorCatalog->setClassDiscovery($this->classDiscovery);
+        $behaviorCatalog->setFactory(new UiBehaviorMetadataFactory());
+        UiBehaviorRegistry::setCatalog($behaviorCatalog);
         UiBehaviorRegistry::initialize();
     }
 

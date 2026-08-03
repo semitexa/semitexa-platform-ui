@@ -5,160 +5,88 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Behavior;
 
 use Semitexa\Core\Discovery\ClassDiscovery;
-use Semitexa\PlatformUi\Attribute\AsUiBehavior;
-use Semitexa\PlatformUi\Domain\Exception\BehaviorRegistryException;
 use Semitexa\PlatformUi\Domain\Model\Behavior\BehaviorMetadata;
 
 /**
- * Registry of #[AsUiBehavior]-marked classes — the third UI tier.
+ * Static entry point for the Platform UI behavior catalog.
  *
- * Identity model (mirrors UiPrimitiveRegistry):
- *   - canonical $name  (e.g. "platform.dropdown") — used everywhere internally.
- *   - $ui alias        (e.g. "dropdown")          — the value in `ui-behavior="…"`.
+ * One wired slot and no logic — discovery, indexing and lookup live in
+ * {@see UiBehaviorCatalog}, which container-managed callers inject directly.
+ * Retained while the Twig extension, the CLI catalog command and the module
+ * test bootstraps still reach for the class-level API.
  *
- * Both identities must be unique. Seeded by ClassDiscovery at worker boot
- * (BootPlatformUiRegistryListener); manually seedable for tests via register().
+ * De-staticised by ep-kill-static-facades. Not documented public API, so this is
+ * a full deletion candidate once the last static caller is migrated.
  */
 final class UiBehaviorRegistry
 {
-    /** @var array<string, BehaviorMetadata> */
-    private static array $byName = [];
+    private static ?UiBehaviorCatalog $catalog = null;
 
-    /** @var array<string, string> */
-    private static array $byUi = [];
-
-    private static bool $initialized = false;
-    private static ?ClassDiscovery $classDiscovery = null;
-    private static ?UiBehaviorMetadataFactory $factory = null;
+    public static function setCatalog(UiBehaviorCatalog $catalog): void
+    {
+        self::$catalog = $catalog;
+    }
 
     public static function setClassDiscovery(ClassDiscovery $classDiscovery): void
     {
-        self::$classDiscovery = $classDiscovery;
+        self::catalog()->setClassDiscovery($classDiscovery);
     }
 
     public static function setFactory(UiBehaviorMetadataFactory $factory): void
     {
-        self::$factory = $factory;
+        self::catalog()->setFactory($factory);
     }
 
     public static function initialize(): void
     {
-        if (self::$initialized) {
-            return;
-        }
-
-        // No ClassDiscovery wired yet? Honour any register()ed entries but skip
-        // attribute discovery — WITHOUT latching $initialized, so a later
-        // initialize() after the boot listener wires ClassDiscovery can still
-        // run the discovery pass (get()/has()/all() lazily call initialize()).
-        if (self::$classDiscovery === null) {
-            return;
-        }
-
-        $factory = self::$factory ?? new UiBehaviorMetadataFactory();
-        $classes = self::$classDiscovery->findClassesWithAttribute(AsUiBehavior::class);
-
-        foreach ($classes as $class) {
-            self::registerInternal($factory->fromClass($class));
-        }
-
-        self::$initialized = true;
+        self::catalog()->initialize();
     }
 
-    /**
-     * Register a metadata entry manually (test helper / non-discovery flows).
-     */
     public static function register(BehaviorMetadata $metadata): void
     {
-        self::registerInternal($metadata);
-    }
-
-    private static function registerInternal(BehaviorMetadata $metadata): void
-    {
-        if (isset(self::$byName[$metadata->name])) {
-            $existing = self::$byName[$metadata->name];
-            if ($existing->class === $metadata->class) {
-                return;
-            }
-
-            throw new BehaviorRegistryException(sprintf(
-                'Duplicate UI behavior name "%s" — declared by %s and %s.',
-                $metadata->name,
-                $existing->class,
-                $metadata->class,
-            ));
-        }
-
-        if (isset(self::$byUi[$metadata->ui])) {
-            $owner = self::$byUi[$metadata->ui];
-            throw new BehaviorRegistryException(sprintf(
-                'Duplicate UI behavior alias "%s" — already used by "%s" (declared by %s), conflict comes from %s.',
-                $metadata->ui,
-                $owner,
-                self::$byName[$owner]->class,
-                $metadata->class,
-            ));
-        }
-
-        self::$byName[$metadata->name] = $metadata;
-        self::$byUi[$metadata->ui] = $metadata->name;
+        self::catalog()->register($metadata);
     }
 
     public static function get(string $nameOrAlias): ?BehaviorMetadata
     {
-        self::initialize();
-
-        if (isset(self::$byName[$nameOrAlias])) {
-            return self::$byName[$nameOrAlias];
-        }
-
-        if (isset(self::$byUi[$nameOrAlias])) {
-            return self::$byName[self::$byUi[$nameOrAlias]];
-        }
-
-        return null;
+        return self::catalog()->get($nameOrAlias);
     }
 
     public static function getByName(string $name): ?BehaviorMetadata
     {
-        self::initialize();
-
-        return self::$byName[$name] ?? null;
+        return self::catalog()->getByName($name);
     }
 
     public static function getByUi(string $ui): ?BehaviorMetadata
     {
-        self::initialize();
-
-        $name = self::$byUi[$ui] ?? null;
-
-        return $name !== null ? self::$byName[$name] : null;
+        return self::catalog()->getByUi($ui);
     }
 
     public static function has(string $nameOrAlias): bool
     {
-        return self::get($nameOrAlias) !== null;
+        return self::catalog()->has($nameOrAlias);
     }
 
-    /**
-     * @return list<BehaviorMetadata>
-     */
+    /** @return list<BehaviorMetadata> */
     public static function all(): array
     {
-        self::initialize();
-
-        return array_values(self::$byName);
+        return self::catalog()->all();
     }
 
     /**
-     * Reset (test helper).
+     * Drop every registration AND the catalog itself.
+     *
+     * Replacing the catalog rather than only clearing it also discards whatever
+     * collaborators were wired into it, so one test cannot inherit the previous
+     * one's discovery.
      */
     public static function reset(): void
     {
-        self::$byName = [];
-        self::$byUi = [];
-        self::$initialized = false;
-        self::$classDiscovery = null;
-        self::$factory = null;
+        self::$catalog = null;
+    }
+
+    private static function catalog(): UiBehaviorCatalog
+    {
+        return self::$catalog ??= new UiBehaviorCatalog();
     }
 }
