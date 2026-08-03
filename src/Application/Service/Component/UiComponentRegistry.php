@@ -4,127 +4,65 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Component;
 
-use ReflectionClass;
 use Semitexa\Core\Discovery\ClassDiscovery;
-use Semitexa\PlatformUi\Attribute\HandlesUiEvent;
-use Semitexa\PlatformUi\Attribute\UiPart;
-use Semitexa\PlatformUi\Attribute\UiSlot;
-use Semitexa\PlatformUi\Domain\Contract\UiEventHandlerInterface;
-use Semitexa\PlatformUi\Domain\Exception\UiComponentRegistryException;
 use Semitexa\PlatformUi\Domain\Model\Component\UiComponentMetadata;
 use Semitexa\PlatformUi\Domain\Model\Component\UiExternalHandlerMetadata;
 use Semitexa\PlatformUi\Domain\Model\Component\UiOnMetadata;
 
 /**
- * Registry of Platform UI components — classes that combine #[AsComponent]
- * with one or more #[UiPart] / #[UiSlot] declarations.
+ * Static entry point for the Platform UI component catalog.
  *
- * Rendering still flows through SSR's ComponentRegistry / ComponentRenderer
- * (every Platform UI component is also a regular AsComponent). This registry
- * only exposes the composition layer for introspection and tests.
+ * Holds one wired slot and no logic — discovery, validation and the binding
+ * rules live in {@see UiComponentCatalog}, which container-managed callers
+ * inject directly. Retained while the Twig extension, the interaction
+ * dispatcher and the module test bootstraps still reach for the class-level API.
  *
- * Mirrors the static-with-explicit-DI shape of UiPrimitiveRegistry so the
- * boot listener can wire both registries together.
+ * De-staticised by ep-kill-static-facades. Not documented public API, so this is
+ * a full deletion candidate once the last static caller is migrated.
  */
 final class UiComponentRegistry
 {
-    private const EVENT_NAME_PATTERN = '/\A[a-z][a-z0-9:_-]*\z/';
+    private static ?UiComponentCatalog $catalog = null;
 
-    /** @var array<string, UiComponentMetadata> */
-    private static array $byName = [];
-
-    /** @var array<string, UiExternalHandlerMetadata> Flat key `<componentName>.<partName>.<eventName>` → external binding. */
-    private static array $externalBindings = [];
-
-    /** @var array<string, list<UiExternalHandlerMetadata>> Grouped by component name, declaration order preserved. */
-    private static array $externalBindingsByComponent = [];
-
-    private static bool $initialized = false;
-    private static ?ClassDiscovery $classDiscovery = null;
-    private static ?UiComponentMetadataFactory $factory = null;
+    public static function setCatalog(UiComponentCatalog $catalog): void
+    {
+        self::$catalog = $catalog;
+    }
 
     public static function setClassDiscovery(ClassDiscovery $classDiscovery): void
     {
-        self::$classDiscovery = $classDiscovery;
+        self::catalog()->setClassDiscovery($classDiscovery);
     }
 
     public static function setFactory(UiComponentMetadataFactory $factory): void
     {
-        self::$factory = $factory;
+        self::catalog()->setFactory($factory);
     }
 
     public static function initialize(): void
     {
-        if (self::$initialized) {
-            return;
-        }
-        if (self::$classDiscovery === null) {
-            self::$initialized = true;
-            return;
-        }
-
-        $factory = self::$factory ?? new UiComponentMetadataFactory();
-
-        // A Platform UI component is any class that declares at least one
-        // #[UiPart] or #[UiSlot]. Components without parts/slots remain
-        // plain SSR components and stay out of this registry.
-        $candidates = array_unique(array_merge(
-            self::$classDiscovery->findClassesWithAttribute(UiPart::class),
-            self::$classDiscovery->findClassesWithAttribute(UiSlot::class),
-        ));
-
-        foreach ($candidates as $class) {
-            self::registerInternal($factory->fromClass($class));
-        }
-
-        // Class-level #[HandlesUiEvent] discovery runs only after every
-        // component has been registered, since each binding must validate
-        // against its component's already-declared parts/slots/events.
-        foreach (self::$classDiscovery->findClassesWithAttribute(HandlesUiEvent::class) as $handlerClass) {
-            self::registerExternalFromClass($handlerClass);
-        }
-
-        self::$initialized = true;
+        self::catalog()->initialize();
     }
 
     public static function register(UiComponentMetadata $metadata): void
     {
-        self::registerInternal($metadata);
-    }
-
-    private static function registerInternal(UiComponentMetadata $metadata): void
-    {
-        if (isset(self::$byName[$metadata->name])) {
-            $existing = self::$byName[$metadata->name];
-            if ($existing->class === $metadata->class) {
-                return;
-            }
-            throw new UiComponentRegistryException(sprintf(
-                'Duplicate UI component name "%s" — declared by %s and %s.',
-                $metadata->name,
-                $existing->class,
-                $metadata->class,
-            ));
-        }
-        self::$byName[$metadata->name] = $metadata;
+        self::catalog()->register($metadata);
     }
 
     public static function get(string $name): ?UiComponentMetadata
     {
-        self::initialize();
-        return self::$byName[$name] ?? null;
+        return self::catalog()->get($name);
     }
 
     public static function has(string $name): bool
     {
-        return self::get($name) !== null;
+        return self::catalog()->has($name);
     }
 
     /** @return list<UiComponentMetadata> */
     public static function all(): array
     {
-        self::initialize();
-        return array_values(self::$byName);
+        return self::catalog()->all();
     }
 
     public static function getBinding(
@@ -132,22 +70,18 @@ final class UiComponentRegistry
         string $partName,
         string $eventName,
     ): ?UiOnMetadata {
-        return self::get($componentName)?->event($partName, $eventName);
+        return self::catalog()->getBinding($componentName, $partName, $eventName);
     }
 
     /** @return list<UiOnMetadata> */
     public static function bindingsFor(string $componentName): array
     {
-        $component = self::get($componentName);
-        if ($component === null) {
-            return [];
-        }
-        return array_values($component->events);
+        return self::catalog()->bindingsFor($componentName);
     }
 
     public static function registerExternal(UiExternalHandlerMetadata $metadata): void
     {
-        self::registerExternalInternal($metadata);
+        self::catalog()->registerExternal($metadata);
     }
 
     public static function getExternalBinding(
@@ -155,171 +89,43 @@ final class UiComponentRegistry
         string $partName,
         string $eventName,
     ): ?UiExternalHandlerMetadata {
-        self::initialize();
-        return self::$externalBindings[$componentName . '.' . $partName . '.' . $eventName] ?? null;
+        return self::catalog()->getExternalBinding($componentName, $partName, $eventName);
     }
 
     /** @return list<UiExternalHandlerMetadata> */
     public static function externalBindingsFor(string $componentName): array
     {
-        self::initialize();
-        return self::$externalBindingsByComponent[$componentName] ?? [];
-    }
-
-    public static function reset(): void
-    {
-        self::$byName = [];
-        self::$externalBindings = [];
-        self::$externalBindingsByComponent = [];
-        self::$initialized = false;
+        return self::catalog()->externalBindingsFor($componentName);
     }
 
     /**
-     * Reflects one handler class and registers every #[HandlesUiEvent]
-     * binding it carries. Validation is strict — any failure throws
-     * UiComponentRegistryException so boot fails loud.
-     *
      * @param class-string $handlerClass
      */
     public static function registerExternalFromClass(string $handlerClass): void
     {
-        if (!class_exists($handlerClass)) {
-            throw new UiComponentRegistryException(sprintf(
-                'Handler class %s declared #[HandlesUiEvent] but the class itself could not be loaded.',
-                $handlerClass,
-            ));
-        }
-        if (!is_subclass_of($handlerClass, UiEventHandlerInterface::class)) {
-            throw new UiComponentRegistryException(sprintf(
-                'Handler class %s declares #[HandlesUiEvent] but does not implement %s.',
-                $handlerClass,
-                UiEventHandlerInterface::class,
-            ));
-        }
-
-        $reflection = new ReflectionClass($handlerClass);
-        foreach ($reflection->getAttributes(HandlesUiEvent::class) as $attr) {
-            /** @var HandlesUiEvent $binding */
-            $binding = $attr->newInstance();
-            self::registerExternalInternal(
-                self::buildExternalMetadata($handlerClass, $binding),
-            );
-        }
+        self::catalog()->registerExternalFromClass($handlerClass);
     }
 
-    private static function buildExternalMetadata(
-        string $handlerClass,
-        HandlesUiEvent $binding,
-    ): UiExternalHandlerMetadata {
-        $componentClass = $binding->component;
-        if (!class_exists($componentClass)) {
-            throw new UiComponentRegistryException(sprintf(
-                'Handler %s declares #[HandlesUiEvent(component: %s, …)] but that class does not exist.',
-                $handlerClass,
-                $componentClass,
-            ));
-        }
-
-        $componentMetadata = self::findByClass($componentClass);
-        if ($componentMetadata === null) {
-            throw new UiComponentRegistryException(sprintf(
-                'Handler %s declares #[HandlesUiEvent(component: %s, …)] but that class is not a registered Platform UI component (missing #[AsComponent] + #[UiPart]/#[UiSlot]).',
-                $handlerClass,
-                $componentClass,
-            ));
-        }
-
-        $partName = trim($binding->part);
-        if ($partName === '' || (!isset($componentMetadata->parts[$partName]) && !isset($componentMetadata->slots[$partName]))) {
-            throw new UiComponentRegistryException(sprintf(
-                'Handler %s declares #[HandlesUiEvent(component: %s, part: "%s", …)] but no #[UiPart] or #[UiSlot] of that name is declared on the component.',
-                $handlerClass,
-                $componentClass,
-                $binding->part,
-            ));
-        }
-
-        $eventName = trim($binding->event);
-        if ($eventName === '' || preg_match(self::EVENT_NAME_PATTERN, $eventName) !== 1) {
-            throw new UiComponentRegistryException(sprintf(
-                'Handler %s declares #[HandlesUiEvent(component: %s, part: "%s", event: "%s")] with an invalid event name. Expected lowercase identifier matching /^[a-z][a-z0-9:_-]*$/ — no spaces, no Twig delimiters, no JavaScript.',
-                $handlerClass,
-                $componentClass,
-                $partName,
-                $binding->event,
-            ));
-        }
-
-        if ($binding->payload !== null && !class_exists($binding->payload)) {
-            throw new UiComponentRegistryException(sprintf(
-                'Handler %s declares #[HandlesUiEvent(component: %s, payload: %s)] but that payload class does not exist.',
-                $handlerClass,
-                $componentClass,
-                $binding->payload,
-            ));
-        }
-
-        return new UiExternalHandlerMetadata(
-            componentName: $componentMetadata->name,
-            componentClass: $componentClass,
-            partName: $partName,
-            eventName: $eventName,
-            handlerClass: $handlerClass,
-            payloadClass: $binding->payload,
-        );
-    }
-
-    private static function registerExternalInternal(UiExternalHandlerMetadata $metadata): void
+    /**
+     * Drop every registration AND the catalog itself.
+     *
+     * Tests call this between cases. Replacing the catalog rather than only
+     * clearing it also discards whatever collaborators were wired into it, so a
+     * test cannot inherit the previous one's discovery — the failure mode
+     * described in the framework's static-registry-reset note, where a reset in
+     * one test empties state for the whole process.
+     */
+    public static function reset(): void
     {
-        $component = self::$byName[$metadata->componentName] ?? null;
-        if ($component === null) {
-            throw new UiComponentRegistryException(sprintf(
-                'Handler %s targets component "%s" which is not registered.',
-                $metadata->handlerClass,
-                $metadata->componentName,
-            ));
-        }
-
-        $methodLevel = $component->event($metadata->partName, $metadata->eventName);
-        if ($methodLevel !== null) {
-            throw new UiComponentRegistryException(sprintf(
-                'Handler %s declares #[HandlesUiEvent(component: %s, part: "%s", event: "%s")] but that (part, event) pair is already bound to method %s::%s via #[UiOn]. Each (component, part, event) triple may have at most one binding.',
-                $metadata->handlerClass,
-                $metadata->componentClass,
-                $metadata->partName,
-                $metadata->eventName,
-                $methodLevel->class,
-                $methodLevel->methodName,
-            ));
-        }
-
-        $flatKey = $metadata->componentName . '.' . $metadata->key();
-        if (isset(self::$externalBindings[$flatKey])) {
-            $existing = self::$externalBindings[$flatKey];
-            if ($existing->handlerClass === $metadata->handlerClass) {
-                return;
-            }
-            throw new UiComponentRegistryException(sprintf(
-                'Duplicate #[HandlesUiEvent] binding for component "%s" part "%s" event "%s" — declared by both %s and %s.',
-                $metadata->componentName,
-                $metadata->partName,
-                $metadata->eventName,
-                $existing->handlerClass,
-                $metadata->handlerClass,
-            ));
-        }
-
-        self::$externalBindings[$flatKey] = $metadata;
-        self::$externalBindingsByComponent[$metadata->componentName][] = $metadata;
+        // Clear the catalog's state rather than dropping the catalog itself. The
+        // container wires this slot once, at worker start; replacing it with a
+        // self-created instance would leave discovery unwired for the rest of the
+        // worker's life, and an unwired catalog reads empty without erroring.
+        self::$catalog?->reset();
     }
 
-    private static function findByClass(string $componentClass): ?UiComponentMetadata
+    private static function catalog(): UiComponentCatalog
     {
-        foreach (self::$byName as $metadata) {
-            if ($metadata->class === $componentClass) {
-                return $metadata;
-            }
-        }
-        return null;
+        return self::$catalog ??= new UiComponentCatalog();
     }
 }

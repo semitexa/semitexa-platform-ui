@@ -10,11 +10,11 @@ use Semitexa\Core\Discovery\ClassDiscovery;
 use Semitexa\Core\Server\Lifecycle\ServerLifecycleContext;
 use Semitexa\Core\Server\Lifecycle\ServerLifecycleListenerInterface;
 use Semitexa\Core\Server\Lifecycle\ServerLifecyclePhase;
-use Semitexa\PlatformUi\Application\Service\Behavior\UiBehaviorMetadataFactory;
+use Semitexa\PlatformUi\Application\Service\Behavior\UiBehaviorCatalog;
 use Semitexa\PlatformUi\Application\Service\Behavior\UiBehaviorRegistry;
-use Semitexa\PlatformUi\Application\Service\Component\UiComponentMetadataFactory;
+use Semitexa\PlatformUi\Application\Service\Component\UiComponentCatalog;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
-use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveMetadataFactory;
+use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveCatalog;
 use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveRegistry;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionAuthorizer;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionAuthorizerInterface;
@@ -33,6 +33,20 @@ use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitSecurityPolicyInt
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistry;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistryInterface;
 
+/**
+ * ## Ordering contract
+ *
+ * `UiComponentRegistry`, `UiPrimitiveRegistry` and `UiBehaviorRegistry` each resolve
+ * their catalog with a `??=` fallback that constructs an unwired instance on first
+ * use. `setCatalog()` replaces that instance outright, so anything registered on a
+ * fallback before this listener runs would be silently dropped.
+ *
+ * Verified 2026-08-03: no production code registers into the three facades outside
+ * the catalogs themselves, so nothing is stranded today. A future boot-time writer
+ * has to run after this listener — `WorkerStartAfterContainer` priority `-5`, i.e.
+ * after semitexa-ssr's `WireCoreInstancesListener` at `-10` and before every
+ * `WorkerStartFinalize` listener.
+ */
 #[AsServerLifecycleListener(
     phase: ServerLifecyclePhase::WorkerStartAfterContainer->value,
     priority: -5,
@@ -42,6 +56,15 @@ final class BootPlatformUiRegistryListener implements ServerLifecycleListenerInt
 {
     #[InjectAsReadonly]
     protected ClassDiscovery $classDiscovery;
+
+    #[InjectAsReadonly]
+    protected UiComponentCatalog $componentCatalog;
+
+    #[InjectAsReadonly]
+    protected UiPrimitiveCatalog $primitiveCatalog;
+
+    #[InjectAsReadonly]
+    protected UiBehaviorCatalog $behaviorCatalog;
 
     #[InjectAsReadonly]
     protected UiFieldRuleRegistryInterface $fieldRuleRegistry;
@@ -69,19 +92,17 @@ final class BootPlatformUiRegistryListener implements ServerLifecycleListenerInt
 
     public function handle(ServerLifecycleContext $context): void
     {
-        UiPrimitiveRegistry::setClassDiscovery($this->classDiscovery);
-        UiPrimitiveRegistry::setFactory(new UiPrimitiveMetadataFactory());
+        UiPrimitiveRegistry::setCatalog($this->primitiveCatalog);
         UiPrimitiveRegistry::initialize();
 
-        UiComponentRegistry::setClassDiscovery($this->classDiscovery);
-        UiComponentRegistry::setFactory(new UiComponentMetadataFactory());
+        // The catalog arrives fully wired by the container — no setter dance.
+        UiComponentRegistry::setCatalog($this->componentCatalog);
         UiComponentRegistry::initialize();
 
         // Third tier: client-only behaviors (#[AsUiBehavior]). Same discovery
         // seam as primitives/components — dropping in an attributed class is the
         // whole registration step.
-        UiBehaviorRegistry::setClassDiscovery($this->classDiscovery);
-        UiBehaviorRegistry::setFactory(new UiBehaviorMetadataFactory());
+        UiBehaviorRegistry::setCatalog($this->behaviorCatalog);
         UiBehaviorRegistry::initialize();
 
         // Stash the container-bound rule registry so the

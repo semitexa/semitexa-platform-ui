@@ -70,6 +70,47 @@ final class UiDispatchHandlerTest extends TestCase
         }
     }
 
+    /**
+     * Produce a signed context that is provably different from the original and
+     * provably no longer verifies.
+     *
+     * The previous version did `substr($ctx, 0, -2) . 'AA'`, which is not a
+     * guaranteed change: `sign()` stamps `iat`/`exp` from `time()`, so the blob
+     * differs every second, and roughly one run in 4096 already ended in `AA` —
+     * the "tampered" value equalled the original, the signature verified, the
+     * handler correctly answered 200, and the test failed asking for 403.
+     *
+     * Flipping the LAST character would not fix it either. The MAC is 32 raw
+     * bytes, so its base64url form is 43 characters and the final one carries
+     * only 4 significant bits — two different trailing characters can decode to
+     * identical MAC bytes. The same flake, in a better disguise.
+     *
+     * So the claims segment is tampered instead: every one of its characters
+     * carries six significant bits, and any change there breaks the MAC over
+     * `version.claims`. Both properties are asserted rather than assumed, so
+     * this helper cannot silently stop tampering.
+     */
+    private function tamperWith(string $ctx): string
+    {
+        $parts = explode('.', $ctx, 3);
+        self::assertCount(3, $parts, 'a signed context is version.claims.mac');
+
+        [$version, $claims, $mac] = $parts;
+        self::assertNotSame('', $claims);
+
+        // Deterministically pick a different base64url character.
+        $claims[0] = $claims[0] === 'A' ? 'B' : 'A';
+        $tampered = $version . '.' . $claims . '.' . $mac;
+
+        self::assertNotSame($ctx, $tampered, 'the tamper must actually change the context');
+        self::assertNull(
+            SignedContext::verify($tampered),
+            'the tampered context must fail verification — otherwise this test proves nothing',
+        );
+
+        return $tampered;
+    }
+
     private function freshCtx(?string $updates = 'value', ?string $component = 'platform.field', ?string $event = 'change'): string
     {
         return SignedContext::sign([
@@ -314,7 +355,7 @@ final class UiDispatchHandlerTest extends TestCase
     public function tampered_ctx_returns_403_with_dispatch_id_echoed(): void
     {
         $ctx = $this->freshCtx();
-        $tampered = substr($ctx, 0, -2) . 'AA';
+        $tampered = $this->tamperWith($ctx);
         $dispatchId = $this->freshDispatchId();
         $body = $this->buildBody($tampered, $dispatchId, ['payload' => ['value' => 'x']]);
         $response = $this->invokeHandler($body);
