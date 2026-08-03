@@ -117,7 +117,11 @@ final class UiComponentRegistry
      */
     public static function reset(): void
     {
-        self::$catalog = null;
+        // Clear the catalog's state rather than dropping the catalog itself. The
+        // container wires this slot once, at worker start; replacing it with a
+        // self-created instance would leave discovery unwired for the rest of the
+        // worker's life, and an unwired catalog reads empty without erroring.
+        self::$catalog?->reset();
     }
 
     private static function catalog(): UiComponentCatalog

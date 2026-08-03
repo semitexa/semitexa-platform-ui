@@ -167,14 +167,35 @@ final class UiBehaviorCatalog
     /**
      * Reset (test helper).
      */
+    /**
+     * Clears discovered state only — the wiring survives, as it does on the
+     * primitive and component catalogs.
+     *
+     * This used to unset classDiscovery and factory too, which made reset()
+     * destructive in a way nothing could undo: the boot listener injects them once
+     * per worker, so a catalog reset after boot never got them back, and
+     * initialize() then quietly skipped discovery on every later read. Empty is not
+     * an error here, so that failure is silent — the same trap
+     * CatalogLateWiringTest exists to guard.
+     */
     public function reset(): void
     {
         $this->byName = [];
         $this->byUi = [];
         $this->initialized = false;
-        // unset, not `= null`: these are non-nullable typed properties now, and
-        // assigning null is a TypeError. Unsetting returns them to the
-        // uninitialized state initialize() checks with isset().
+    }
+
+    /**
+     * Return the catalog to a genuinely unwired state.
+     *
+     * Only for tests that need to exercise the pre-boot path. Unset rather than
+     * assigned null: these are non-nullable typed properties, so null is a
+     * TypeError, and unsetting restores the uninitialized state initialize()
+     * probes with isset().
+     */
+    public function resetWiring(): void
+    {
+        $this->reset();
         unset($this->classDiscovery, $this->factory);
     }
 }

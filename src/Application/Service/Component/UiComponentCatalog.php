@@ -57,6 +57,8 @@ final class UiComponentCatalog
     private array $externalBindingsByComponent = [];
 
     private bool $initialized = false;
+    /** Set while initialize() runs, so the external-binding entry points can call it safely. */
+    private bool $initializing = false;
 
     public function setClassDiscovery(ClassDiscovery $classDiscovery): void
     {
@@ -70,7 +72,11 @@ final class UiComponentCatalog
 
     public function initialize(): void
     {
-        if ($this->initialized) {
+        // $initializing keeps the discovery pass re-entrant-safe: it calls
+        // registerExternalFromClass() itself, and that method now initializes on
+        // entry so a caller registering a binding before first read gets a
+        // populated catalog rather than a bogus "component not registered".
+        if ($this->initialized || $this->initializing) {
             return;
         }
         // No ClassDiscovery wired yet? Honour any register()ed entries but skip
@@ -83,6 +89,19 @@ final class UiComponentCatalog
             return;
         }
 
+        $this->initializing = true;
+
+        try {
+            $this->runDiscovery();
+        } finally {
+            // Cleared even on a throw: a failed pass must not leave the catalog
+            // permanently refusing to initialize.
+            $this->initializing = false;
+        }
+    }
+
+    private function runDiscovery(): void
+    {
         $factory = $this->factory ?? new UiComponentMetadataFactory();
 
         // A Platform UI component is any class that declares at least one
@@ -167,6 +186,9 @@ final class UiComponentCatalog
 
     public function registerExternal(UiExternalHandlerMetadata $metadata): void
     {
+        // Without this, a binding registered before the first read reports its
+        // target component as missing when discovery would have registered it.
+        $this->initialize();
         $this->registerExternalInternal($metadata);
     }
 
@@ -203,6 +225,10 @@ final class UiComponentCatalog
      */
     public function registerExternalFromClass(string $handlerClass): void
     {
+        // A no-op when called from inside the discovery pass, which is what the
+        // $initializing guard is for.
+        $this->initialize();
+
         if (!class_exists($handlerClass)) {
             throw new UiComponentRegistryException(sprintf(
                 'Handler class %s declared #[HandlesUiEvent] but the class itself could not be loaded.',
