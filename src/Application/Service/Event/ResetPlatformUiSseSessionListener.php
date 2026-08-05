@@ -8,10 +8,11 @@ use Semitexa\Core\Attribute\AsPipelineListener;
 use Semitexa\Core\Pipeline\AuthCheck;
 use Semitexa\Core\Pipeline\PipelineListenerInterface;
 use Semitexa\Core\Pipeline\RequestPipelineContext;
+use Semitexa\Ssr\Application\Service\UiEvent\UiSseSessionState;
 
 /**
  * Clears platform-ui per-request render holders at the start of every
- * request: {@see PlatformUiSseSessionState} (the canonical SSE
+ * request: {@see UiSseSessionState} (the canonical SSE
  * subscriber channel id) and {@see PlatformUiAuthState} (the
  * auth-derived transport-mode hint).
  *
@@ -43,7 +44,7 @@ final class ResetPlatformUiSseSessionListener implements PipelineListenerInterfa
 {
     public function handle(RequestPipelineContext $context): void
     {
-        PlatformUiSseSessionState::reset();
+        UiSseSessionState::reset();
         PlatformUiAuthState::reset();
     }
 }
