@@ -9,7 +9,7 @@ use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
 use Semitexa\PlatformUi\Application\Service\Icon\IconRegistry;
 use Semitexa\PlatformUi\Application\Service\Component\UiPartPropResolver;
 use Semitexa\PlatformUi\Application\Service\Event\PlatformUiAuthState;
-use Semitexa\PlatformUi\Application\Service\Event\PlatformUiSseSessionState;
+use Semitexa\Ssr\Application\Service\UiEvent\UiSseSessionState;
 use Semitexa\PlatformUi\Application\Service\Event\PlatformUiTransportModePolicy;
 use Semitexa\PlatformUi\Application\Service\Event\UiEventManifestBuilder;
 use Semitexa\PlatformUi\Application\Service\Event\UiInstanceIdGenerator;
@@ -337,7 +337,7 @@ final class PlatformUiTwigExtension
                     instanceId: $instanceId,
                     ttlSeconds: $ttlSeconds,
                     eventConfig: $eventConfig,
-                    subscriberChannelId: PlatformUiSseSessionState::current(),
+                    subscriberChannelId: UiSseSessionState::current(),
                     dataProviderClass: $dp,
                     externalBindings: UiComponentRegistry::externalBindingsFor($metadata->name),
                 );
@@ -725,7 +725,7 @@ final class PlatformUiTwigExtension
          */
         TwigExtensionRegistry::registerFunction(
             'ui_page_sse_session',
-            static fn (): string => PlatformUiSseSessionState::mintIfAbsent(),
+            static fn (): string => UiSseSessionState::mintIfAbsent(),
         );
 
         /**
@@ -781,7 +781,7 @@ final class PlatformUiTwigExtension
                 // PlatformUiTransportModePolicy itself pure and auth-agnostic.
                 $resolved = (new PlatformUiTransportModePolicy())
                     ->resolve($mode, PlatformUiAuthState::current());
-                $id = PlatformUiSseSessionState::mintIfAbsent();
+                $id = UiSseSessionState::mintIfAbsent();
                 $idAttr = htmlspecialchars($id, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
                 $modeAttr = htmlspecialchars($resolved->value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
                 return new Markup(

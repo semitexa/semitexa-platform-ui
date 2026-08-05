@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Event;
 
 use Semitexa\Core\Support\CoroutineLocal;
+use Semitexa\Ssr\Application\Service\UiEvent\UiSseSessionState;
 
 /**
  * Per-request holder for the current request's authentication state,
@@ -35,7 +36,7 @@ use Semitexa\Core\Support\CoroutineLocal;
  * over the auth-derived default — see
  * {@see PlatformUiTransportModePolicy::resolve()}.
  *
- * COROUTINE-LOCAL, like {@see PlatformUiSseSessionState}: a Swoole worker
+ * COROUTINE-LOCAL, like {@see UiSseSessionState}: a Swoole worker
  * serves many requests concurrently on separate coroutines, so a plain
  * process-static would be SHARED — an authenticated request A's `true`
  * would be observable by a concurrent guest request B and silently
