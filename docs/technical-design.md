@@ -1,3 +1,10 @@
+<!-- docs-lint-ignore-file -->
+
+> **Design record.** This document describes a target state, written before
+> the module was built. Parts of it shipped, parts of it did not, and the
+> commands and attributes under "Proposed" headings do not exist. For what
+> the module actually does today, read the hub pages listed in `README.md`.
+
 # Next-Generation Semitexa UI Module Technical Design
 
 ## 1. Executive summary

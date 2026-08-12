@@ -1,46 +1,34 @@
 # platform-ui docs
 
-Technical documentation for `semitexa/platform-ui` — grammar, primitives, and the skin-generation domain (algorithms, tokens, LLM prompt resolution).
+The user documentation for this module lives in the documentation hub
+(`semitexa/docs`), served at `/docs`. This folder keeps only the design
+records that describe how the module got here.
 
-> **Note:** the `skins:generate` / `skins:refine` / `skins:explain-prompt` CLI commands ship in a sibling package, **`semitexa/skins-base`**. platform-ui owns the algorithms + token contract + LLM library; skins-base owns the CLI + the single framework-default skin. Projects generate skins into their own `src/skins/` directory, served via `SkinDiscovery` in `semitexa/theme`.
+## Where the documentation went
 
-- **[grammar.md](grammar.md)** — `sx-*` / `ui-*` attribute reference, 9 domains, 43 slices
-- **[primitives.md](primitives.md)** — 6 primitives (button, input, label, field-shell, surface, badge) with variants/tones/sizes
-- **[technical-design.md](technical-design.md)** — next-generation framework-native UI declaration architecture
-- **[framework-layer-improvements.md](framework-layer-improvements.md)** — prerequisite Semitexa Framework changes for the next-generation UI module
-- **[skin-generation.md](skin-generation.md)** — v2 generator: 3 algorithms, 41 tokens, light+dark modes, token contract, manifest schema
-- **[skin-algorithms.md](skin-algorithms.md)** — per-algorithm knob reference (balanced/glass/brutalist) + how to add a fourth
-- **[skin-refinement.md](skin-refinement.md)** — `skin:refine` flow: LLM deltas vs `--set`, fork vs overwrite, v1 migration, history audit trail
-- **[ssr-integration.md](ssr-integration.md)** — static bundles today, dynamic per-route (pending hook)
-- **[llm-prompt.md](llm-prompt.md)** — shipped system prompt (with dynamic algorithm sections) + validator contract for external LLM integrations
-- **[skill-contract.md](skill-contract.md)** — `#[AsAiSkill]` usage and internal LLM consumption
+| Subject | Page |
+|---|---|
+| The `ui="..."` primitive vocabulary and its runtime | `rendering/ui-primitives` |
+| `UiPart` / `UiSlot`, part props, `bind`, slots | `rendering/ui-composition` |
+| `#[UiOn]`, the signed event manifest, dispatch, SSE | `rendering/ui-events` |
+| `platform.form`, the submit pipeline, playground | `rendering/ui-forms` |
+| The attribute grammar | `rendering/ui-grammar` |
+| Sitting on top of the SSR module | `rendering/ui-ssr-integration` |
+| The server-side field rules DSL | `validation/ui-field-validation` |
+| Generating, tuning and refining skins | `platform/skin-generation`, `platform/skin-algorithms`, `platform/skin-refinement` |
+| `#[AsAiSkill]` and the prompt surface | `llm/skill-contract`, `llm/prompt-reference` |
 
-## Quick reference — CLI
+Every attribute and command this module defines is also listed, generated
+from the source, in `reference/attributes-platformui.md` and
+`reference/commands-platform-ui.md`.
 
-```bash
-# Generate — deterministic (seed mode)
-skins:generate <algo> <hex> [--name --mode=light|dark --knob=name:value --write]
+## What stays here
 
-# Generate — LLM-assisted (prompt mode). --algorithm / --knob / --mode override the LLM
-skins:generate --prompt="<text>" [--name --algorithm=<id> --mode=light|dark --write]
+| File | What it is |
+|---|---|
+| `technical-design.md` | The design that shaped the module. Describes a target state; not all of it shipped. |
+| `transport-architecture.md` | ADR-0001, the transport unification decision. |
+| `framework-layer-improvements.md` | Framework changes the module asked for. |
 
-# Refine an existing skin — LLM deltas OR structured
-skins:refine <slug> --prompt="<text>" [--as=<new-slug> --write]
-skins:refine <slug> --set=name:value [--set=… --as=<new-slug> --write]
-
-# Introspect
-skins:generate --describe                      # all algorithms + knob schemas
-skins:explain-prompt "<text>"                  # preview LLM resolution, no CSS emission
-
-# CSS
-platform-ui:css:build                                     # precompile full.css, baseline.css
-platform-ui:css:inspect <template>                        # scan usage, report slices + bundle size
-platform-ui:css:explain <slice-id|primitive-id>           # CSS, layer, tokens referenced
-
-# Eval
-platform-ui:eval:run [--fail-threshold=0.8]               # run prompt-resolution eval corpus
-```
-
-## Architecture one-liner
-
-`sx-*` / `ui-*` attributes + multi-algorithm OKLCH skin engine (balanced / glass / brutalist, light + dark, 41 design tokens, knob-tuned, LLM-assisted or deterministic) + 6 primitives + per-request slice compilation → per-route CSS bundles typically under 3KB gzipped.
+These are historical records, not instructions. Where they disagree with the
+hub, the hub is right.

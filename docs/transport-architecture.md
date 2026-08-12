@@ -12,7 +12,7 @@
 
 **Status**: ~~Proposed~~ → **Implemented (streaming unified on `/__semitexa_kiss`; `/__ui/stream` + `/sse` retired)**.
 **Owners**: framework (semitexa-ssr) + platform-ui (semitexa-platform-ui).
-**Companion docs**: `packages/semitexa-platform-ui/docs/primitives.md` (component-side details), `vendor/semitexa/ssr/src/Application/Handler/PayloadHandler/UiEventEndpointHandler.php` (foundation handler docblock — "Step-1 scope … later steps").
+**Companion docs**: the hub pages `rendering/ui-composition` and `rendering/ui-events` (component-side details), `vendor/semitexa/ssr/src/Application/Handler/PayloadHandler/UiEventEndpointHandler.php` (foundation handler docblock — "Step-1 scope … later steps").
 **Supersedes (eventually)**: every reference to `POST /__ui/dispatch` and `GET /__ui/stream` as *primary* transport in `primitives.md`. Both endpoints stay during migration but become temporary compatibility layers, never the long-term target.
 
 > Location note: this ADR lives in `packages/semitexa-platform-ui/docs/` because that's where the duplicate transports were introduced and where the platform.grid runtime + dispatcher overlay live. The framework changes the ADR proposes (handler resolution on `/__ui/event`, typed messages on `/__semitexa_kiss`) will need a mirror entry in `semitexa-ssr` once the framework slice begins.
