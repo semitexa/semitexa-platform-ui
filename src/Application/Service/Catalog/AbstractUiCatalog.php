@@ -95,6 +95,26 @@ abstract class AbstractUiCatalog
      */
     protected function registerInternal(UiCatalogEntryInterface $metadata): void
     {
+        // Cross-index collisions (a name equal to another entry's alias, in
+        // either insertion order) would make get() and getByUi() disagree
+        // about who owns the string — get() checks byName first. Reject them
+        // outright. An entry whose OWN ui equals its name stays legal, and the
+        // !== guards keep that case (and idempotent re-registration) flowing
+        // into the byName check below instead of double-reporting here.
+        if (
+            isset($this->byUi[$metadata->name])
+            && $this->byUi[$metadata->name] !== $metadata->name
+        ) {
+            $owner = $this->byUi[$metadata->name];
+            throw $this->duplicateException(sprintf(
+                'UI %s name "%s" conflicts with the alias already used by "%s" (declared by %s).',
+                $this->kind(),
+                $metadata->name,
+                $owner,
+                $this->byName[$owner]->class,
+            ));
+        }
+
         if (isset($this->byName[$metadata->name])) {
             $existing = $this->byName[$metadata->name];
             if ($existing->class === $metadata->class) {
@@ -107,6 +127,19 @@ abstract class AbstractUiCatalog
                 $metadata->name,
                 $existing->class,
                 $metadata->class,
+            ));
+        }
+
+        if (
+            isset($this->byName[$metadata->ui])
+            && $metadata->ui !== $metadata->name
+        ) {
+            $owner = $this->byName[$metadata->ui];
+            throw $this->duplicateException(sprintf(
+                'UI %s alias "%s" conflicts with the name already declared by %s.',
+                $this->kind(),
+                $metadata->ui,
+                $owner->class,
             ));
         }
 

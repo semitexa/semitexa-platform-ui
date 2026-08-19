@@ -47,6 +47,40 @@ final class UiPrimitiveCatalog extends AbstractUiCatalog
         $this->registerInternal($metadata);
     }
 
+
+    /**
+     * Covariant native return types: the base implements the mechanics, but
+     * this catalog's public API keeps promising concrete metadata — injected
+     * callers and tooling that read the language-level signature (not the
+     * generics) lose nothing to the extraction.
+     */
+    public function get(string $nameOrAlias): ?PrimitiveMetadata
+    {
+        /** @var ?PrimitiveMetadata */
+        return parent::get($nameOrAlias);
+    }
+
+    public function getByName(string $name): ?PrimitiveMetadata
+    {
+        /** @var ?PrimitiveMetadata */
+        return parent::getByName($name);
+    }
+
+    public function getByUi(string $ui): ?PrimitiveMetadata
+    {
+        /** @var ?PrimitiveMetadata */
+        return parent::getByUi($ui);
+    }
+
+    /**
+     * @return list<PrimitiveMetadata>
+     */
+    public function all(): array
+    {
+        /** @var list<PrimitiveMetadata> */
+        return parent::all();
+    }
+
     protected function attribute(): string
     {
         return AsUiPrimitive::class;

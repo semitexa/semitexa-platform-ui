@@ -47,6 +47,40 @@ final class UiBehaviorCatalog extends AbstractUiCatalog
         $this->registerInternal($metadata);
     }
 
+
+    /**
+     * Covariant native return types: the base implements the mechanics, but
+     * this catalog's public API keeps promising concrete metadata — injected
+     * callers and tooling that read the language-level signature (not the
+     * generics) lose nothing to the extraction.
+     */
+    public function get(string $nameOrAlias): ?BehaviorMetadata
+    {
+        /** @var ?BehaviorMetadata */
+        return parent::get($nameOrAlias);
+    }
+
+    public function getByName(string $name): ?BehaviorMetadata
+    {
+        /** @var ?BehaviorMetadata */
+        return parent::getByName($name);
+    }
+
+    public function getByUi(string $ui): ?BehaviorMetadata
+    {
+        /** @var ?BehaviorMetadata */
+        return parent::getByUi($ui);
+    }
+
+    /**
+     * @return list<BehaviorMetadata>
+     */
+    public function all(): array
+    {
+        /** @var list<BehaviorMetadata> */
+        return parent::all();
+    }
+
     protected function attribute(): string
     {
         return AsUiBehavior::class;
