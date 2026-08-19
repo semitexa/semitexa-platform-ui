@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Domain\Model\Behavior;
 
+use Semitexa\PlatformUi\Domain\Contract\UiCatalogEntryInterface;
+
 /**
  * Immutable discovered-behavior metadata.
  *
@@ -17,7 +19,7 @@ namespace Semitexa\PlatformUi\Domain\Model\Behavior;
  *   - $ui alias       (e.g. "dropdown")          — the value used in
  *                                                  `ui-behavior="dropdown"` markup.
  */
-final readonly class BehaviorMetadata
+final readonly class BehaviorMetadata implements UiCatalogEntryInterface
 {
     /**
      * @param list<UiBehaviorOption> $options
