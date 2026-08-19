@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Behavior;
 
 use Semitexa\Core\Attribute\AsService;
-use Semitexa\Core\Attribute\InjectAsReadonly;
-use Semitexa\Core\Discovery\ClassDiscovery;
+use Semitexa\PlatformUi\Application\Service\Catalog\AbstractUiCatalog;
 use Semitexa\PlatformUi\Attribute\AsUiBehavior;
+use Semitexa\PlatformUi\Domain\Contract\UiCatalogEntryInterface;
 use Semitexa\PlatformUi\Domain\Exception\BehaviorRegistryException;
 use Semitexa\PlatformUi\Domain\Model\Behavior\BehaviorMetadata;
 
@@ -18,65 +18,25 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\BehaviorMetadata;
  * {@see UiBehaviorRegistry} remains a static shim over it for callers that cannot
  * receive an injection.
  *
- * Extracted by ep-kill-static-facades, which counted nine facades; this is the
- * eleventh/twelfth. Like its siblings it carried TWO wired slots plus an
- * initialize(), and that three-call incantation was written out verbatim in both
- * BootPlatformUiRegistryListener and CatalogCommand — miss one call and the
- * catalog is silently half-built.
+ * All catalog mechanics live in {@see AbstractUiCatalog}; this class owns only
+ * what is genuinely behavior-shaped — the attribute, the factory, the
+ * exception, the typed entry points, and the pre-boot test helper.
+ *
+ * @extends AbstractUiCatalog<BehaviorMetadata>
  */
 #[AsService]
-final class UiBehaviorCatalog
+final class UiBehaviorCatalog extends AbstractUiCatalog
 {
-    #[InjectAsReadonly]
-    protected ClassDiscovery $classDiscovery;
-
     /**
      * Not injected: UiBehaviorMetadataFactory has no container binding — every
-     * caller has always built it with new. Settable, with initialize() falling
+     * caller has always built it with new. Settable, with discovery falling
      * back to constructing one.
      */
     protected UiBehaviorMetadataFactory $factory;
 
-    /** @var array<string, BehaviorMetadata> */
-    private array $byName = [];
-
-    /** @var array<string, string> */
-    private array $byUi = [];
-
-    private bool $initialized = false;
-
-    public function setClassDiscovery(ClassDiscovery $classDiscovery): void
-    {
-        $this->classDiscovery = $classDiscovery;
-    }
-
     public function setFactory(UiBehaviorMetadataFactory $factory): void
     {
         $this->factory = $factory;
-    }
-
-    public function initialize(): void
-    {
-        if ($this->initialized) {
-            return;
-        }
-
-        // No ClassDiscovery wired yet? Honour any register()ed entries but skip
-        // attribute discovery — WITHOUT latching $initialized, so a later
-        // initialize() after the boot listener wires ClassDiscovery can still
-        // run the discovery pass (get()/has()/all() lazily call initialize()).
-        if (!isset($this->classDiscovery)) {
-            return;
-        }
-
-        $factory = $this->factory ?? new UiBehaviorMetadataFactory();
-        $classes = $this->classDiscovery->findClassesWithAttribute(AsUiBehavior::class);
-
-        foreach ($classes as $class) {
-            $this->registerInternal($factory->fromClass($class));
-        }
-
-        $this->initialized = true;
     }
 
     /**
@@ -87,102 +47,24 @@ final class UiBehaviorCatalog
         $this->registerInternal($metadata);
     }
 
-    private function registerInternal(BehaviorMetadata $metadata): void
+    protected function attribute(): string
     {
-        if (isset($this->byName[$metadata->name])) {
-            $existing = $this->byName[$metadata->name];
-            if ($existing->class === $metadata->class) {
-                return;
-            }
-
-            throw new BehaviorRegistryException(sprintf(
-                'Duplicate UI behavior name "%s" — declared by %s and %s.',
-                $metadata->name,
-                $existing->class,
-                $metadata->class,
-            ));
-        }
-
-        if (isset($this->byUi[$metadata->ui])) {
-            $owner = $this->byUi[$metadata->ui];
-            throw new BehaviorRegistryException(sprintf(
-                'Duplicate UI behavior alias "%s" — already used by "%s" (declared by %s), conflict comes from %s.',
-                $metadata->ui,
-                $owner,
-                $this->byName[$owner]->class,
-                $metadata->class,
-            ));
-        }
-
-        $this->byName[$metadata->name] = $metadata;
-        $this->byUi[$metadata->ui] = $metadata->name;
+        return AsUiBehavior::class;
     }
 
-    public function get(string $nameOrAlias): ?BehaviorMetadata
+    protected function kind(): string
     {
-        $this->initialize();
-
-        if (isset($this->byName[$nameOrAlias])) {
-            return $this->byName[$nameOrAlias];
-        }
-
-        if (isset($this->byUi[$nameOrAlias])) {
-            return $this->byName[$this->byUi[$nameOrAlias]];
-        }
-
-        return null;
+        return 'behavior';
     }
 
-    public function getByName(string $name): ?BehaviorMetadata
+    protected function metadataFromClass(string $class): UiCatalogEntryInterface
     {
-        $this->initialize();
-
-        return $this->byName[$name] ?? null;
+        return ($this->factory ?? new UiBehaviorMetadataFactory())->fromClass($class);
     }
 
-    public function getByUi(string $ui): ?BehaviorMetadata
+    protected function duplicateException(string $message): \LogicException
     {
-        $this->initialize();
-
-        $name = $this->byUi[$ui] ?? null;
-
-        return $name !== null ? $this->byName[$name] : null;
-    }
-
-    public function has(string $nameOrAlias): bool
-    {
-        return $this->get($nameOrAlias) !== null;
-    }
-
-    /**
-     * @return list<BehaviorMetadata>
-     */
-    public function all(): array
-    {
-        $this->initialize();
-
-        return array_values($this->byName);
-    }
-
-    /**
-     * Reset (test helper).
-     */
-    /**
-     * Clears discovered state only — the wiring survives, as it does on the
-     * primitive and component catalogs.
-     *
-     * This used to unset classDiscovery and factory too, which made reset()
-     * destructive in a way nothing could undo: the boot listener injects them once
-     * per worker, so a catalog reset after boot never got them back, and
-     * initialize() then quietly skipped discovery on every later read. Empty is not
-     * an error here, so that failure is silent — the same trap
-     * CatalogLateWiringTest exists to guard.
-     */
-    public function reset(): void
-    {
-        $this->byName = [];
-        $this->byUi = [];
-        $this->initialized = false;
+        return new BehaviorRegistryException($message);
     }
 
     /**

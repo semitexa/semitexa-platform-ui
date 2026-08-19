@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Domain\Model\Primitive;
 
+use Semitexa\PlatformUi\Domain\Contract\UiCatalogEntryInterface;
+
 /**
  * Immutable discovered-primitive metadata.
  *
@@ -11,7 +13,7 @@ namespace Semitexa\PlatformUi\Domain\Model\Primitive;
  * Holds the canonical $name, the CSS/markup $ui alias, the (optional)
  * template/script/style asset references, and any declared event capabilities.
  */
-final readonly class PrimitiveMetadata
+final readonly class PrimitiveMetadata implements UiCatalogEntryInterface
 {
     public function __construct(
         public string $class,
