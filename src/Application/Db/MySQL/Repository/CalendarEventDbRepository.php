@@ -13,6 +13,7 @@ use Semitexa\Orm\Query\Direction;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
 use Semitexa\PlatformUi\Application\Db\MySQL\Model\CalendarEventResource;
+use Semitexa\PlatformUi\Domain\Model\CalendarEvent;
 use Semitexa\PlatformUi\Domain\Contract\CalendarEventRepositoryInterface;
 
 /**
@@ -71,28 +72,28 @@ final class CalendarEventDbRepository implements CalendarEventRepositoryInterfac
             ->orderBy(CalendarEventResource::column('starts_at'), Direction::Asc);
         $this->applyUserScope($query, $userId);
 
-        /** @var list<CalendarEventResource> $rows */
-        $rows = $query->fetchAllAs(CalendarEventResource::class, $this->orm()->getMapperRegistry());
+        /** @var list<CalendarEvent> $rows */
+        $rows = $query->fetchAllAs(CalendarEvent::class, $this->orm()->getMapperRegistry());
 
         return $rows;
     }
 
-    public function findById(string $id): ?CalendarEventResource
+    public function findById(string $id): ?CalendarEvent
     {
-        /** @var CalendarEventResource|null $resource */
+        /** @var CalendarEvent|null $resource */
         $resource = $this->scoped()->query()
             ->where(CalendarEventResource::column('id'), Operator::Equals, $id)
-            ->fetchOneAs(CalendarEventResource::class, $this->orm()->getMapperRegistry());
+            ->fetchOneAs(CalendarEvent::class, $this->orm()->getMapperRegistry());
 
         return $resource;
     }
 
-    public function insert(CalendarEventResource $event): void
+    public function insert(CalendarEvent $event): void
     {
         $this->scoped()->insert($this->stamped($event));
     }
 
-    public function update(CalendarEventResource $event): void
+    public function update(CalendarEvent $event): void
     {
         $this->scoped()->update($this->stamped($event));
     }
@@ -108,11 +109,26 @@ final class CalendarEventDbRepository implements CalendarEventRepositoryInterfac
     }
 
     /** Every persisted row is owned: stamp the ambient tenant when absent. */
-    private function stamped(CalendarEventResource $event): CalendarEventResource
+    private function stamped(CalendarEvent $event): CalendarEvent
     {
-        return $event->tenant_id === null
-            ? $event->copyWith(['tenant_id' => $this->currentTenantId(), 'updated_at' => $event->updated_at])
-            : $event;
+        if ($event->getTenantId() !== null) {
+            return $event;
+        }
+
+        return new CalendarEvent(
+            id: $event->getId(),
+            tenantId: $this->currentTenantId(),
+            userId: $event->getUserId(),
+            title: $event->getTitle(),
+            startsAt: $event->getStartsAt(),
+            endsAt: $event->getEndsAt(),
+            allDay: $event->isAllDay(),
+            location: $event->getLocation(),
+            notes: $event->getNotes(),
+            color: $event->getColor(),
+            createdAt: $event->getCreatedAt(),
+            updatedAt: $event->getUpdatedAt(),
+        );
     }
 
     /**
@@ -145,7 +161,7 @@ final class CalendarEventDbRepository implements CalendarEventRepositoryInterfac
 
     private function repository(): DomainRepository
     {
-        return $this->repository ??= $this->orm()->repository(CalendarEventResource::class, CalendarEventResource::class);
+        return $this->repository ??= $this->orm()->repository(CalendarEventResource::class, CalendarEvent::class);
     }
 
     private function orm(): OrmManager

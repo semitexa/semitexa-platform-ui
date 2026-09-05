@@ -13,6 +13,7 @@ use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
 use Semitexa\PlatformUi\Application\Db\MySQL\Model\FormCollabDraftResource;
+use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraft;
 use Semitexa\PlatformUi\Domain\Contract\FormCollabDraftStoreInterface;
 use Semitexa\PlatformUi\Domain\Exception\FormDraftVersionConflictException;
 use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
@@ -116,23 +117,23 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
     {
         $resource = $this->findByScope($scopeKey);
 
-        return $resource === null ? null : self::toState($resource);
+        return $resource?->toState();
     }
 
     public function open(string $scopeKey, array $seedValues, ?string $actor): FormCollabDraftState
     {
         $existing = $this->findByScope($scopeKey);
         if ($existing !== null) {
-            return self::toState($existing);
+            return $existing->toState();
         }
 
-        return self::toState($this->insertDraft($scopeKey, $seedValues, 1, $actor));
+        return $this->insertDraft($scopeKey, $seedValues, 1, $actor)->toState();
     }
 
     public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor): FormCollabDraftState
     {
         $existing = $this->findByScope($scopeKey);
-        $currentVersion = $existing?->version ?? 0;
+        $currentVersion = $existing?->getVersion() ?? 0;
 
         if ($currentVersion !== $expectedVersion) {
             throw new FormDraftVersionConflictException($scopeKey, $expectedVersion, $currentVersion);
@@ -140,36 +141,36 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
 
         if ($existing === null) {
             // expectedVersion === 0 → first write seeds the draft at version 1.
-            return self::toState($this->insertDraft($scopeKey, $values, 1, $actor));
+            return $this->insertDraft($scopeKey, $values, 1, $actor)->toState();
         }
 
-        return self::toState($this->updateDraft($existing, $values, $currentVersion + 1, $actor));
+        return $this->updateDraft($existing, $values, $currentVersion + 1, $actor)->toState();
     }
 
     public function mergeFields(string $scopeKey, array $partialValues, ?string $actor): FormCollabDraftState
     {
         $existing = $this->findByScope($scopeKey);
         if ($existing === null) {
-            return self::toState($this->insertDraft($scopeKey, $partialValues, 1, $actor));
+            return $this->insertDraft($scopeKey, $partialValues, 1, $actor)->toState();
         }
 
-        $merged = self::decodeValues($existing);
+        $merged = $existing->getValues();
         foreach ($partialValues as $field => $value) {
             $merged[$field] = $value;
         }
 
-        return self::toState($this->updateDraft($existing, $merged, $existing->version + 1, $actor));
+        return $this->updateDraft($existing, $merged, $existing->getVersion() + 1, $actor)->toState();
     }
 
-    private function findByScope(string $scopeKey): ?FormCollabDraftResource
+    private function findByScope(string $scopeKey): ?FormCollabDraft
     {
         // Scope to the owning tenant so the same scope_key under another tenant
         // is never read. Default/single-tenant rows carry the 'default' sentinel.
-        /** @var FormCollabDraftResource|null $resource */
+        /** @var FormCollabDraft|null $resource */
         $resource = $this->repository()->query()
             ->where(FormCollabDraftResource::column('scope_key'), Operator::Equals, $scopeKey)
             ->where(FormCollabDraftResource::column('tenant_id'), Operator::Equals, $this->currentTenantId())
-            ->fetchOneAs(FormCollabDraftResource::class, $this->orm()->getMapperRegistry());
+            ->fetchOneAs(FormCollabDraft::class, $this->orm()->getMapperRegistry());
 
         return $resource;
     }
@@ -177,43 +178,43 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
     /**
      * @param array<string, scalar|null> $values
      */
-    private function insertDraft(string $scopeKey, array $values, int $version, ?string $actor): FormCollabDraftResource
+    private function insertDraft(string $scopeKey, array $values, int $version, ?string $actor): FormCollabDraft
     {
-        $resource = new FormCollabDraftResource(
-            id:          self::mintId(),
-            tenant_id:   $this->currentTenantId(),
-            scope_key:   $scopeKey,
-            values_json: self::encodeValues($values),
-            version:     $version,
-            updated_by:  $actor,
-            updated_at:  new \DateTimeImmutable(),
+        $draft = new FormCollabDraft(
+            id:        self::mintId(),
+            tenantId:  $this->currentTenantId(),
+            scopeKey:  $scopeKey,
+            values:    $values,
+            version:   $version,
+            updatedBy: $actor,
+            updatedAt: new \DateTimeImmutable(),
         );
-        $this->repository()->insert($resource);
+        $this->repository()->insert($draft);
 
-        return $resource;
+        return $draft;
     }
 
     /**
      * @param array<string, scalar|null> $values
      */
-    private function updateDraft(FormCollabDraftResource $existing, array $values, int $version, ?string $actor): FormCollabDraftResource
+    private function updateDraft(FormCollabDraft $existing, array $values, int $version, ?string $actor): FormCollabDraft
     {
-        $resource = new FormCollabDraftResource(
-            id:          $existing->id,
+        $draft = new FormCollabDraft(
+            id:        $existing->getId(),
             // Normalise to the current tenant so a legacy row written before
             // the tenant_id column existed (NULL) heals to the 'default'
             // sentinel instead of staying NULL forever and slipping past the
             // (tenant_id, scope_key) uniqueness guarantee.
-            tenant_id:   $this->currentTenantId(),
-            scope_key:   $existing->scope_key,
-            values_json: self::encodeValues($values),
-            version:     $version,
-            updated_by:  $actor,
-            updated_at:  new \DateTimeImmutable(),
+            tenantId:  $this->currentTenantId(),
+            scopeKey:  $existing->getScopeKey(),
+            values:    $values,
+            version:   $version,
+            updatedBy: $actor,
+            updatedAt: new \DateTimeImmutable(),
         );
-        $this->repository()->update($resource);
+        $this->repository()->update($draft);
 
-        return $resource;
+        return $draft;
     }
 
     private static function mintId(): string
@@ -221,54 +222,11 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
         return 'fcd_' . bin2hex(random_bytes(8));
     }
 
-    /**
-     * @param array<string, scalar|null> $values
-     */
-    private static function encodeValues(array $values): string
-    {
-        return json_encode($values, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
-    }
-
-    /**
-     * @return array<string, scalar|null>
-     */
-    private static function decodeValues(FormCollabDraftResource $resource): array
-    {
-        $values = [];
-        try {
-            /** @var mixed $decoded */
-            $decoded = json_decode($resource->values_json, true, 16, JSON_THROW_ON_ERROR);
-            if (is_array($decoded)) {
-                foreach ($decoded as $key => $value) {
-                    if (is_string($key) && (is_scalar($value) || $value === null)) {
-                        $values[$key] = $value;
-                    }
-                }
-            }
-        } catch (\JsonException) {
-            // Corrupted row → empty values; the draft surface stays safe.
-            $values = [];
-        }
-
-        return $values;
-    }
-
-    private static function toState(FormCollabDraftResource $resource): FormCollabDraftState
-    {
-        return new FormCollabDraftState(
-            scopeKey:  $resource->scope_key,
-            values:    self::decodeValues($resource),
-            version:   $resource->version,
-            updatedBy: $resource->updated_by,
-            updatedAt: $resource->updated_at->getTimestamp(),
-        );
-    }
-
     private function repository(): DomainRepository
     {
         return $this->repository ??= $this->orm()->repository(
             FormCollabDraftResource::class,
-            FormCollabDraftResource::class,
+            FormCollabDraft::class,
         );
     }
 

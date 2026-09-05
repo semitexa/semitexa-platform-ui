@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service;
 
-use Semitexa\PlatformUi\Application\Db\MySQL\Model\CalendarEventResource;
+use Semitexa\PlatformUi\Domain\Model\CalendarEvent;
 
 /**
- * Serialises a {@see CalendarEventResource} into the wire shape the calendar
+ * Serialises a {@see CalendarEvent} into the wire shape the calendar
  * runtime (and any other consumer, e.g. the OS planner) reads. Single source of
  * truth for the event JSON contract.
  */
@@ -16,17 +16,17 @@ final class CalendarEventView
     /**
      * @return array{id: string, title: string, starts_at: string, ends_at: string, all_day: bool, location: ?string, notes: ?string, color: ?string}
      */
-    public static function toArray(CalendarEventResource $event): array
+    public static function toArray(CalendarEvent $event): array
     {
         return [
-            'id' => $event->id,
-            'title' => $event->title,
-            'starts_at' => $event->starts_at->format('c'),
-            'ends_at' => $event->ends_at->format('c'),
-            'all_day' => $event->all_day === 1,
-            'location' => $event->location,
-            'notes' => $event->notes,
-            'color' => $event->color,
+            'id' => $event->getId(),
+            'title' => $event->getTitle(),
+            'starts_at' => $event->getStartsAt()->format('c'),
+            'ends_at' => $event->getEndsAt()->format('c'),
+            'all_day' => $event->isAllDay(),
+            'location' => $event->getLocation(),
+            'notes' => $event->getNotes(),
+            'color' => $event->getColor(),
         ];
     }
 }
