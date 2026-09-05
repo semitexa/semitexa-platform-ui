@@ -11,6 +11,7 @@ use Semitexa\Orm\Query\Direction;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
 use Semitexa\PlatformUi\Application\Db\MySQL\Model\UiFormDemoSubmissionResource;
+use Semitexa\PlatformUi\Domain\Model\UiFormDemoSubmission;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormDatabaseDemoSubmissionRepositoryInterface;
 use Semitexa\PlatformUi\Domain\Exception\UiFormDemoSubmissionCursorException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFormDemoSubmissionCursor;
@@ -63,21 +64,20 @@ final class UiFormDemoSubmissionDbRepository implements UiFormDatabaseDemoSubmis
 
     public function save(UiFormDemoSubmissionRecord $record): string
     {
-        $resource = self::toResource($record);
-        $this->repository()->insert($resource);
+        $this->repository()->insert(self::toSubmission($record));
         return $record->id;
     }
 
     public function find(string $id): ?UiFormDemoSubmissionRecord
     {
-        /** @var UiFormDemoSubmissionResource|null $resource */
-        $resource = $this->repository()->query()
+        /** @var UiFormDemoSubmission|null $submission */
+        $submission = $this->repository()->query()
             ->where(UiFormDemoSubmissionResource::column('id'), Operator::Equals, $id)
-            ->fetchOneAs(UiFormDemoSubmissionResource::class, $this->orm()->getMapperRegistry());
-        if ($resource === null) {
+            ->fetchOneAs(UiFormDemoSubmission::class, $this->orm()->getMapperRegistry());
+        if ($submission === null) {
             return null;
         }
-        return self::toRecord($resource);
+        return self::toRecord($submission);
     }
 
     public function recent(int $limit = UiFormDatabaseDemoSubmissionRepositoryInterface::DEFAULT_RECENT_LIMIT): array
@@ -179,20 +179,20 @@ final class UiFormDemoSubmissionDbRepository implements UiFormDatabaseDemoSubmis
             }
         }
 
-        /** @var list<UiFormDemoSubmissionResource> $resources */
-        $resources = $query->fetchAllAs(
-            UiFormDemoSubmissionResource::class,
+        /** @var list<UiFormDemoSubmission> $submissions */
+        $submissions = $query->fetchAllAs(
+            UiFormDemoSubmission::class,
             $this->orm()->getMapperRegistry(),
         );
 
-        $hasMore = count($resources) > $clamped;
+        $hasMore = count($submissions) > $clamped;
         if ($hasMore) {
-            $resources = array_slice($resources, 0, $clamped);
+            $submissions = array_slice($submissions, 0, $clamped);
         }
 
         $records = [];
-        foreach ($resources as $resource) {
-            $records[] = self::toRecord($resource);
+        foreach ($submissions as $submission) {
+            $records[] = self::toRecord($submission);
         }
 
         $nextCursor = ($hasMore && $records !== [])
@@ -242,7 +242,7 @@ final class UiFormDemoSubmissionDbRepository implements UiFormDatabaseDemoSubmis
     {
         return $this->repository ??= $this->orm()->repository(
             UiFormDemoSubmissionResource::class,
-            UiFormDemoSubmissionResource::class,
+            UiFormDemoSubmission::class,
         );
     }
 
@@ -260,47 +260,68 @@ final class UiFormDemoSubmissionDbRepository implements UiFormDatabaseDemoSubmis
         return $this->orm ??= new OrmManager();
     }
 
-    private static function toResource(UiFormDemoSubmissionRecord $record): UiFormDemoSubmissionResource
+    private static function toSubmission(UiFormDemoSubmissionRecord $record): UiFormDemoSubmission
     {
-        return new UiFormDemoSubmissionResource(
-            id:               $record->id,
-            form_instance_id: $record->formInstanceId,
-            action_name:      $record->actionName,
-            submitted_at:     (new \DateTimeImmutable())->setTimestamp($record->submittedAt),
-            values_json:      json_encode(
-                $record->values,
-                JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
-            ),
+        return new UiFormDemoSubmission(
+            id:             $record->id,
+            formInstanceId: $record->formInstanceId,
+            actionName:     $record->actionName,
+            submittedAt:    (new \DateTimeImmutable())->setTimestamp($record->submittedAt),
+            values:         self::assertStorableValues($record->values, $record->id),
         );
     }
 
-    private static function toRecord(UiFormDemoSubmissionResource $resource): UiFormDemoSubmissionRecord
+    /**
+     * The record PROMISES string keys carrying scalars or null; being a plain
+     * public array, nothing enforced it. A caller that slipped a nested value
+     * past it wrote a submission the read path could not rebuild — toRecord()
+     * threw, and one bad row took the whole listing down with it. Refuse the
+     * write instead, where the caller is still there to be told.
+     *
+     * Typed loosely on purpose: the record's own `array<string, scalar|null>`
+     * is the promise being checked, so taking it at its word here would make
+     * the check unreachable to a static reader and useless to a live one.
+     *
+     * @param array<array-key, mixed> $values
+     * @return array<string, scalar|null>
+     */
+    private static function assertStorableValues(array $values, string $id): array
+    {
+        $storable = [];
+        foreach ($values as $key => $value) {
+            if (!is_string($key) || (!is_scalar($value) && $value !== null)) {
+                throw new \InvalidArgumentException(
+                    'Demo submission ' . $id . ' carries a value that is not a scalar or null.',
+                );
+            }
+            $storable[$key] = $value;
+        }
+
+        return $storable;
+    }
+
+    /**
+     * The mapper already turned `values_json` into an array; the record is
+     * narrower than that — only string keys carrying scalars or null — so the
+     * shape is re-asserted here, at the boundary that promises it.
+     */
+    private static function toRecord(UiFormDemoSubmission $submission): UiFormDemoSubmissionRecord
     {
         $values = [];
-        try {
-            /** @var mixed $decoded */
-            $decoded = json_decode($resource->values_json, true, 8, JSON_THROW_ON_ERROR);
-            if (is_array($decoded)) {
-                foreach ($decoded as $key => $value) {
-                    if (!is_string($key) || (!is_scalar($value) && $value !== null)) {
-                        throw new \InvalidArgumentException(
-                            'Malformed values_json for demo submission resource ' . $resource->id . '.',
-                        );
-                    }
-                    $values[$key] = $value;
-                }
+        foreach ($submission->getValues() as $key => $value) {
+            if (!is_scalar($value) && $value !== null) {
+                throw new \InvalidArgumentException(
+                    'Malformed values_json for demo submission ' . $submission->getId() . '.',
+                );
             }
-        } catch (\JsonException) {
-            // Corrupted row — return an empty values map rather than
-            // surface the parse error; the diagnostic surface stays
-            // safe + uniform.
-            $values = [];
+            $values[$key] = $value;
         }
+
         return new UiFormDemoSubmissionRecord(
-            id:             $resource->id,
-            formInstanceId: $resource->form_instance_id,
-            actionName:     $resource->action_name,
-            submittedAt:    $resource->submitted_at->getTimestamp(),
+            id:             $submission->getId(),
+            formInstanceId: $submission->getFormInstanceId(),
+            actionName:     $submission->getActionName(),
+            submittedAt:    $submission->getSubmittedAt()->getTimestamp(),
             values:         $values,
         );
     }

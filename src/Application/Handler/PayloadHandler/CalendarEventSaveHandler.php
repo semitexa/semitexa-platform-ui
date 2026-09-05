@@ -9,7 +9,7 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Orm\Application\Service\Uuid7;
-use Semitexa\PlatformUi\Application\Db\MySQL\Model\CalendarEventResource;
+use Semitexa\PlatformUi\Domain\Model\CalendarEvent;
 use Semitexa\PlatformUi\Application\Payload\Request\CalendarEventSavePayload;
 use Semitexa\PlatformUi\Application\Service\CalendarEventView;
 use Semitexa\PlatformUi\Domain\Contract\CalendarEventRepositoryInterface;
@@ -36,19 +36,19 @@ final class CalendarEventSaveHandler implements TypedHandlerInterface
         // direct/alternate API caller can't land the event at the wrong hour.
         $assume = CalendarEventSavePayload::defaultZone();
 
-        $event = new CalendarEventResource(
-            id: $existing?->id ?? Uuid7::generate(),
-            tenant_id: $existing?->tenant_id,
-            user_id: $existing !== null ? $existing->user_id : $payload->getUserId(),
+        $event = new CalendarEvent(
+            id: $existing?->getId() ?? Uuid7::generate(),
+            tenantId: $existing?->getTenantId(),
+            userId: $existing !== null ? $existing->getUserId() : $payload->getUserId(),
             title: $payload->getTitle(),
-            starts_at: $payload->getStartsAt($assume),
-            ends_at: $payload->getEndsAt($assume),
-            all_day: $payload->getAllDay(),
+            startsAt: $payload->getStartsAt($assume),
+            endsAt: $payload->getEndsAt($assume),
+            allDay: $payload->getAllDay() === 1,
             location: $payload->getLocation(),
             notes: $payload->getNotes(),
             color: $payload->getColor(),
-            created_at: $existing?->created_at ?? $now,
-            updated_at: $now,
+            createdAt: $existing?->getCreatedAt() ?? $now,
+            updatedAt: $now,
         );
 
         $existing !== null ? $this->events->update($event) : $this->events->insert($event);
