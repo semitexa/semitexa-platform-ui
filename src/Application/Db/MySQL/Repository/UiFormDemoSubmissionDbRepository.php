@@ -267,8 +267,37 @@ final class UiFormDemoSubmissionDbRepository implements UiFormDatabaseDemoSubmis
             formInstanceId: $record->formInstanceId,
             actionName:     $record->actionName,
             submittedAt:    (new \DateTimeImmutable())->setTimestamp($record->submittedAt),
-            values:         $record->values,
+            values:         self::assertStorableValues($record->values, $record->id),
         );
+    }
+
+    /**
+     * The record PROMISES string keys carrying scalars or null; being a plain
+     * public array, nothing enforced it. A caller that slipped a nested value
+     * past it wrote a submission the read path could not rebuild — toRecord()
+     * threw, and one bad row took the whole listing down with it. Refuse the
+     * write instead, where the caller is still there to be told.
+     *
+     * Typed loosely on purpose: the record's own `array<string, scalar|null>`
+     * is the promise being checked, so taking it at its word here would make
+     * the check unreachable to a static reader and useless to a live one.
+     *
+     * @param array<array-key, mixed> $values
+     * @return array<string, scalar|null>
+     */
+    private static function assertStorableValues(array $values, string $id): array
+    {
+        $storable = [];
+        foreach ($values as $key => $value) {
+            if (!is_string($key) || (!is_scalar($value) && $value !== null)) {
+                throw new \InvalidArgumentException(
+                    'Demo submission ' . $id . ' carries a value that is not a scalar or null.',
+                );
+            }
+            $storable[$key] = $value;
+        }
+
+        return $storable;
     }
 
     /**
