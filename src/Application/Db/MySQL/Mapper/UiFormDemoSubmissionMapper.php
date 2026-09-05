@@ -50,7 +50,7 @@ final class UiFormDemoSubmissionMapper implements ResourceModelMapperInterface
             form_instance_id: $domainModel->getFormInstanceId(),
             action_name: $domainModel->getActionName(),
             submitted_at: $domainModel->getSubmittedAt(),
-            values_json: (string) json_encode($domainModel->getValues(), JSON_UNESCAPED_UNICODE),
+            values_json: (string) json_encode($domainModel->getValues(), JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE),
         );
     }
 }

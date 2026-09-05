@@ -51,7 +51,7 @@ final class FormCollabDraftMapper implements ResourceModelMapperInterface
             id: $domainModel->getId(),
             tenant_id: $domainModel->getTenantId(),
             scope_key: $domainModel->getScopeKey(),
-            values_json: (string) json_encode($domainModel->getValues(), JSON_UNESCAPED_UNICODE),
+            values_json: (string) json_encode($domainModel->getValues(), JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE | JSON_UNESCAPED_UNICODE),
             version: $domainModel->getVersion(),
             updated_by: $domainModel->getUpdatedBy(),
             updated_at: $domainModel->getUpdatedAt() ?? new \DateTimeImmutable(),
