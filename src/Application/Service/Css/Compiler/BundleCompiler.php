@@ -42,6 +42,9 @@ final class BundleCompiler
 
         if ($includeBaseline) {
             $segments[] = $this->readFile('/baseline/layers.css');
+            // Structural tokens, right after the layer order that names their
+            // cascade slot and before anything that consumes them.
+            $segments[] = $this->readFile('/baseline/z-layers.css');
             $segments[] = $this->readFile('/baseline/reset.css');
             $segments[] = $this->readFile('/baseline/typography.css');
         }

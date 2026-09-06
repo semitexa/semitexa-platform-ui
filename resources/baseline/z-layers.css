@@ -1,0 +1,37 @@
+/*
+ * Stacking order, named once.
+ *
+ * MEASURED before this existed: 25 z-index declarations across platform-ui,
+ * semitexa-theme and semitexa-os carrying 13 distinct values — 60 used four
+ * times, 57 and 40 twice each, and one 9999. Two numeric universes had grown
+ * side by side: component-local values in the tens, and the behaviours layer in
+ * the thousands, with nothing recording which was meant to win.
+ *
+ * These are NOT skin tokens and deliberately do not join the skin schema. A
+ * skin owns how a surface looks; it does not get to decide whether a toast
+ * appears above a modal. Colours there, order here.
+ *
+ * The numbers preserve the order already in force, so adopting them changes no
+ * rendering. Gaps are kept between layers for the same reason the old numbers
+ * had them: something will need to sit between two of these.
+ */
+@layer platform-ui.tokens {
+    :root {
+        --ui-z-base: 0;
+        --ui-z-dropdown: 1000;
+        --ui-z-backdrop: 1090;
+        --ui-z-offcanvas: 1095;
+        --ui-z-tooltip: 1100;
+        --ui-z-toast: 1200;
+
+        /*
+         * Component-scoped overlays. These sit inside a component rather than
+         * over the page, which is why their values are small — and why raising
+         * them into the layers above would be a rendering change rather than a
+         * rename. Left as they were and named, so the next person can see the
+         * two universes instead of discovering them.
+         */
+        --ui-z-component-popover: 40;
+        --ui-z-component-overlay: 20;
+    }
+}

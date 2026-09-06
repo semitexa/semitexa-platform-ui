@@ -78,7 +78,7 @@
 
 .uical__overlay {
   position: absolute; inset: 0; background: rgba(15,23,42,.42);
-  display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 20;
+  display: flex; align-items: center; justify-content: center; padding: 20px; z-index: var(--ui-z-component-overlay);
 }
 .uical { position: relative; }
 .uical__editor {
