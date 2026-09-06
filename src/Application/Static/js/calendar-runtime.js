@@ -10,7 +10,7 @@
 // ES module: shared helpers arrive through the import map ('platform-ui/*'
 // -> fingerprinted URLs) — import order guarantees both are initialized
 // before this executes; no manual load-order contract to uphold.
-import { esc, fetchJson } from 'platform-ui/core';
+import { esc, fetchJson, openFeedChannel } from 'platform-ui/core';
 import {
   WEEKDAYS, MONTHS, ymd, hm, startOfDay, addDays, startOfMonth,
   mondayIndex, gridDays, localDatetimeValue
@@ -40,7 +40,7 @@ import {
       cursor: startOfMonth(new Date()),
       selected: startOfDay(new Date()),
       events: [],
-      source: null,
+      channel: null,
       editing: null, // null | { id?, ... } while the editor is open
     };
 
@@ -51,46 +51,71 @@ import {
     load();
 
     // ---- data / live ----
-    function rangeParams() {
+    function rangeParamsObject() {
       var days = gridDays(S.cursor);
-      var from = ymd(days[0]) + 'T00:00:00';
-      var to = ymd(addDays(days[41], 1)) + 'T00:00:00';
-      var qs = 'from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
-      if (userId) qs += '&userId=' + encodeURIComponent(userId);
-      return qs;
-    }
-    function applyFrame(text) {
-      try {
-        var d = JSON.parse(text);
-        S.events = (d && d.data) ? d.data : [];
-        render();
-      } catch (e) { /* ignore malformed frame */ }
-    }
-    function load() {
-      if (S.source) { try { S.source.close(); } catch (e) {} S.source = null; }
-      var url = endpoint + '?' + rangeParams();
-      var getFallback = function () {
-        fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
-          .then(function (r) { return r.text(); }).then(applyFrame).catch(function () {});
+      var p = {
+        from: ymd(days[0]) + 'T00:00:00',
+        to: ymd(addDays(days[41], 1)) + 'T00:00:00'
       };
-      // `data-ui-calendar-live="0"` opts out of the held-open SSE stream and just
+      if (userId) p.userId = userId;
+      return p;
+    }
+
+    function rangeQuery() {
+      var p = rangeParamsObject();
+      return Object.keys(p).map(function (key) {
+        return encodeURIComponent(key) + '=' + encodeURIComponent(p[key]);
+      }).join('&');
+    }
+
+    function applyEnvelope(envelope) {
+      S.events = (envelope && envelope.data) ? envelope.data : [];
+      render();
+    }
+
+    // The no-stream path: one plain JSON pull of the same window.
+    function pullOnce() {
+      fetch(endpoint + '?' + rangeQuery(), {
+        headers: { 'Accept': 'application/json' },
+        credentials: 'same-origin'
+      })
+        .then(function (r) { return r.json(); })
+        .then(applyEnvelope)
+        .catch(function () { /* leave the last render standing */ });
+    }
+
+    // The transport is openFeedChannel's, not this file's. It used to hand-roll
+    // a dedicated EventSource with a `gotData` flag and a one-shot fallback, and
+    // no reconnect at all — so a stream dropped by a server restart left the
+    // calendar frozen on its last frame with no way back. openFeedChannel
+    // prefers the page's shared KISS connection, degrades to a dedicated stream
+    // with backoff, and re-reads `params` on every reopen, which is what makes
+    // the CURRENT month ride a reconnect instead of the one that was visible
+    // when the stream first opened.
+    function load() {
+      if (S.channel) { try { S.channel.close(); } catch (e) { /* already gone */ } S.channel = null; }
+
+      // `data-ui-calendar-live="0"` opts out of the held-open stream and just
       // pulls events once (used by the single-user OS calendar, where the SSE
       // held-open loop's blocking Redis read can deadlock a Swoole worker).
-      if (root.getAttribute('data-ui-calendar-live') !== '0' && typeof window.EventSource !== 'undefined') {
-        try {
-          var src = new EventSource(url, { withCredentials: true });
-          var gotData = false;
-          S.source = src;
-          var onData = function (ev) { gotData = true; applyFrame(ev.data); };
-          src.addEventListener('ui.collection.data', onData);
-          src.addEventListener('message', onData);
-          // If the stream fails before its first frame (e.g. no SSE session in
-          // this context), fall back to a plain JSON pull so events still load.
-          src.onerror = function () { if (!gotData) { try { src.close(); } catch (e) {} S.source = null; getFallback(); } };
-          return;
-        } catch (e) { /* fall through to plain GET */ }
+      if (root.getAttribute('data-ui-calendar-live') === '0' || typeof window.EventSource === 'undefined') {
+        pullOnce();
+        return;
       }
-      getFallback();
+
+      S.channel = openFeedChannel({
+        url: endpoint,
+        params: rangeParamsObject,
+        dataEvent: 'ui.collection.data',
+        errorEvent: 'ui.collection.error',
+        onData: applyEnvelope,
+        // A stream that errors before EVER delivering a frame cannot stream in
+        // this context (no SSE session) — pull once and stop. That is exactly
+        // what the old `gotData` flag expressed, now the channel's own
+        // vocabulary rather than a local reimplementation of it.
+        permanentPullDegrade: true,
+        onPermanentDegrade: pullOnce
+      });
     }
 
     // ---- render ----
