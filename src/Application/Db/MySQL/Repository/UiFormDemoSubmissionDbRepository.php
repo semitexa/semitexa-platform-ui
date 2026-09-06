@@ -6,6 +6,7 @@ namespace Semitexa\PlatformUi\Application\Db\MySQL\Repository;
 
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesRepositoryContract;
+use Semitexa\Orm\Application\Service\OrmBackedStore;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Direction;
 use Semitexa\Orm\Query\Operator;
@@ -47,20 +48,10 @@ use Semitexa\PlatformUi\Domain\Model\Event\UiFormDemoSubmissionSort;
 #[SatisfiesRepositoryContract(of: UiFormDatabaseDemoSubmissionRepositoryInterface::class)]
 final class UiFormDemoSubmissionDbRepository implements UiFormDatabaseDemoSubmissionRepositoryInterface
 {
+    use OrmBackedStore;
+
     #[InjectAsReadonly]
     protected OrmManager $orm;
-
-    private ?DomainRepository $repository = null;
-
-    /**
-     * Test seam — production path uses property injection.
-     */
-    public function withOrmManager(OrmManager $orm): self
-    {
-        $this->orm = $orm;
-        $this->repository = null;
-        return $this;
-    }
 
     public function save(UiFormDemoSubmissionRecord $record): string
     {
@@ -73,7 +64,7 @@ final class UiFormDemoSubmissionDbRepository implements UiFormDatabaseDemoSubmis
         /** @var UiFormDemoSubmission|null $submission */
         $submission = $this->repository()->query()
             ->where(UiFormDemoSubmissionResource::column('id'), Operator::Equals, $id)
-            ->fetchOneAs(UiFormDemoSubmission::class, $this->orm()->getMapperRegistry());
+            ->fetchOneAs(UiFormDemoSubmission::class, $this->mapperRegistry());
         if ($submission === null) {
             return null;
         }
@@ -182,7 +173,7 @@ final class UiFormDemoSubmissionDbRepository implements UiFormDatabaseDemoSubmis
         /** @var list<UiFormDemoSubmission> $submissions */
         $submissions = $query->fetchAllAs(
             UiFormDemoSubmission::class,
-            $this->orm()->getMapperRegistry(),
+            $this->mapperRegistry(),
         );
 
         $hasMore = count($submissions) > $clamped;
@@ -240,24 +231,7 @@ final class UiFormDemoSubmissionDbRepository implements UiFormDatabaseDemoSubmis
 
     private function repository(): DomainRepository
     {
-        return $this->repository ??= $this->orm()->repository(
-            UiFormDemoSubmissionResource::class,
-            UiFormDemoSubmission::class,
-        );
-    }
-
-    /**
-     * Mirrors the scheduler / webhooks / workflow repository
-     * pattern — lazy-init OrmManager so a path that constructs
-     * the repository directly (no DI; e.g. some bootstrap
-     * fallbacks) still has a usable manager. Production wiring
-     * fills `$this->orm` via property injection BEFORE this
-     * accessor runs, so the `??=` keeps the injected instance
-     * intact.
-     */
-    private function orm(): OrmManager
-    {
-        return $this->orm ??= new OrmManager();
+        return $this->domainRepository(UiFormDemoSubmissionResource::class, UiFormDemoSubmission::class);
     }
 
     private static function toSubmission(UiFormDemoSubmissionRecord $record): UiFormDemoSubmission

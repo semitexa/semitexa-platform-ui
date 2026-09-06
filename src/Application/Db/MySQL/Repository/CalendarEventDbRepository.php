@@ -8,6 +8,7 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesRepositoryContract;
 use Semitexa\Core\Tenant\TenantContextAccess;
 use Semitexa\Core\Tenant\TenantContextStoreInterface;
+use Semitexa\Orm\Application\Service\OrmBackedStore;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Direction;
 use Semitexa\Orm\Query\Operator;
@@ -33,6 +34,8 @@ use Semitexa\PlatformUi\Domain\Contract\CalendarEventRepositoryInterface;
 #[SatisfiesRepositoryContract(of: CalendarEventRepositoryInterface::class)]
 final class CalendarEventDbRepository implements CalendarEventRepositoryInterface
 {
+    use OrmBackedStore;
+
     #[InjectAsReadonly]
     protected OrmManager $orm;
 
@@ -44,16 +47,6 @@ final class CalendarEventDbRepository implements CalendarEventRepositoryInterfac
      */
     #[InjectAsReadonly]
     protected TenantContextStoreInterface $tenantContextStore;
-
-    private ?DomainRepository $repository = null;
-
-    /** Test seam — production path uses property injection. */
-    public function withOrmManager(OrmManager $orm): self
-    {
-        $this->orm = $orm;
-        $this->repository = null;
-        return $this;
-    }
 
     /** Test seam — production path uses property injection. */
     public function withTenantContextStore(TenantContextStoreInterface $store): self
@@ -73,7 +66,7 @@ final class CalendarEventDbRepository implements CalendarEventRepositoryInterfac
         $this->applyUserScope($query, $userId);
 
         /** @var list<CalendarEvent> $rows */
-        $rows = $query->fetchAllAs(CalendarEvent::class, $this->orm()->getMapperRegistry());
+        $rows = $query->fetchAllAs(CalendarEvent::class, $this->mapperRegistry());
 
         return $rows;
     }
@@ -83,7 +76,7 @@ final class CalendarEventDbRepository implements CalendarEventRepositoryInterfac
         /** @var CalendarEvent|null $resource */
         $resource = $this->scoped()->query()
             ->where(CalendarEventResource::column('id'), Operator::Equals, $id)
-            ->fetchOneAs(CalendarEvent::class, $this->orm()->getMapperRegistry());
+            ->fetchOneAs(CalendarEvent::class, $this->mapperRegistry());
 
         return $resource;
     }
@@ -161,11 +154,7 @@ final class CalendarEventDbRepository implements CalendarEventRepositoryInterfac
 
     private function repository(): DomainRepository
     {
-        return $this->repository ??= $this->orm()->repository(CalendarEventResource::class, CalendarEvent::class);
+        return $this->domainRepository(CalendarEventResource::class, CalendarEvent::class);
     }
 
-    private function orm(): OrmManager
-    {
-        return $this->orm ??= new OrmManager();
-    }
 }
