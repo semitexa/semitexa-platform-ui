@@ -9,6 +9,7 @@ use Semitexa\Core\Attribute\SatisfiesRepositoryContract;
 use Semitexa\Core\Tenant\TenantContextAccess;
 use Semitexa\Core\Tenant\TenantContextInterface;
 use Semitexa\Core\Tenant\TenantContextStoreInterface;
+use Semitexa\Orm\Application\Service\OrmBackedStore;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
@@ -37,6 +38,8 @@ use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
 #[SatisfiesRepositoryContract(of: FormCollabDraftStoreInterface::class)]
 final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
 {
+    use OrmBackedStore;
+
     #[InjectAsReadonly]
     protected OrmManager $orm;
 
@@ -58,16 +61,6 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
      */
     #[InjectAsReadonly]
     protected TenantContextStoreInterface $tenantContextStore;
-
-    private ?DomainRepository $repository = null;
-
-    /** Test seam — production path uses property injection. */
-    public function withOrmManager(OrmManager $orm): self
-    {
-        $this->orm = $orm;
-        $this->repository = null;
-        return $this;
-    }
 
     /** Test seam — production path uses property injection. */
     public function withTenantContext(?TenantContextInterface $tenantContext): self
@@ -170,7 +163,7 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
         $resource = $this->repository()->query()
             ->where(FormCollabDraftResource::column('scope_key'), Operator::Equals, $scopeKey)
             ->where(FormCollabDraftResource::column('tenant_id'), Operator::Equals, $this->currentTenantId())
-            ->fetchOneAs(FormCollabDraft::class, $this->orm()->getMapperRegistry());
+            ->fetchOneAs(FormCollabDraft::class, $this->mapperRegistry());
 
         return $resource;
     }
@@ -224,14 +217,7 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
 
     private function repository(): DomainRepository
     {
-        return $this->repository ??= $this->orm()->repository(
-            FormCollabDraftResource::class,
-            FormCollabDraft::class,
-        );
+        return $this->domainRepository(FormCollabDraftResource::class, FormCollabDraft::class);
     }
 
-    private function orm(): OrmManager
-    {
-        return $this->orm ??= new OrmManager();
-    }
 }
