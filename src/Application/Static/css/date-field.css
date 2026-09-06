@@ -3,7 +3,7 @@
 .uidf .uidf__input { cursor: pointer; }
 
 .uidf__pop {
-  position: absolute; top: 100%; left: 0; z-index: 40; margin-top: 6px;
+  position: absolute; top: 100%; left: 0; z-index: var(--ui-z-component-popover); margin-top: 6px;
   width: 268px; padding: 10px;
   background: var(--ui-surface-panel, #fff);
   border: 1px solid var(--ui-border-subtle, rgba(148,163,184,.24));

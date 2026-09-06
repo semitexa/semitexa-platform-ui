@@ -13,7 +13,7 @@
      the runtime removes it, then toggles `sx-open` for the animated reveal. */
   [ui-behavior~="dropdown"] > [ui-behavior-content] {
     position: fixed;
-    z-index: 1000;
+    z-index: var(--ui-z-dropdown);
     min-width: 10rem;
     padding: var(--ui-space-1, 0.25rem);
     background: var(--ui-surface-panel, #fff);
@@ -61,7 +61,7 @@
   /* Tooltip — floating label. */
   [role="tooltip"] {
     position: fixed;
-    z-index: 1100;
+    z-index: var(--ui-z-tooltip);
     max-width: 18rem;
     padding: var(--ui-space-1, 0.25rem) var(--ui-space-2, 0.5rem);
     font-size: 0.8125rem;
@@ -115,7 +115,7 @@
   .sx-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 1090;
+    z-index: var(--ui-z-backdrop);
     background: var(--ui-overlay-scrim, rgba(0, 0, 0, 0.4));
     opacity: 0;
     transition: opacity var(--ui-motion-duration-fast, 120ms) ease;
@@ -127,7 +127,7 @@
     position: fixed;
     top: 0;
     bottom: 0;
-    z-index: 1095;
+    z-index: var(--ui-z-offcanvas);
     width: min(20rem, 80vw);
     padding: var(--ui-space-4, 1rem);
     background: var(--ui-surface-panel, #fff);
@@ -145,7 +145,7 @@
   /* Toast region + toasts. */
   .sx-toast-region {
     position: fixed;
-    z-index: 1200;
+    z-index: var(--ui-z-toast);
     display: flex;
     flex-direction: column;
     gap: var(--ui-space-2, 0.5rem);
