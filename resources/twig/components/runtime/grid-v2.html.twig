@@ -19,6 +19,10 @@
 {%- set _grid_v2_endpoint = endpoint|default('') -%}
 {%- set _grid_v2_actions  = actions|default([]) -%}
 {%- set _grid_v2_empty    = emptyMessage|default('No rows.') -%}
+{# The runtime this markup needs, required by the markup itself. It used to be
+   scope=global, so every page in the application downloaded and parsed 54 KB
+   of grid runtime whether or not it had a grid. #}
+{{ asset_require('platform-ui:js:grid-runtime-v2') }}
 <div
     data-ui-component="platform.grid-v2"
     data-ui-grid-v2="{{ _grid_v2_id }}"

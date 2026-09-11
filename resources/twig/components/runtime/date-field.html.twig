@@ -16,6 +16,13 @@
  # Args: name (required), mode ('date'|'datetime'), label, value, placeholder
  #}
 {% macro render(name, mode = 'date', label = null, value = '', placeholder = null) %}
+    {# Required here rather than globally: this is the only markup the runtime
+       acts on. calendar-dates comes along as a declared dependency.
+
+       The stylesheet comes with it: a CSS <link> required this late used to
+       vanish in silence, and now reaches the head through the dynamic CSS
+       marker. #}
+    {{ asset_require('platform-ui:js:date-field-runtime') }}{{ asset_require('platform-ui:css:date-field') }}
     <div data-ui-component="platform.date-field" data-ui-date-field="1" data-ui-date-field-mode="{{ mode }}" class="uidf">
         {{ component('platform.field', {
             name: name,
