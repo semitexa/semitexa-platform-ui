@@ -12,8 +12,15 @@ use PHPUnit\Framework\TestCase;
  * One Way Phase 6 sweep deleted grid-runtime.js (v1). These are the
  * non-negotiable invariants the deleted v1 static-assert suite enforced,
  * re-pointed at v2: the runtime renders server data into the DOM, so it must
- * never open an HTML/JS injection channel, and it must stay wired as a global
- * deferred asset so the `[data-ui-grid-v2]` shells it boots keep working.
+ * never open an HTML/JS injection channel, and it must stay wired so the
+ * `[data-ui-grid-v2]` shells it boots keep working.
+ *
+ * ⚠️ It is no longer a GLOBAL asset, and that is the point. Being global meant
+ * every page in an application downloaded and parsed 54 KB of grid runtime
+ * whether or not it had a grid — measured on a consumer's mobile report as part
+ * of 2.7 s of main-thread work. It is page-scoped now and required by the one
+ * template that emits its markup, which is a stronger wiring than global was:
+ * the runtime and the markup cannot arrive apart.
  */
 final class GridRuntimeV2StaticAssertTest extends TestCase
 {
@@ -41,7 +48,7 @@ final class GridRuntimeV2StaticAssertTest extends TestCase
     }
 
     #[Test]
-    public function the_runtime_is_a_global_deferred_body_asset(): void
+    public function the_runtime_is_a_page_scoped_deferred_body_module(): void
     {
         $manifest = json_decode((string) file_get_contents(self::ASSETS_JSON_PATH), true);
         self::assertIsArray($manifest);
@@ -51,11 +58,40 @@ final class GridRuntimeV2StaticAssertTest extends TestCase
             $override,
             'grid-runtime-v2.js must be declared as an override in assets.json.',
         );
-        self::assertSame('global', $override['scope']);
+        self::assertSame(
+            'page',
+            $override['scope'],
+            'A page with no grid must not carry the grid runtime. Global scope put it on every one.',
+        );
         self::assertSame('body', $override['position']);
         // ES module since the ESM migration — implicitly deferred, executes
         // in document order with the remaining classic deferred runtimes.
         self::assertSame('module', $override['attributes']['type'] ?? null);
+    }
+
+    /**
+     * The other half of page scope, and the half that makes it safe: something
+     * has to ask for the runtime now that nothing hands it out automatically.
+     * The template that emits `[data-ui-grid-v2]` is the only thing that knows
+     * a grid is on the page, so it is the thing that requires it — and this
+     * pins that pairing, because losing it is a grid that renders and never
+     * boots.
+     */
+    #[Test]
+    public function the_template_that_emits_the_shell_requires_the_runtime(): void
+    {
+        $template = __DIR__ . '/../../../resources/twig/components/runtime/grid-v2.html.twig';
+
+        self::assertFileExists($template);
+
+        $source = (string) file_get_contents($template);
+
+        self::assertStringContainsString('data-ui-grid-v2=', $source, 'this is the template that emits the shell');
+        self::assertStringContainsString(
+            "asset_require('platform-ui:js:grid-runtime-v2')",
+            $source,
+            'the markup must require the runtime it cannot work without',
+        );
     }
 
     #[Test]

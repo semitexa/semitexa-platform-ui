@@ -15,6 +15,15 @@
 {%- set _cal_endpoint = endpoint|default('/platform/calendar/events') -%}
 {%- set _cal_view     = view|default('month') -%}
 {%- set _cal_user     = userId|default('') -%}
+{# Required here rather than globally: the runtime and its stylesheet are only
+   meaningful where this markup is. calendar-dates comes along as a declared
+   dependency.
+
+   The stylesheet comes with it. A CSS <link> required this late used to be
+   dropped in silence — the head had already rendered — until
+   AssetRenderer::renderLateHeadAssets() started emitting them at the dynamic
+   CSS marker. #}
+{{ asset_require('platform-ui:js:calendar-runtime') }}{{ asset_require('platform-ui:css:calendar') }}
 <div
     data-ui-component="platform.calendar"
     data-ui-calendar="1"

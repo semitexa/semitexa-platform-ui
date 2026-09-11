@@ -88,5 +88,12 @@
         {%- endif -%}
     </form>
 
+    {# The runtime that reads the manifest below, required by the only markup
+       that emits it. It used to be scope=global, so every page in an
+       application carried 41 KB of collaboration runtime for a feature almost
+       none of them have. Declared here rather than in the Twig function's own
+       class: the other three feature runtimes are required from their
+       templates, and that class is already a recorded structural outlier. #}
+    {{ asset_require('platform-ui:js:form-collab-runtime') }}
     {{ ui_collab_manifest('platform.collab-form', _ui_instance, formKey, recordId, _mode, _fields) }}
 </div>

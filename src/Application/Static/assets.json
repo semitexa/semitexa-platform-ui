@@ -1,125 +1,131 @@
 {
-    "$schema": "semitexa://asset-manifest/v2",
-    "module": "platform-ui",
-    "include": {
-        "css": [
-            "css/*.css"
-        ],
-        "js": [
-            "js/*.js"
-        ]
+  "$schema": "semitexa://asset-manifest/v2",
+  "module": "platform-ui",
+  "include": {
+    "css": [
+      "css/*.css"
+    ],
+    "js": [
+      "js/*.js"
+    ]
+  },
+  "overrides": {
+    "css/full.css": {
+      "scope": "global",
+      "position": "head",
+      "priority": 40
     },
-    "overrides": {
-        "css/full.css": {
-            "scope": "global",
-            "position": "head",
-            "priority": 40
-        },
-        "css/baseline.css": {
-            "scope": "page",
-            "position": "head",
-            "priority": 30
-        },
-        "css/calendar.css": {
-            "scope": "global",
-            "position": "head",
-            "priority": 41
-        },
-        "css/date-field.css": {
-            "scope": "global",
-            "position": "head",
-            "priority": 42
-        },
-        "js/ui-core.js": {
-            "scope": "global",
-            "position": "body",
-            "priority": 50,
-            "attributes": {
-                "type": "module"
-            },
-            "specifier": "platform-ui/core"
-        },
-        "js/event-runtime.js": {
-            "scope": "global",
-            "position": "body",
-            "priority": 60,
-            "attributes": {
-                "type": "module"
-            },
-            "specifier": "platform-ui/events"
-        },
-        "js/behavior-runtime.js": {
-            "scope": "global",
-            "position": "body",
-            "priority": 61,
-            "attributes": {
-                "type": "module"
-            },
-            "specifier": "platform-ui/behaviors"
-        },
-        "js/behavior-builtin.js": {
-            "scope": "global",
-            "position": "body",
-            "priority": 62,
-            "attributes": {
-                "type": "module"
-            }
-        },
-        "css/behaviors.css": {
-            "scope": "global",
-            "position": "head",
-            "priority": 43
-        },
-        "js/grid-runtime-v2.js": {
-            "scope": "global",
-            "position": "body",
-            "priority": 71,
-            "attributes": {
-                "type": "module"
-            }
-        },
-        "js/form-collab-runtime.js": {
-            "scope": "global",
-            "position": "body",
-            "priority": 72,
-            "attributes": {
-                "type": "module"
-            }
-        },
-        "js/calendar-dates.js": {
-            "scope": "global",
-            "position": "body",
-            "priority": 70,
-            "attributes": {
-                "type": "module"
-            },
-            "specifier": "platform-ui/dates"
-        },
-        "js/calendar-runtime.js": {
-            "scope": "global",
-            "position": "body",
-            "priority": 73,
-            "attributes": {
-                "type": "module"
-            }
-        },
-        "js/date-field-runtime.js": {
-            "scope": "global",
-            "position": "body",
-            "priority": 74,
-            "attributes": {
-                "type": "module"
-            }
-        },
-        "css/icons.css": {
-            "scope": "global",
-            "position": "head",
-            "priority": 44
-        },
-        "css/components.css": {
-            "scope": "global",
-            "position": "head",
-            "priority": 45
-        }
+    "css/baseline.css": {
+      "scope": "page",
+      "position": "head",
+      "priority": 30
+    },
+    "css/calendar.css": {
+      "scope": "page",
+      "position": "head",
+      "priority": 41
+    },
+    "css/date-field.css": {
+      "scope": "page",
+      "position": "head",
+      "priority": 42
+    },
+    "js/ui-core.js": {
+      "scope": "global",
+      "position": "body",
+      "priority": 50,
+      "attributes": {
+        "type": "module"
+      },
+      "specifier": "platform-ui/core"
+    },
+    "js/event-runtime.js": {
+      "scope": "global",
+      "position": "body",
+      "priority": 60,
+      "attributes": {
+        "type": "module"
+      },
+      "specifier": "platform-ui/events"
+    },
+    "js/behavior-runtime.js": {
+      "scope": "global",
+      "position": "body",
+      "priority": 61,
+      "attributes": {
+        "type": "module"
+      },
+      "specifier": "platform-ui/behaviors"
+    },
+    "js/behavior-builtin.js": {
+      "scope": "global",
+      "position": "body",
+      "priority": 62,
+      "attributes": {
+        "type": "module"
+      }
+    },
+    "css/behaviors.css": {
+      "scope": "global",
+      "position": "head",
+      "priority": 43
+    },
+    "js/grid-runtime-v2.js": {
+      "scope": "page",
+      "position": "body",
+      "priority": 71,
+      "attributes": {
+        "type": "module"
+      }
+    },
+    "js/form-collab-runtime.js": {
+      "scope": "page",
+      "position": "body",
+      "priority": 72,
+      "attributes": {
+        "type": "module"
+      }
+    },
+    "js/calendar-dates.js": {
+      "scope": "global",
+      "position": "body",
+      "priority": 70,
+      "attributes": {
+        "type": "module"
+      },
+      "specifier": "platform-ui/dates"
+    },
+    "js/calendar-runtime.js": {
+      "scope": "page",
+      "position": "body",
+      "priority": 73,
+      "attributes": {
+        "type": "module"
+      },
+      "dependencies": [
+        "platform-ui:js:calendar-dates"
+      ]
+    },
+    "js/date-field-runtime.js": {
+      "scope": "page",
+      "position": "body",
+      "priority": 74,
+      "attributes": {
+        "type": "module"
+      },
+      "dependencies": [
+        "platform-ui:js:calendar-dates"
+      ]
+    },
+    "css/icons.css": {
+      "scope": "global",
+      "position": "head",
+      "priority": 44
+    },
+    "css/components.css": {
+      "scope": "global",
+      "position": "head",
+      "priority": 45
     }
+  }
 }
