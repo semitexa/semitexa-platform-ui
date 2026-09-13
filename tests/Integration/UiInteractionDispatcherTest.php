@@ -87,6 +87,49 @@ final class UiInteractionDispatcherTest extends TestCase
         return SignedContext::sign($claims);
     }
 
+    /**
+     * A signed context provably different from the original and provably no
+     * longer valid.
+     *
+     * `substr($ctx, 0, -2) . 'AA'` was here, and it is not a guaranteed change:
+     * MEASURED at 1 run in 913, the blob already ended in `AA`, so the
+     * "tampered" value equalled the original, the signature verified, and the
+     * test failed asking for the 403 that correctly did not happen. Two sites
+     * in this file used it, so roughly one suite run in 456.
+     *
+     * Flipping the LAST character would not fix it either: the MAC is 32 raw
+     * bytes, so its base64url form is 43 characters and the final one carries
+     * only 4 significant bits — two different trailing characters can decode to
+     * the same MAC. The same flake in a better disguise.
+     *
+     * So the CLAIMS segment is tampered: every character there carries six
+     * significant bits, and any change breaks the MAC over `version.claims`.
+     * Both properties are asserted rather than assumed, so this cannot silently
+     * stop tampering.
+     *
+     * The same helper, and the same reasoning, as UiDispatchHandlerTest — where
+     * this was found and fixed first, and these two sites were missed.
+     */
+    private function tamperWith(string $ctx): string
+    {
+        $parts = explode('.', $ctx, 3);
+        self::assertCount(3, $parts, 'a signed context is version.claims.mac');
+
+        [$version, $claims, $mac] = $parts;
+        self::assertNotSame('', $claims);
+
+        $claims[0] = $claims[0] === 'A' ? 'B' : 'A';
+        $tampered = $version . '.' . $claims . '.' . $mac;
+
+        self::assertNotSame($ctx, $tampered, 'the tamper must actually change the context');
+        self::assertNull(
+            SignedContext::verify($tampered),
+            'the tampered context must fail verification — otherwise this test proves nothing',
+        );
+
+        return $tampered;
+    }
+
     /** Fresh, well-formed dispatchId for each call within a test. */
     private function freshDispatchId(): string
     {
@@ -189,8 +232,7 @@ final class UiInteractionDispatcherTest extends TestCase
     #[Test]
     public function tampered_ctx_throws_403(): void
     {
-        $ctx = $this->freshCtx();
-        $tampered = substr($ctx, 0, -2) . 'AA';
+        $tampered = $this->tamperWith($this->freshCtx());
         $this->expectException(UiInteractionForbiddenException::class);
         try {
             $this->newDispatcher()->dispatch($tampered, $this->freshDispatchId(), ['value' => 'x']);
@@ -526,7 +568,7 @@ final class UiInteractionDispatcherTest extends TestCase
         // the config error, but clients with a tampered ctx still see
         // 403. This ordering is part of the documented dispatch flow.
         $dispatcher = $this->newDispatcher(productionLike: true);
-        $tampered = substr($this->freshCtx(), 0, -2) . 'AA';
+        $tampered = $this->tamperWith($this->freshCtx());
 
         $this->expectException(UiInteractionForbiddenException::class);
         try {
