@@ -357,6 +357,13 @@ export function navigate(url, options) {
             .then(() => region.apply(target))
             .then((applied) => {
                 if (applied === false) return pageMove(target, token, opts);
+
+                // The same arbitration the page path has always had. A region
+                // apply is asynchronous, so two quick filter clicks can resolve
+                // out of order; without this the slower FIRST one lands last
+                // and leaves the address bar on a request nobody is looking at.
+                if (token !== navigationToken) return false;
+
                 if (opts.history !== false) {
                     saveScroll();
                     window.history.pushState({ semitexaShell: true, url: target, scroll: 0 }, '', target);
@@ -382,24 +389,38 @@ function pageMove(url, token, opts) {
             return false;
         }
 
-        const mode = opts.history === false ? 'none' : (opts.replace === true ? 'replace' : 'push');
-        const region = commit(payload, mode);
-
-        if (region === null) {
-            fallback(url, opts.replace === true);
-            return false;
-        }
-
-        activateScripts(document);
-        window.scrollTo(0, opts.scroll || 0);
-        restoreFocus(region, payload.title);
-
-        document.dispatchEvent(new CustomEvent('semitexa:navigation:committed', {
-            detail: { url: payload.url, title: payload.title, regions: Object.keys(payload.regions || {}) },
-        }));
-
-        return true;
+        // The server said what this page loads and the last one did not, and
+        // that answer was being thrown away: the markup went in without its
+        // stylesheet or its runtime, and the page stayed half-dressed until
+        // someone reloaded. Awaited BEFORE the swap, which is the whole reason
+        // ensureAssets waits on CSS at all.
+        return ensureAssets(payload.assets).then(() => applyPage(url, payload, token, opts));
     });
+}
+
+function applyPage(url, payload, token, opts) {
+    // Re-checked after the await: a click during asset loading starts a newer
+    // navigation, and committing this one on top of it is the stale write the
+    // token exists to prevent.
+    if (token !== navigationToken) return false;
+
+    const mode = opts.history === false ? 'none' : (opts.replace === true ? 'replace' : 'push');
+    const region = commit(payload, mode);
+
+    if (region === null) {
+        fallback(url, opts.replace === true);
+        return false;
+    }
+
+    activateScripts(document);
+    window.scrollTo(0, opts.scroll || 0);
+    restoreFocus(region, payload.title);
+
+    document.dispatchEvent(new CustomEvent('semitexa:navigation:committed', {
+        detail: { url: payload.url, title: payload.title, regions: Object.keys(payload.regions || {}) },
+    }));
+
+    return true;
 }
 
 function isPlainLeftClick(event) {
@@ -417,10 +438,15 @@ function linkFrom(event) {
     if (!sameOrigin(anchor.href)) return null;
 
     const parsed = new URL(anchor.href, window.location.href);
-    // A hash on the page we are already on is the browser's job, not ours.
-    if (parsed.hash && parsed.pathname === window.location.pathname && parsed.search === window.location.search) {
-        return null;
-    }
+
+    // ANY fragment link is the browser's job, not ours — on this page or the
+    // next one. Intercepting `/reports#totals` used to navigate to `/reports`
+    // and drop the `#totals` on the floor: no scroll, no focus, and no
+    // `:target` rule matching, which a swap cannot reproduce because `:target`
+    // is a property of the URL the browser itself resolved. A full navigation
+    // to an anchor is what happened before this module existed and is still
+    // right; swallowing the fragment silently is not.
+    if (parsed.hash) return null;
 
     return parsed;
 }
@@ -448,11 +474,23 @@ function onPopState(event) {
 
     const region = regionHandlerFor(url);
     if (region) {
+        // Bumped here too. A page move already in flight passes its own token
+        // check otherwise, and commits a page on top of the region this step
+        // asked for.
+        const regionToken = ++navigationToken;
         committedUrl = url;
         Promise.resolve()
             .then(() => region.apply(url))
             .then((applied) => {
-                if (applied === false) fallback(url, true);
+                if (regionToken !== navigationToken) return;
+                if (applied === false) {
+                    fallback(url, true);
+                    return;
+                }
+                // scrollRestoration is manual, so nobody else will do this, and
+                // a history entry that comes back at the previous page's offset
+                // is the thing manual mode was turned on to avoid.
+                window.scrollTo(0, scroll);
             })
             .catch(() => fallback(url, true));
         return;

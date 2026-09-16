@@ -22,9 +22,33 @@ import {
   if (window.SemitexaUi.calendar) return;
   window.SemitexaUi.calendar = { version: 1 };
 
+  // Every calendar this module has booted, so the ones a navigation removed
+  // can be let go of. See onNavigationCommitted() below.
+  var booted = [];
+
   function boot() {
     var nodes = document.querySelectorAll('[data-ui-calendar]');
     for (var i = 0; i < nodes.length; i++) initCalendar(nodes[i]);
+  }
+
+  /**
+   * A shell navigation replaces a region's markup, and this module has already
+   * run: its module script will not execute again, and boot() only ever fired
+   * on DOMContentLoaded. So a calendar that ARRIVES by swap was never
+   * initialised — an inert grid with no events in it — while the calendar that
+   * LEFT kept its feed channel open against a node no longer in the document.
+   *
+   * boot() is idempotent (the per-element flag), so the whole lifecycle is:
+   * release what has detached, then boot what is here.
+   */
+  function onNavigationCommitted() {
+    booted = booted.filter(function (entry) {
+      if (document.contains(entry.root)) return true;
+      try { entry.release(); } catch (e) { /* a teardown must not block the next one */ }
+      return false;
+    });
+
+    boot();
   }
 
   function initCalendar(root) {
@@ -47,6 +71,12 @@ import {
     root.classList.add('uical');
     root.addEventListener('click', onClick);
     root.addEventListener('submit', onSubmit);
+    booted.push({
+      root: root,
+      release: function () {
+        if (S.channel) { S.channel.close(); S.channel = null; }
+      }
+    });
     render();
     load();
 
@@ -314,4 +344,6 @@ import {
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
+
+  document.addEventListener('semitexa:navigation:committed', onNavigationCommitted);
 })();

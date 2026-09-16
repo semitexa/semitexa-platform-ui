@@ -16,9 +16,28 @@ import * as D from 'platform-ui/dates';
   if (window.SemitexaUi.dateField) return;
   window.SemitexaUi.dateField = { version: 1 };
 
+  var booted = [];
+
   function boot() {
     var nodes = document.querySelectorAll('[data-ui-date-field]');
     for (var i = 0; i < nodes.length; i++) init(nodes[i]);
+  }
+
+  /**
+   * Same lifecycle as the calendar's, and here the leak is the sharper half:
+   * each field puts TWO listeners on `document`, so re-booting after every
+   * swap without releasing the fields that left accumulates a pair per
+   * arrival — each one closing a popover that no longer exists, on a root no
+   * longer in the page.
+   */
+  function onNavigationCommitted() {
+    booted = booted.filter(function (entry) {
+      if (document.contains(entry.root)) return true;
+      try { entry.release(); } catch (e) { /* a teardown must not block the next one */ }
+      return false;
+    });
+
+    boot();
   }
 
   function init(root) {
@@ -37,8 +56,22 @@ import * as D from 'platform-ui/dates';
 
     input.addEventListener('mousedown', function (e) { e.preventDefault(); toggle(); });
     input.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
-    document.addEventListener('mousedown', function (e) { if (pop && !root.contains(e.target)) close(); });
-    document.addEventListener('keydown', function (e) { if (pop && e.key === 'Escape') close(); });
+
+    // Named, so they can be taken off again.
+    function onDocumentMouseDown(e) { if (pop && !root.contains(e.target)) close(); }
+    function onDocumentKeyDown(e) { if (pop && e.key === 'Escape') close(); }
+
+    document.addEventListener('mousedown', onDocumentMouseDown);
+    document.addEventListener('keydown', onDocumentKeyDown);
+
+    booted.push({
+      root: root,
+      release: function () {
+        close();
+        document.removeEventListener('mousedown', onDocumentMouseDown);
+        document.removeEventListener('keydown', onDocumentKeyDown);
+      }
+    });
 
     function toggle() { pop ? close() : open(); }
     function open() {
@@ -144,4 +177,6 @@ import * as D from 'platform-ui/dates';
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
+
+  document.addEventListener('semitexa:navigation:committed', onNavigationCommitted);
 })();
