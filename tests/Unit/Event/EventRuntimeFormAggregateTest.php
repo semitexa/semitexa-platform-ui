@@ -271,9 +271,9 @@ final class EventRuntimeFormAggregateTest extends TestCase
         $code = $this->jsCode();
 
         // The aggregator must never run document.querySelectorAll
-        // with a caller-shaped selector. As of the transport-mode
-        // policy slice there are exactly FIVE document.querySelector
-        // callsites in the whole file:
+        // with a caller-shaped selector. As of the CSP data-block slice
+        // there are exactly SIX document.querySelector callsites in the
+        // whole file:
         //
         //   1. patch applier's component-root resolver,
         //   2. form aggregate's field-root lookup,
@@ -281,16 +281,20 @@ final class EventRuntimeFormAggregateTest extends TestCase
         //   4. canonical SSE session-id meta-tag reader
         //      (`meta[name="semitexa-ui-sse-session"]`),
         //   5. canonical SSE transport-mode meta-tag reader
-        //      (`meta[name="semitexa-ui-transport-mode"]`).
+        //      (`meta[name="semitexa-ui-transport-mode"]`),
+        //   6. deferred-manifest reader
+        //      (`script[type="application/json"][data-ssr-deferred-manifest]`),
+        //      added when the manifest stopped being an inline assignment a
+        //      strict script-src refuses.
         //
         // The first three look up by
-        // `[data-ui-component-instance-id="<safe-id>"]`; the fourth and
-        // fifth look up by a hard-coded `meta[name="…"]` attribute
-        // selector with a static constant value, so no caller-shaped
-        // string ever lands in the selector. Any further callsite
-        // forces this test to be reviewed for selector safety.
+        // `[data-ui-component-instance-id="<safe-id>"]`; the fourth,
+        // fifth and sixth look up by a hard-coded attribute selector with
+        // a static constant value, so no caller-shaped string ever lands
+        // in the selector. Any further callsite forces this test to be
+        // reviewed for selector safety.
         self::assertSame(
-            5,
+            6,
             substr_count($code, 'document.querySelector('),
             'A new document.querySelector callsite was added — review for selector safety.',
         );
