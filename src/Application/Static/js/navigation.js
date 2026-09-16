@@ -43,6 +43,9 @@ const ORIGINAL_TYPE = 'data-semitexa-original-type';
 
 const EXECUTABLE_TYPES = ['', 'text/javascript', 'application/javascript', 'module', 'importmap'];
 
+/** An asset that never answers delays the swap by an instant rather than forever. */
+const ASSET_TIMEOUT_MS = 1000;
+
 /** Region layers, asked in registration order. */
 const regionHandlers = [];
 
@@ -148,38 +151,66 @@ function activateScripts(root) {
 function ensureAssets(assets) {
     if (!assets) return Promise.resolve();
 
+    const pending = [];
+
     // The server says what each script IS. A module added as a classic script
     // is a syntax error the first time it imports anything, and a classic
     // script added as a module changes its scope and its timing — and the URL
     // says nothing about which one it is.
+    //
+    // Scripts are AWAITED like the stylesheets. Appending and walking on
+    // resolves as soon as the CSS is in, so the page committed and announced
+    // itself while the runtime that drives it was still downloading — the
+    // markup arrives, nothing binds to it, and the console says nothing.
     (assets.js || []).forEach((asset) => {
         const src = typeof asset === 'string' ? asset : asset.src;
         const type = typeof asset === 'string' ? '' : (asset.type || '');
+        const attrs = (asset && asset.attrs) || {};
         if (!src || document.querySelector('script[src="' + cssEscape(src) + '"]')) return;
 
-        const script = document.createElement('script');
-        script.src = src;
-        if (type !== '') script.setAttribute('type', type);
-        else script.defer = true;
+        pending.push(new Promise((resolve) => {
+            const script = document.createElement('script');
+            script.src = src;
+            if (type !== '') script.setAttribute('type', type);
+            else if (!('defer' in attrs) && !('async' in attrs)) script.defer = true;
 
-        const nonce = documentNonce();
-        if (nonce !== '') script.setAttribute('nonce', nonce);
-        document.body.appendChild(script);
+            // integrity, crossorigin, defer/async, nomodule: the tag is
+            // RE-CREATED here, so anything the server does not name is lost —
+            // an unchecked file where an integrity hash was required, or a
+            // script that runs at a different moment than it did on a reload.
+            Object.keys(attrs).forEach((name) => script.setAttribute(name, attrs[name]));
+
+            // This document's nonce, never the one the envelope came from.
+            const nonce = documentNonce();
+            if (nonce !== '') script.setAttribute('nonce', nonce);
+
+            script.addEventListener('load', () => resolve(true), { once: true });
+            script.addEventListener('error', () => resolve(false), { once: true });
+            document.body.appendChild(script);
+            setTimeout(() => resolve(true), ASSET_TIMEOUT_MS);
+        }));
     });
 
-    const pending = (assets.css || [])
-        .filter((href) => !document.querySelector('link[rel="stylesheet"][href="' + cssEscape(href) + '"]'))
-        .map((href) => new Promise((resolve) => {
+    (assets.css || [])
+        .map((entry) => (typeof entry === 'string' ? { href: entry, attrs: {} } : entry))
+        .filter((entry) => entry && entry.href
+            && !document.querySelector('link[rel="stylesheet"][href="' + cssEscape(entry.href) + '"]'))
+        .forEach((entry) => pending.push(new Promise((resolve) => {
             const link = document.createElement('link');
             link.rel = 'stylesheet';
-            link.href = href;
-            link.addEventListener('load', resolve, { once: true });
-            link.addEventListener('error', resolve, { once: true });
+            link.href = entry.href;
+            const attrs = entry.attrs || {};
+            Object.keys(attrs).forEach((name) => link.setAttribute(name, attrs[name]));
+            link.addEventListener('load', () => resolve(true), { once: true });
+            link.addEventListener('error', () => resolve(true), { once: true });
             document.head.appendChild(link);
-            setTimeout(resolve, 1000);
-        }));
+            setTimeout(() => resolve(true), ASSET_TIMEOUT_MS);
+        })));
 
-    return Promise.all(pending);
+    // false ONLY for a script that errored. A stylesheet that will not load
+    // costs the page its looks; a script that will not load costs it its
+    // behaviour, and a swap is the wrong way to deliver that.
+    return Promise.all(pending).then((results) => results.every(Boolean));
 }
 
 function cssEscape(value) {
@@ -252,9 +283,43 @@ function commit(payload, mode) {
     });
 
     if (payload.title) document.title = payload.title;
+    applyDeferredManifest(payload.deferredManifest);
     committedUrl = payload.url;
 
     return firstRegion;
+}
+
+/**
+ * Replace the deferred-slot manifest with the arriving page's.
+ *
+ * It is emitted at body end, outside every marked region, so a swap that
+ * carried only regions left the new page's skeletons bound to the PREVIOUS
+ * page's request id, session and bind token. They waited for frames addressed
+ * to a request that had already finished — no error, no frame, nothing in the
+ * console, just skeletons that never resolve.
+ *
+ * Removed when the destination defers nothing, so a stale manifest cannot
+ * outlive the page it belonged to.
+ */
+function applyDeferredManifest(json) {
+    const selector = 'script[type="application/json"][data-ssr-deferred-manifest]';
+    const existing = document.querySelector(selector);
+
+    if (!json) {
+        if (existing) existing.remove();
+        return;
+    }
+
+    const block = document.createElement('script');
+    block.type = 'application/json';
+    block.setAttribute('data-ssr-deferred-manifest', '');
+    block.textContent = json;
+
+    // A data block is not governed by script-src, so it needs no nonce — and
+    // it is replaced rather than edited so anything memoising the ELEMENT sees
+    // a new one and re-reads it.
+    if (existing) existing.replaceWith(block);
+    else document.body.appendChild(block);
 }
 
 function saveScroll() {
@@ -393,8 +458,20 @@ function pageMove(url, token, opts) {
         // that answer was being thrown away: the markup went in without its
         // stylesheet or its runtime, and the page stayed half-dressed until
         // someone reloaded. Awaited BEFORE the swap, which is the whole reason
-        // ensureAssets waits on CSS at all.
-        return ensureAssets(payload.assets).then(() => applyPage(url, payload, token, opts));
+        // ensureAssets waits at all.
+        return ensureAssets(payload.assets).then((loaded) => {
+            if (token !== navigationToken) return false;
+
+            if (!loaded) {
+                // A destination whose script will not load is a page this
+                // client cannot deliver. Hand it to the browser rather than
+                // commit markup nothing will bind to.
+                fallback(url, opts.replace === true);
+                return false;
+            }
+
+            return applyPage(url, payload, token, opts);
+        });
     });
 }
 

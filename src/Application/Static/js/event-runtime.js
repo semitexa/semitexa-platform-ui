@@ -1935,10 +1935,21 @@ import { withCsrf } from 'platform-ui/core';
     // having run.
     function readDeferredManifest() {
         if (typeof window === 'undefined' || typeof document === 'undefined') return null;
-        if (window.__SSR_DEFERRED) return window.__SSR_DEFERRED;
-        if (typeof document.querySelector !== 'function') return null;
+        if (typeof document.querySelector !== 'function') return window.__SSR_DEFERRED || null;
         var el = document.querySelector('script[type="application/json"][data-ssr-deferred-manifest]');
-        if (!el) return null;
+        // The ELEMENT decides, and the memo only saves re-parsing it. A shell
+        // navigation swaps regions without replacing `window`, so returning the
+        // memo first handed the new page the previous one's requestId, session
+        // and bind token — and its skeletons then waited for frames addressed
+        // to a request that had already finished.
+        if (el && window.__SSR_DEFERRED_EL === el && window.__SSR_DEFERRED) {
+            return window.__SSR_DEFERRED;
+        }
+        if (!el) {
+            window.__SSR_DEFERRED = null;
+            window.__SSR_DEFERRED_EL = null;
+            return null;
+        }
         var parsed;
         try {
             parsed = JSON.parse(el.textContent || '');
@@ -1947,6 +1958,7 @@ import { withCsrf } from 'platform-ui/core';
         }
         if (!parsed || typeof parsed !== 'object') return null;
         window.__SSR_DEFERRED = parsed;
+        window.__SSR_DEFERRED_EL = el;
         return parsed;
     }
 
