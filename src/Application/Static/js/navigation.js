@@ -149,7 +149,10 @@ function activateScripts(root) {
  * swap by an instant instead of forever.
  */
 function ensureAssets(assets) {
-    if (!assets) return Promise.resolve();
+    // TRUE, not undefined. This resolves to "did everything load", and the
+    // caller falls back to a real navigation on false — so an envelope with no
+    // assets at all would have sent every swap to the browser.
+    if (!assets) return Promise.resolve(true);
 
     const pending = [];
 
