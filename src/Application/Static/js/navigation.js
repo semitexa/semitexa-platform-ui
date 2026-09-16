@@ -271,6 +271,18 @@ function commit(payload, mode) {
 
     if (Object.keys(prepared).length === 0) return null;
 
+    // EVERY target resolved before anything moves. A layout change can rename
+    // or drop a region, and skipping the one that is missing used to push
+    // history and replace the others anyway — a page half from here and half
+    // from there, reported as a successful swap. Nothing found means nothing
+    // done, and the caller hands the URL to the browser.
+    const targets = {};
+    for (const name of Object.keys(prepared)) {
+        const target = document.querySelector('[' + REGION_ATTR + '="' + cssEscape(name) + '"]');
+        if (!target) return null;
+        targets[name] = target;
+    }
+
     const state = { semitexaShell: true, url: payload.url, scroll: 0 };
 
     if (mode === 'push') {
@@ -282,8 +294,7 @@ function commit(payload, mode) {
 
     let firstRegion = null;
     Object.keys(prepared).forEach((name) => {
-        const target = document.querySelector('[' + REGION_ATTR + '="' + cssEscape(name) + '"]');
-        if (!target) return;
+        const target = targets[name];
         target.replaceWith(prepared[name]);
         if (!firstRegion) firstRegion = prepared[name];
     });
