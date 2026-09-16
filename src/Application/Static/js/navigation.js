@@ -187,7 +187,10 @@ function ensureAssets(assets) {
             script.addEventListener('load', () => resolve(true), { once: true });
             script.addEventListener('error', () => resolve(false), { once: true });
             document.body.appendChild(script);
-            setTimeout(() => resolve(true), ASSET_TIMEOUT_MS);
+            // FALSE on timeout, unlike a stylesheet's. A script that has not
+            // arrived is a page whose behaviour is missing, and committing it
+            // anyway announces a navigation nothing will bind to.
+            setTimeout(() => resolve(false), ASSET_TIMEOUT_MS);
         }));
     });
 
@@ -437,6 +440,10 @@ export function navigate(url, options) {
                 return true;
             })
             .catch(() => {
+                // Guarded like the success path above: fallback() is a real
+                // navigation, so an older region apply failing late would send
+                // the browser to a URL the client has already moved on from.
+                if (token !== navigationToken) return false;
                 fallback(target, false);
                 return false;
             });
@@ -569,7 +576,10 @@ function onPopState(event) {
                 // is the thing manual mode was turned on to avoid.
                 window.scrollTo(0, scroll);
             })
-            .catch(() => fallback(url, true));
+            .catch(() => {
+                if (regionToken !== navigationToken) return;
+                fallback(url, true);
+            });
         return;
     }
 
