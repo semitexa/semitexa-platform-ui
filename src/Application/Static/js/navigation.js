@@ -268,6 +268,17 @@ function cssEscape(value) {
     return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
+let announceTimer = null;
+
+/**
+ * Say where we are, including when we have just been here.
+ *
+ * A live region announces a CHANGE to its contents. Writing the same string
+ * twice is not a change, so the second navigation to a page with the same
+ * title — paging through a list, reapplying a filter — was silent for anyone
+ * listening, which is the case that most needs saying. Cleared first and
+ * written back in a later frame, it is a change every time.
+ */
 function announce(title) {
     let live = document.getElementById('semitexa-nav-announcer');
     if (!live) {
@@ -280,7 +291,18 @@ function announce(title) {
             + 'overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0';
         document.body.appendChild(live);
     }
-    live.textContent = title || document.title;
+
+    const message = title || document.title;
+
+    // An older restore still pending would otherwise write the PREVIOUS page's
+    // title over this one, in the frame after this call.
+    if (announceTimer !== null) clearTimeout(announceTimer);
+
+    live.textContent = '';
+    announceTimer = setTimeout(() => {
+        announceTimer = null;
+        live.textContent = message;
+    }, 50);
 }
 
 /**
@@ -308,19 +330,26 @@ function restoreFocus(region, title) {
  * person.
  */
 function commit(payload, mode) {
+    const names = Object.keys(payload.regions || {});
     const prepared = {};
-    Object.keys(payload.regions || {}).forEach((name) => {
+
+    // EVERY region prepared before anything moves, for the same reason every
+    // target is resolved below. Dropping the one that would not parse — empty
+    // html, text with no element in it — and continuing pushed history and
+    // replaced the REST, so the page ended up part from here and part from
+    // there and the swap reported success. One failure means nothing done,
+    // and the caller hands the URL to the browser.
+    for (const name of names) {
         const element = prepareRegion(payload.regions[name]);
-        if (element) prepared[name] = element;
-    });
+        if (!element) return null;
+        prepared[name] = element;
+    }
 
-    if (Object.keys(prepared).length === 0) return null;
+    if (names.length === 0) return null;
 
-    // EVERY target resolved before anything moves. A layout change can rename
-    // or drop a region, and skipping the one that is missing used to push
-    // history and replace the others anyway — a page half from here and half
-    // from there, reported as a successful swap. Nothing found means nothing
-    // done, and the caller hands the URL to the browser.
+    // And every target resolved, for the same reason: a layout change can
+    // rename or drop a region, and skipping the missing one replaced the
+    // others anyway.
     const targets = {};
     for (const name of Object.keys(prepared)) {
         const target = document.querySelector('[' + REGION_ATTR + '="' + cssEscape(name) + '"]');
@@ -492,8 +521,19 @@ export function navigate(url, options) {
                 if (token !== navigationToken) return false;
 
                 if (opts.history !== false) {
-                    saveScroll();
-                    window.history.pushState({ semitexaShell: true, url: target, scroll: 0 }, '', target);
+                    // `replace` means the same thing here as on the page path,
+                    // and always pushing gave a caller that asked to REWRITE
+                    // the current entry — a region layer rewriting its own
+                    // filter URL — a new one instead. Back then returned to
+                    // the same page with different region state, once per
+                    // filter the visitor touched.
+                    const state = { semitexaShell: true, url: target, scroll: 0 };
+                    if (opts.replace === true) {
+                        window.history.replaceState(state, '', target);
+                    } else {
+                        saveScroll();
+                        window.history.pushState(state, '', target);
+                    }
                     committedUrl = target;
                 }
                 return true;
