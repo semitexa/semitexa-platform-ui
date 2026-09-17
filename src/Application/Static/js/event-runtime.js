@@ -1935,8 +1935,21 @@ import { withCsrf } from 'platform-ui/core';
     // having run.
     function readDeferredManifest() {
         if (typeof window === 'undefined' || typeof document === 'undefined') return null;
-        if (typeof document.querySelector !== 'function') return window.__SSR_DEFERRED || null;
-        var el = document.querySelector('script[type="application/json"][data-ssr-deferred-manifest]');
+        // `document.scripts`, not a selector. The LAST block is the one the
+        // server treats as authoritative — a response can append an updated
+        // manifest after an earlier one is already in the document — and this
+        // file is under a rule that no querySelectorAll may run against
+        // `document`. A live collection walked backwards answers the same
+        // question with no selector at all.
+        if (!document.scripts) return window.__SSR_DEFERRED || null;
+        var el = null;
+        for (var i = document.scripts.length - 1; i >= 0; i--) {
+            var candidate = document.scripts[i];
+            if (candidate.type === 'application/json' && candidate.hasAttribute('data-ssr-deferred-manifest')) {
+                el = candidate;
+                break;
+            }
+        }
         // The ELEMENT decides, and the memo only saves re-parsing it. A shell
         // navigation swaps regions without replacing `window`, so returning the
         // memo first handed the new page the previous one's requestId, session
