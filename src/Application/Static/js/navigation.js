@@ -46,6 +46,16 @@ const EXECUTABLE_TYPES = ['', 'text/javascript', 'application/javascript', 'modu
 /** An asset that never answers delays the swap by an instant rather than forever. */
 const ASSET_TIMEOUT_MS = 1000;
 
+/**
+ * How long a shell request may hang before the browser is given the URL.
+ *
+ * Longer than the asset budget on purpose: this one is a whole document from
+ * the server, and cutting a slow-but-working response short would turn a swap
+ * into a reload for no reason. Short enough that a dead connection does not
+ * read as a dead page.
+ */
+const SHELL_TIMEOUT_MS = 10000;
+
 /** Region layers, asked in registration order. */
 const regionHandlers = [];
 
@@ -105,6 +115,15 @@ function isExecutableScript(el) {
 
 /** Parse a region's HTML and neutralise every script it carries. */
 function prepareRegion(html) {
+    // The payload is the server's, but it arrives over the wire and only
+    // `shell: true` is validated. A null, a number or an object here reached
+    // `html.trim()` and threw, and the rejection travelled out through
+    // pageMove() to a click that had already called preventDefault() — so the
+    // page simply did not move, with an unhandled rejection to explain it.
+    // Returning null puts it on the same road as any other unusable region:
+    // the whole swap is abandoned and the browser gets the URL.
+    if (typeof html !== 'string') return null;
+
     const template = document.createElement('template');
     template.innerHTML = html.trim();
     const element = template.content.firstElementChild;
@@ -443,9 +462,31 @@ function saveScroll() {
  * politely.
  */
 function fetchShell(url) {
-    return fetch(url, {
+    // BOUNDED. A connection the server accepts and never answers left this
+    // promise pending for ever, and by then onClick() had called
+    // preventDefault(): the browser could not take the URL itself, and
+    // pageMove() only calls fallback() once this settles. The visitor clicks
+    // and nothing happens, with no error and no way out — the one outcome the
+    // module contract rules out, since every failure is supposed to become an
+    // ordinary browser navigation.
+    //
+    // The abort is best-effort and the timer is not: where AbortController is
+    // missing the request keeps running, but the race below has already
+    // resolved null and the fallback has already happened.
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    let timer = null;
+
+    const stalled = new Promise((resolve) => {
+        timer = setTimeout(() => {
+            if (controller) controller.abort();
+            resolve(null);
+        }, SHELL_TIMEOUT_MS);
+    });
+
+    const answered = fetch(url, {
         credentials: 'same-origin',
         headers: { [SHELL_HEADER]: '1' },
+        signal: controller ? controller.signal : undefined,
     }).then((response) => {
         if (!response.ok) return null;
         const type = response.headers.get('content-type') || '';
@@ -455,6 +496,11 @@ function fetchShell(url) {
         if (!payload || payload.shell !== true) return null;
         return payload;
     }).catch(() => null);
+
+    return Promise.race([answered, stalled]).then((payload) => {
+        if (timer !== null) clearTimeout(timer);
+        return payload;
+    });
 }
 
 /** Hand the URL back to the browser. Visibly ordinary beats invisibly stuck. */
