@@ -126,6 +126,15 @@
       "scope": "global",
       "position": "head",
       "priority": 45
+    },
+    "js/navigation.js": {
+      "scope": "global",
+      "position": "body",
+      "priority": 63,
+      "attributes": {
+        "type": "module"
+      },
+      "specifier": "platform-ui/navigation"
     }
   }
 }

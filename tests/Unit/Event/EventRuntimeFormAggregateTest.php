@@ -271,9 +271,9 @@ final class EventRuntimeFormAggregateTest extends TestCase
         $code = $this->jsCode();
 
         // The aggregator must never run document.querySelectorAll
-        // with a caller-shaped selector. As of the transport-mode
-        // policy slice there are exactly FIVE document.querySelector
-        // callsites in the whole file:
+        // with a caller-shaped selector. As of the CSP data-block slice
+        // there are exactly SIX document.querySelector callsites in the
+        // whole file:
         //
         //   1. patch applier's component-root resolver,
         //   2. form aggregate's field-root lookup,
@@ -281,18 +281,32 @@ final class EventRuntimeFormAggregateTest extends TestCase
         //   4. canonical SSE session-id meta-tag reader
         //      (`meta[name="semitexa-ui-sse-session"]`),
         //   5. canonical SSE transport-mode meta-tag reader
-        //      (`meta[name="semitexa-ui-transport-mode"]`).
+        //      (`meta[name="semitexa-ui-transport-mode"]`),
         //
         // The first three look up by
-        // `[data-ui-component-instance-id="<safe-id>"]`; the fourth and
-        // fifth look up by a hard-coded `meta[name="…"]` attribute
-        // selector with a static constant value, so no caller-shaped
-        // string ever lands in the selector. Any further callsite
-        // forces this test to be reviewed for selector safety.
+        // `[data-ui-component-instance-id="<safe-id>"]`; the fourth and fifth
+        // look up by a hard-coded attribute selector with a static constant
+        // value, so no caller-shaped string ever lands in the selector. Any
+        // further callsite forces this test to be reviewed for selector
+        // safety.
+        //
+        // 6 -> 5: the deferred-manifest reader stopped using a selector at
+        // all. It has to take the LAST block, because the server treats the
+        // last one as authoritative — a response can append an updated
+        // manifest after an earlier one is already in the document — and the
+        // rule below forbids querySelectorAll against `document`. Walking
+        // `document.scripts` backwards answers the same question with no
+        // selector, which is strictly safer than either.
         self::assertSame(
             5,
             substr_count($code, 'document.querySelector('),
             'A new document.querySelector callsite was added — review for selector safety.',
+        );
+
+        self::assertStringContainsString(
+            "candidate.hasAttribute('data-ssr-deferred-manifest')",
+            $code,
+            'the manifest reader must keep matching on a hard-coded attribute name',
         );
         // Three of the five querySelector callsites read by the safe
         // instance-id attribute pattern. The fourth — pinned in

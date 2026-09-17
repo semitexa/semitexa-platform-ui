@@ -1925,6 +1925,56 @@ import { withCsrf } from 'platform-ui/core';
         return SSE_TRANSPORT_MODE_DRAIN;
     }
 
+    // The deferred manifest arrives as a <script type="application/json"> data
+    // block, not as an executable assignment — an inline assignment needs a
+    // nonce under a strict script-src and fails silently without one. This is
+    // the same reader semitexa-ssr's own runtime carries; both memoize onto
+    // window.__SSR_DEFERRED, so load order between the two does not matter and
+    // the parse happens once. Deliberately duplicated rather than imported:
+    // that runtime is a classic script, and this one must not depend on it
+    // having run.
+    function readDeferredManifest() {
+        if (typeof window === 'undefined' || typeof document === 'undefined') return null;
+        // `document.scripts`, not a selector. The LAST block is the one the
+        // server treats as authoritative — a response can append an updated
+        // manifest after an earlier one is already in the document — and this
+        // file is under a rule that no querySelectorAll may run against
+        // `document`. A live collection walked backwards answers the same
+        // question with no selector at all.
+        if (!document.scripts) return window.__SSR_DEFERRED || null;
+        var el = null;
+        for (var i = document.scripts.length - 1; i >= 0; i--) {
+            var candidate = document.scripts[i];
+            if (candidate.type === 'application/json' && candidate.hasAttribute('data-ssr-deferred-manifest')) {
+                el = candidate;
+                break;
+            }
+        }
+        // The ELEMENT decides, and the memo only saves re-parsing it. A shell
+        // navigation swaps regions without replacing `window`, so returning the
+        // memo first handed the new page the previous one's requestId, session
+        // and bind token — and its skeletons then waited for frames addressed
+        // to a request that had already finished.
+        if (el && window.__SSR_DEFERRED_EL === el && window.__SSR_DEFERRED) {
+            return window.__SSR_DEFERRED;
+        }
+        if (!el) {
+            window.__SSR_DEFERRED = null;
+            window.__SSR_DEFERRED_EL = null;
+            return null;
+        }
+        var parsed;
+        try {
+            parsed = JSON.parse(el.textContent || '');
+        } catch (e) {
+            return null;
+        }
+        if (!parsed || typeof parsed !== 'object') return null;
+        window.__SSR_DEFERRED = parsed;
+        window.__SSR_DEFERRED_EL = el;
+        return parsed;
+    }
+
     function buildKissUrl(sessionId, mode) {
         var url = '/__semitexa_kiss?session_id=' + encodeURIComponent(sessionId)
             + '&mode=' + encodeURIComponent(mode);
@@ -1935,7 +1985,7 @@ import { withCsrf } from 'platform-ui/core';
         // The id is consumed server-side, so it only ever rides the initial
         // open; pages with no deferred content (the drain-on-demand case) have
         // no window.__SSR_DEFERRED and get a plain session+mode URL.
-        var deferred = (typeof window !== 'undefined') ? window.__SSR_DEFERRED : null;
+        var deferred = readDeferredManifest();
         if (deferred && typeof deferred.requestId === 'string' && deferred.requestId !== '') {
             url += '&deferred_request_id=' + encodeURIComponent(deferred.requestId);
         }
@@ -1997,7 +2047,7 @@ import { withCsrf } from 'platform-ui/core';
             return;
         }
         var mode = readPageTransportMode();
-        var deferred = (typeof window !== 'undefined') ? window.__SSR_DEFERRED : null;
+        var deferred = readDeferredManifest();
         var hasDeferred = !!(deferred
             && typeof deferred.requestId === 'string'
             && deferred.requestId !== '');

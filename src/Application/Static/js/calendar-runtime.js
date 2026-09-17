@@ -22,9 +22,33 @@ import {
   if (window.SemitexaUi.calendar) return;
   window.SemitexaUi.calendar = { version: 1 };
 
+  // Every calendar this module has booted, so the ones a navigation removed
+  // can be let go of. See onNavigationCommitted() below.
+  var booted = [];
+
   function boot() {
     var nodes = document.querySelectorAll('[data-ui-calendar]');
     for (var i = 0; i < nodes.length; i++) initCalendar(nodes[i]);
+  }
+
+  /**
+   * A shell navigation replaces a region's markup, and this module has already
+   * run: its module script will not execute again, and boot() only ever fired
+   * on DOMContentLoaded. So a calendar that ARRIVES by swap was never
+   * initialised — an inert grid with no events in it — while the calendar that
+   * LEFT kept its feed channel open against a node no longer in the document.
+   *
+   * boot() is idempotent (the per-element flag), so the whole lifecycle is:
+   * release what has detached, then boot what is here.
+   */
+  function onNavigationCommitted() {
+    booted = booted.filter(function (entry) {
+      if (document.contains(entry.root)) return true;
+      try { entry.release(); } catch (e) { /* a teardown must not block the next one */ }
+      return false;
+    });
+
+    boot();
   }
 
   function initCalendar(root) {
@@ -37,6 +61,7 @@ import {
     var userId = root.getAttribute('data-ui-calendar-user') || '';
 
     var S = {
+      released: false,
       cursor: startOfMonth(new Date()),
       selected: startOfDay(new Date()),
       events: [],
@@ -47,6 +72,18 @@ import {
     root.classList.add('uical');
     root.addEventListener('click', onClick);
     root.addEventListener('submit', onSubmit);
+    booted.push({
+      root: root,
+      release: function () {
+        // The FLAG, not just the close. An in-flight fetchJson can resolve
+        // after this calendar has been detached and released, and its
+        // continuation calls load() — which opens a NEW channel on a root
+        // nobody holds a registry entry for any more, so no later navigation
+        // can ever close it.
+        S.released = true;
+        if (S.channel) { S.channel.close(); S.channel = null; }
+      }
+    });
     render();
     load();
 
@@ -75,12 +112,13 @@ import {
 
     // The no-stream path: one plain JSON pull of the same window.
     function pullOnce() {
+      if (S.released) { return; }
       fetch(endpoint + '?' + rangeQuery(), {
         headers: { 'Accept': 'application/json' },
         credentials: 'same-origin'
       })
         .then(function (r) { return r.json(); })
-        .then(applyEnvelope)
+        .then(function (envelope) { if (!S.released) { applyEnvelope(envelope); } })
         .catch(function () { /* leave the last render standing */ });
     }
 
@@ -93,6 +131,12 @@ import {
     // the CURRENT month ride a reconnect instead of the one that was visible
     // when the stream first opened.
     function load() {
+      // A released calendar opens nothing. An in-flight write can resolve
+      // after this root was detached and let go of, and its continuation calls
+      // load() — which would open a channel on a node no registry entry holds
+      // any more, so nothing could ever close it again.
+      if (S.released) { return; }
+
       if (S.channel) { try { S.channel.close(); } catch (e) { /* already gone */ } S.channel = null; }
 
       // `data-ui-calendar-live="0"` opts out of the held-open stream and just
@@ -314,4 +358,6 @@ import {
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
+
+  document.addEventListener('semitexa:navigation:committed', onNavigationCommitted);
 })();
