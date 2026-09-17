@@ -119,11 +119,24 @@ function prepareRegion(html) {
     return element;
 }
 
-/** Re-create the neutralised scripts so they run, with THIS document's nonce. */
+/**
+ * Re-create the neutralised scripts so they run, with THIS document's nonce.
+ *
+ * IN DOCUMENT ORDER, and awaiting each EXTERNAL one, because a region can
+ * carry a `src` script and the inline script after it usually depends on it.
+ * Firing them all off and walking on ran the inline code — and dispatched
+ * `semitexa:navigation:committed` — before the file it needs had arrived, so
+ * the page looked committed and behaved as though nothing had loaded.
+ *
+ * Resolves false when an external script fails, which the caller turns into a
+ * real navigation: a region whose code cannot load is not a region this client
+ * can deliver.
+ */
 function activateScripts(root) {
     const nonce = documentNonce();
+    const inerts = Array.from(root.querySelectorAll('script[type="' + INERT_TYPE + '"]'));
 
-    root.querySelectorAll('script[type="' + INERT_TYPE + '"]').forEach((inert) => {
+    return inerts.reduce((chain, inert) => chain.then((ok) => {
         const script = document.createElement('script');
 
         for (const attribute of Array.from(inert.attributes)) {
@@ -136,8 +149,21 @@ function activateScripts(root) {
         if (nonce !== '') script.setAttribute('nonce', nonce);
 
         script.textContent = inert.textContent;
-        inert.replaceWith(script);
-    });
+
+        // An inline script runs the moment it is inserted, so there is nothing
+        // to wait for and no load event coming.
+        if (!script.src) {
+            inert.replaceWith(script);
+            return ok;
+        }
+
+        return new Promise((resolve) => {
+            script.addEventListener('load', () => resolve(ok), { once: true });
+            script.addEventListener('error', () => resolve(false), { once: true });
+            inert.replaceWith(script);
+            setTimeout(() => resolve(false), ASSET_TIMEOUT_MS);
+        });
+    }), Promise.resolve(true));
 }
 
 /**
@@ -510,15 +536,24 @@ function applyPage(url, payload, token, opts) {
         return false;
     }
 
-    activateScripts(document);
+    // The swap itself is done and history already matches it, so the scroll
+    // and the focus move now; only the ANNOUNCEMENT waits for the region's own
+    // scripts, because that is what page runtimes listen for.
     window.scrollTo(0, opts.scroll || 0);
     restoreFocus(region, payload.title);
 
-    document.dispatchEvent(new CustomEvent('semitexa:navigation:committed', {
-        detail: { url: payload.url, title: payload.title, regions: Object.keys(payload.regions || {}) },
-    }));
+    return activateScripts(document).then((ok) => {
+        if (!ok) {
+            fallback(url, opts.replace === true);
+            return false;
+        }
 
-    return true;
+        document.dispatchEvent(new CustomEvent('semitexa:navigation:committed', {
+            detail: { url: payload.url, title: payload.title, regions: Object.keys(payload.regions || {}) },
+        }));
+
+        return true;
+    });
 }
 
 function isPlainLeftClick(event) {
