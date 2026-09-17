@@ -13,7 +13,7 @@
         "php": "^8.4",
         "semitexa/core": "*",
         "semitexa/llm": "*",
-        "semitexa/ssr": "*",
+        "semitexa/ssr": ">=2026.09.17.1037 || dev-master",
         "semitexa/theme": "*",
         "symfony/console": "^7.0"
     },
