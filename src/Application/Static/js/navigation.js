@@ -245,8 +245,27 @@ function ensureAssets(assets) {
     return Promise.all(pending).then((results) => results.every(Boolean));
 }
 
+/**
+ * A value made safe to put inside a quoted attribute selector.
+ *
+ * Escaping only the quote was not enough: the envelope's region names and
+ * asset URLs come off the wire with no restricted grammar, and a value ending
+ * in a backslash escapes the CLOSING quote instead — `querySelector()` then
+ * throws a SyntaxError that nothing on the commit path catches, so navigation
+ * stopped dead with no browser fallback.
+ *
+ * `CSS.escape` is the browser's own answer and is used when present; the
+ * replacement below is the same rule for the two characters that can break
+ * out, for hosts that lack it.
+ */
 function cssEscape(value) {
-    return String(value).replace(/"/g, '\\"');
+    const text = String(value);
+
+    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+        return CSS.escape(text);
+    }
+
+    return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
 function announce(title) {
@@ -633,7 +652,10 @@ function onPopState(event) {
     }
 
     const token = ++navigationToken;
-    pageMove(url, token, { history: false, scroll: scroll });
+    // REPLACE on the fallback: the browser has already traversed to this URL,
+    // so assign() would push a second entry for a position history is already
+    // sitting on, and Back would then land where the visitor just was.
+    pageMove(url, token, { history: false, replace: true, scroll: scroll });
 }
 
 function boot() {
