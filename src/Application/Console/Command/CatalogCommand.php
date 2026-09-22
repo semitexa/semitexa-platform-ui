@@ -7,6 +7,7 @@ namespace Semitexa\PlatformUi\Application\Console\Command;
 use Semitexa\Core\Attribute\AsCommand;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Discovery\ClassDiscovery;
+use Semitexa\PlatformUi\Application\Service\Catalog\UiCatalogProjector;
 use Semitexa\PlatformUi\Application\Service\Behavior\UiBehaviorMetadataFactory;
 use Semitexa\PlatformUi\Application\Service\Behavior\UiBehaviorCatalog;
 use Semitexa\PlatformUi\Application\Service\Behavior\UiBehaviorRegistry;
@@ -43,6 +44,9 @@ final class CatalogCommand extends Command
     #[InjectAsReadonly]
     protected ClassDiscovery $classDiscovery;
 
+    #[InjectAsReadonly]
+    protected UiCatalogProjector $projector;
+
     public function __construct()
     {
         parent::__construct();
@@ -52,14 +56,23 @@ final class CatalogCommand extends Command
     {
         $this
             ->addOption('kind', null, InputOption::VALUE_REQUIRED, 'Filter: primitive | component | behavior')
+            ->addOption('details', null, InputOption::VALUE_NONE, 'Version 2: full contracts, examples, sources and event bindings')
+            ->addOption('name', null, InputOption::VALUE_REQUIRED, 'Describe one canonical entry (implies --details)')
             ->addOption('json', null, InputOption::VALUE_NONE, 'JSON envelope output');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        if ($input->getOption('details') || $input->getOption('name') !== null) {
+            return $this->describe($input, $output);
+        }
         $this->seedRegistries();
 
         $kind = $input->getOption('kind');
+        if ($kind !== null && !in_array($kind, ['primitive', 'component', 'behavior'], true)) {
+            $output->writeln('<error>Kind must be primitive, component or behavior.</error>');
+            return Command::INVALID;
+        }
         $wants = static fn (string $k): bool => $kind === null || $kind === $k;
 
         /** @var list<PrimitiveMetadata> $primitives */
@@ -124,6 +137,43 @@ final class CatalogCommand extends Command
         return Command::SUCCESS;
     }
 
+    private function describe(InputInterface $input, OutputInterface $output): int
+    {
+        try {
+            $kind = $input->getOption('kind');
+            $name = $input->getOption('name');
+            $result = $this->projector->envelope(
+                is_string($kind) ? $kind : null,
+                is_string($name) ? $name : null,
+            );
+        } catch (\InvalidArgumentException $e) {
+            $output->writeln(json_encode(['error' => $e->getMessage()], JSON_THROW_ON_ERROR));
+            return Command::INVALID;
+        }
+        if ($input->getOption('json')) {
+            $output->writeln(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+            return Command::SUCCESS;
+        }
+        foreach ($result['entries'] as $entry) {
+            $source = (array) ($entry['source'] ?? []);
+            $output->writeln(sprintf(
+                '<info>%s</info> (%s, %s) — %s',
+                self::text($entry['name']),
+                self::text($entry['kind']),
+                self::text($entry['typing']),
+                self::text($entry['summary']),
+            ));
+            $output->writeln(sprintf('  source: %s:%d', self::text($source['file'] ?? ''), self::number($source['line'] ?? 0)));
+            $schemaBlock = (array) ($entry['props_schema'] ?? []);
+            foreach ((array) ($schemaBlock['properties'] ?? []) as $name => $schema) {
+                $output->writeln('  ' . $name . ': ' . json_encode($schema, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+            }
+            $output->writeln('  slots: ' . implode(', ', array_keys((array) ($entry['slots'] ?? []))));
+            $output->writeln('  examples: ' . implode(', ', array_column((array) ($entry['examples'] ?? []), 'name')));
+        }
+        return Command::SUCCESS;
+    }
+
     /**
      * Seed the discovery-driven registries so the command works regardless of
      * whether the worker lifecycle listener has run in this process. Idempotent.
@@ -161,5 +211,16 @@ final class CatalogCommand extends Command
             'slots' => array_keys($c->slots),
             'events' => count($c->events),
         ];
+    }
+
+    /** Catalog entries are mixed by construction; render scalars, skip the rest. */
+    private static function text(mixed $value): string
+    {
+        return is_scalar($value) ? (string) $value : '';
+    }
+
+    private static function number(mixed $value): int
+    {
+        return is_numeric($value) ? (int) $value : 0;
     }
 }

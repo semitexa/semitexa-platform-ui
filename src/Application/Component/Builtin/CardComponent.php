@@ -6,6 +6,9 @@ namespace Semitexa\PlatformUi\Application\Component\Builtin;
 
 use Semitexa\Ssr\Attribute\AsComponent;
 use Semitexa\PlatformUi\Attribute\UiSlot;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiProp;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
 
 /**
  * platform.card — a presentational surface that groups related content.
@@ -38,6 +41,20 @@ use Semitexa\PlatformUi\Attribute\UiSlot;
 #[UiSlot(name: 'header', description: 'Header content; falls back to the title/subtitle props when empty.')]
 #[UiSlot(name: 'body', description: 'Main content region of the card.')]
 #[UiSlot(name: 'footer', description: 'Trailing actions or metadata, rendered below the body.')]
+#[AsUiContract(
+    summary: 'Group related content in a themed surface with optional media and actions.',
+    props: [
+        new UiProp('variant', default: 'elevated', values: ['elevated', 'outlined', 'plain']),
+        new UiProp('title', default: '', description: 'Heading used when the header slot is empty.'),
+        new UiProp('subtitle', default: ''),
+    ],
+    examples: [
+        new UiExample('default', 'Project overview', ['title' => 'Your workspace', 'subtitle' => 'A place for the next idea'], ['body' => 'Build something useful.', 'footer' => 'Updated just now']),
+        new UiExample('outlined', 'Outlined', ['variant' => 'outlined', 'title' => 'A quieter surface'], ['body' => 'The same content, another token-driven treatment.']),
+        new UiExample('empty', 'Empty', ['title' => 'Nothing here yet'], ['body' => 'Create your first item to get started.']),
+    ],
+    previewSafe: true,
+)]
 final class CardComponent
 {
 }
