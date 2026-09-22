@@ -20,7 +20,6 @@ use Semitexa\PlatformUi\Domain\Exception\UiInteractionForbiddenException;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionNotFoundException;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionUnprocessableException;
 use Semitexa\PlatformUi\Domain\Model\Component\UiExternalHandlerMetadata;
-use Semitexa\PlatformUi\Domain\Model\Component\UiValuePath;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventContext;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionEvent;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult;

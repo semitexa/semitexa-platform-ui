@@ -8,7 +8,6 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Semitexa\PlatformUi\Application\Service\Submit\InMemoryUiFormDatabaseDemoSubmissionRepository;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormDatabaseDemoSubmissionRepositoryInterface;
-use Semitexa\PlatformUi\Domain\Model\Event\UiFormDemoSubmissionCursor;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFormDemoSubmissionListCriteria;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFormDemoSubmissionPage;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFormDemoSubmissionRecord;

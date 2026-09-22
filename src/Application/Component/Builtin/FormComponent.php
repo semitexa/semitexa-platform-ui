@@ -25,7 +25,6 @@ use Semitexa\PlatformUi\Domain\Exception\UiFormSubmitSecurityPolicyException;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionUnprocessableException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitActionAuthorizationContext;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitActionContext;
-use Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitActionResult;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitConfig;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitSecurityContext;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitResult;
