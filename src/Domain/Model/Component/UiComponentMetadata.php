@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Domain\Model\Component;
 
+use Semitexa\PlatformUi\Domain\Model\Contract\UiContract;
+
 /**
  * Immutable Platform-UI-side metadata for a composed component.
  *
@@ -29,6 +31,7 @@ final readonly class UiComponentMetadata
         public array $providers = [],
         /** @var array<string, UiOnMetadata> */
         public array $events = [],
+        public ?UiContract $contract = null,
     ) {}
 
     public function part(string $name): ?UiPartMetadata

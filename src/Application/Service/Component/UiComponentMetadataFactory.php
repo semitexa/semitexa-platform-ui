@@ -8,6 +8,7 @@ use ReflectionClass;
 use ReflectionMethod;
 use ReflectionNamedType;
 use Semitexa\PlatformUi\Attribute\AsUiPrimitive;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
 use Semitexa\PlatformUi\Attribute\ProvidesUiPart;
 use Semitexa\PlatformUi\Attribute\UiOn;
 use Semitexa\PlatformUi\Attribute\UiPart;
@@ -264,6 +265,18 @@ final class UiComponentMetadataFactory
         }
 
         $events = $this->collectEvents($reflection, $class, $componentName, $parts);
+        $contracts = $reflection->getAttributes(AsUiContract::class);
+        if (count($contracts) > 1) {
+            throw new UiComponentRegistryException("Component {$class} declares more than one UI contract.");
+        }
+        $contract = $contracts === [] ? null : $contracts[0]->newInstance()->metadata();
+        foreach ($contract?->examples ?? [] as $example) {
+            foreach (array_keys($example->slots) as $slot) {
+                if (!isset($slots[$slot])) {
+                    throw new UiComponentRegistryException("Example {$example->name} uses unknown slot {$slot} on {$class}.");
+                }
+            }
+        }
 
         return new UiComponentMetadata(
             class: $class,
@@ -272,6 +285,7 @@ final class UiComponentMetadataFactory
             slots: $slots,
             providers: $providers,
             events: $events,
+            contract: $contract,
         );
     }
 
