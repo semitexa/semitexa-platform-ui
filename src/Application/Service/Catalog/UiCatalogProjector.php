@@ -115,7 +115,7 @@ final class UiCatalogProjector
             'template' => $item->template,
             'props_schema' => $contract?->schema(), 'defaults' => (object) ($contract?->defaults() ?? []),
             'parts' => (object) $parts, 'slots' => (object) $slots, 'events' => (object) $events,
-            'examples' => array_values(array_map(static fn ($example): array => $example->toArray(), $contract?->examples ?? [])),
+            'examples' => $contract === null ? [] : array_values(array_map($contract->exampleArray(...), $contract->examples)),
             'preview_safe' => $contract?->previewSafe ?? false,
         ];
         if ($metadata instanceof BehaviorMetadata) {
@@ -149,7 +149,14 @@ final class UiCatalogProjector
         $class = $metadata->class;
         $reflection = new ReflectionClass($class);
         $attribute = $reflection->getAttributes(AsUiContract::class)[0] ?? null;
-        $contract = $metadata instanceof UiComponentMetadata ? $metadata->contract : $attribute?->newInstance()->metadata();
+        $declared = $attribute?->newInstance();
+        // A behavior's props are its options, known only here; its examples are
+        // checked against the contract built below, not the prop-less attribute.
+        $contract = match (true) {
+            $metadata instanceof UiComponentMetadata => $metadata->contract,
+            $metadata instanceof BehaviorMetadata => null,
+            default => $declared?->metadata(),
+        };
         $template = $metadata instanceof PrimitiveMetadata ? $metadata->template : null;
         if ($metadata instanceof UiComponentMetadata) {
             $template = ($reflection->getAttributes(AsComponent::class)[0] ?? null)?->newInstance()->template;
@@ -165,7 +172,7 @@ final class UiCatalogProjector
                 };
                 $props[] = new UiProp($option->name, $type, default: $option->default, nullable: $option->default === null, values: $option->values, description: $option->description ?? '');
             }
-            $contract = new UiContract($contract?->summary ?? $metadata->name, $props, array_values($contract?->examples ?? []), $contract?->previewSafe ?? false);
+            $contract = new UiContract($declared?->summary ?? $metadata->name, $props, $declared?->examples ?? [], $declared?->previewSafe ?? false);
         }
         $file = $reflection->getFileName() ?: '';
         $root = rtrim((string) getcwd(), '/') . '/';

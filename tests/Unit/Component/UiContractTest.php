@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Tests\Unit\Component;
 
 use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentMetadataFactory;
@@ -49,6 +50,60 @@ final class UiContractTest extends TestCase
     {
         $this->expectException(InvalidArgumentException::class);
         new UiProp('variant', default: 'typo', values: ['outlined', 'plain']);
+    }
+
+    /** @return iterable<string, array{array<string, mixed>, string}> */
+    public static function examplesTheSchemaRejects(): iterable
+    {
+        yield 'unknown prop' => [['titel' => 'Example', 'rows' => []], 'no prop named titel'];
+        yield 'value outside the enum' => [['variant' => 'typo', 'rows' => []], 'not one of the declared values'];
+        yield 'wrong type' => [['count' => '3', 'rows' => []], 'must be of type integer'];
+        yield 'missing required prop' => [[], 'missing required prop rows'];
+        yield 'nested violation' => [['rows' => [['label' => 'ok'], ['lable' => 'x']]], 'props.rows[1] has no prop named lable'];
+    }
+
+    /** @param array<string, mixed> $props */
+    #[Test]
+    #[DataProvider('examplesTheSchemaRejects')]
+    public function an_example_the_schema_would_reject_is_rejected(array $props, string $reason): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage($reason);
+        new UiContract('Fixture', self::exampleProps(), [new UiExample('bad', 'Bad', $props)]);
+    }
+
+    #[Test]
+    public function an_example_the_schema_accepts_is_kept(): void
+    {
+        $contract = new UiContract('Fixture', self::exampleProps(), [
+            new UiExample('good', 'Good', ['variant' => 'plain', 'count' => 3, 'rows' => [['label' => 'One']]]),
+        ]);
+        self::assertSame(['good'], array_keys($contract->examples));
+    }
+
+    #[Test]
+    public function an_empty_object_value_is_encoded_as_a_json_object(): void
+    {
+        $contract = new UiContract('Fixture', [
+            new UiProp('config', UiPropType::Object, default: []),
+            new UiProp('rows', UiPropType::Array, items: new UiProp('row', UiPropType::Object), default: [[]]),
+        ], [new UiExample('empty', 'Empty', ['config' => []])]);
+
+        self::assertStringContainsString('"config":{"type":"object","default":{}}', json_encode($contract->schema(), JSON_THROW_ON_ERROR));
+        self::assertSame('{"config":{},"rows":[{}]}', json_encode($contract->defaults(), JSON_THROW_ON_ERROR));
+        self::assertSame('{"config":{}}', json_encode($contract->exampleArray($contract->examples['empty'])['props'], JSON_THROW_ON_ERROR));
+    }
+
+    /** @return list<UiProp> */
+    private static function exampleProps(): array
+    {
+        return [
+            new UiProp('variant', default: 'elevated', values: ['elevated', 'plain']),
+            new UiProp('count', UiPropType::Integer, default: 0),
+            new UiProp('rows', UiPropType::Array, required: true, items: new UiProp('row', UiPropType::Object, properties: [
+                new UiProp('label', required: true),
+            ])),
+        ];
     }
 
     #[Test]

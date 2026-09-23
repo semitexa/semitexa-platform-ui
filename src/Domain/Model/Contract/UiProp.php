@@ -31,9 +31,6 @@ final readonly class UiProp
         if ($required && $default !== null) {
             throw new InvalidArgumentException("Required UI prop {$name} cannot also have a default.");
         }
-        if ($default !== null && (!$type->accepts($default) || ($values !== [] && !in_array($default, $values, true)))) {
-            throw new InvalidArgumentException("Invalid default for UI prop {$name}.");
-        }
         foreach ($values as $value) {
             if (!$type->accepts($value)) {
                 throw new InvalidArgumentException("Invalid enum value for UI prop {$name}.");
@@ -43,6 +40,99 @@ final readonly class UiProp
             throw new InvalidArgumentException("Nested schema does not match UI prop {$name}.");
         }
         self::index($properties);
+        if ($default !== null) {
+            try {
+                $this->validate($default, $name);
+            } catch (InvalidArgumentException $e) {
+                throw new InvalidArgumentException("Invalid default for UI prop {$name}: {$e->getMessage()}", 0, $e);
+            }
+        }
+    }
+
+    /**
+     * Checks a value against this declaration the way its schema() would:
+     * type, enum, nullability, and nested items/properties.
+     *
+     * @throws InvalidArgumentException naming the offending path
+     */
+    public function validate(mixed $value, string $path): void
+    {
+        if ($value === null) {
+            if (!$this->nullable) {
+                throw new InvalidArgumentException("{$path} is not nullable.");
+            }
+            return;
+        }
+        if (!$this->type->accepts($value)) {
+            throw new InvalidArgumentException("{$path} must be of type {$this->type->value}.");
+        }
+        if ($this->values !== [] && !in_array($value, $this->values, true)) {
+            throw new InvalidArgumentException("{$path} is not one of the declared values.");
+        }
+        if ($this->items !== null && is_array($value)) {
+            foreach ($value as $index => $item) {
+                $this->items->validate($item, "{$path}[{$index}]");
+            }
+        }
+        if ($this->type === UiPropType::Object && $this->properties !== [] && is_array($value)) {
+            self::validateObject($this->properties, $value, $path);
+        }
+    }
+
+    /**
+     * An object value against a closed property list — objectSchema() emits
+     * additionalProperties: false, so an unknown key is an error, not extra.
+     *
+     * @param list<UiProp> $props
+     * @param array<array-key, mixed> $value
+     */
+    public static function validateObject(array $props, array $value, string $path): void
+    {
+        $indexed = self::index($props);
+        foreach ($value as $key => $item) {
+            if (!isset($indexed[$key])) {
+                throw new InvalidArgumentException("{$path} has no prop named {$key}.");
+            }
+            $indexed[$key]->validate($item, "{$path}.{$key}");
+        }
+        foreach ($indexed as $name => $prop) {
+            if ($prop->required && !array_key_exists($name, $value)) {
+                throw new InvalidArgumentException("{$path} is missing required prop {$name}.");
+            }
+        }
+    }
+
+    /**
+     * The value as JSON should see it. PHP has one array type, so an empty
+     * object-typed value would otherwise encode as `[]` under `type: object`.
+     */
+    public function normalize(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+        if ($this->type === UiPropType::Object) {
+            return self::normalizeObject($this->properties, $value);
+        }
+        if ($this->items !== null) {
+            return array_map($this->items->normalize(...), $value);
+        }
+        return $value;
+    }
+
+    /**
+     * @param list<UiProp> $props
+     * @param array<array-key, mixed> $value
+     */
+    public static function normalizeObject(array $props, array $value): object
+    {
+        $indexed = self::index($props);
+        foreach ($value as $key => $item) {
+            if (isset($indexed[$key])) {
+                $value[$key] = $indexed[$key]->normalize($item);
+            }
+        }
+        return (object) $value;
     }
 
     public function hasDefault(): bool
@@ -74,7 +164,7 @@ final readonly class UiProp
             $schema['description'] = $this->description;
         }
         if ($this->hasDefault()) {
-            $schema['default'] = $this->default;
+            $schema['default'] = $this->normalize($this->default);
         }
         if ($this->values !== []) {
             $schema['enum'] = $this->nullable ? [...$this->values, null] : $this->values;
