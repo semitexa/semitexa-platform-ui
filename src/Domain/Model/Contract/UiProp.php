@@ -66,7 +66,7 @@ final readonly class UiProp
         if (!$this->type->accepts($value)) {
             throw new InvalidArgumentException("{$path} must be of type {$this->type->value}.");
         }
-        if ($this->values !== [] && !in_array($value, $this->values, true)) {
+        if ($this->values !== [] && !$this->type->inEnum($value, $this->values)) {
             throw new InvalidArgumentException("{$path} is not one of the declared values.");
         }
         if ($this->items !== null && is_array($value)) {

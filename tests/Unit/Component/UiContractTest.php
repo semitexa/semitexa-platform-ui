@@ -82,6 +82,26 @@ final class UiContractTest extends TestCase
     }
 
     #[Test]
+    public function numbers_are_compared_the_way_json_schema_compares_them(): void
+    {
+        $contract = new UiContract('Fixture', [
+            new UiProp('count', UiPropType::Integer, default: 0),
+            new UiProp('scale', UiPropType::Number, default: 1, values: [1, 2.5]),
+            new UiProp('label', default: '1', values: ['1']),
+        ], [new UiExample('integral', 'Integral', ['count' => 3.0, 'scale' => 1.0])]);
+        self::assertSame(['integral'], array_keys($contract->examples));
+
+        foreach ([['count' => 3.5], ['scale' => 2], ['label' => 1]] as $props) {
+            try {
+                new UiContract('Fixture', array_values($contract->props), [new UiExample('bad', 'Bad', $props)]);
+                self::fail('Accepted ' . json_encode($props));
+            } catch (InvalidArgumentException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+
+    #[Test]
     public function an_empty_object_value_is_encoded_as_a_json_object(): void
     {
         $contract = new UiContract('Fixture', [
