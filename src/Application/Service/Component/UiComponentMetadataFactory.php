@@ -270,7 +270,7 @@ final class UiComponentMetadataFactory
             throw new UiComponentRegistryException("Component {$class} declares more than one UI contract.");
         }
         $contract = $contracts === [] ? null : $contracts[0]->newInstance()->metadata();
-        foreach ($contract?->examples ?? [] as $example) {
+        foreach ($contract->examples ?? [] as $example) {
             foreach (array_keys($example->slots) as $slot) {
                 if (!isset($slots[$slot])) {
                     throw new UiComponentRegistryException("Example {$example->name} uses unknown slot {$slot} on {$class}.");

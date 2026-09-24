@@ -141,7 +141,7 @@ final readonly class UiProp
     }
 
     /**
-     * @param list<UiProp> $props
+     * @param array<mixed> $props attribute arguments; each element is checked
      * @return array<string, UiProp>
      */
     public static function index(array $props): array
