@@ -15,8 +15,8 @@ final readonly class UiContract
     public array $examples;
 
     /**
-     * @param list<UiProp> $props
-     * @param list<UiExample> $examples
+     * @param array<mixed> $props    attribute arguments: element types are
+     * @param array<mixed> $examples not checked by PHP, so they are checked here
      */
     public function __construct(
         public string $summary,

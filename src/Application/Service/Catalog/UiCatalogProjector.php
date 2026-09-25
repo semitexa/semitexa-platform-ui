@@ -110,13 +110,13 @@ final class UiCatalogProjector
         $result = [
             'name' => $item->name(), 'kind' => $item->kind, 'class' => $item->className(),
             'typing' => $contract === null ? 'untyped' : 'typed',
-            'summary' => $contract?->summary ?? '',
+            'summary' => $contract->summary ?? '',
             'source' => ['file' => $item->source, 'line' => $item->line, 'sha256' => $item->sourceHash],
             'template' => $item->template,
             'props_schema' => $contract?->schema(), 'defaults' => (object) ($contract?->defaults() ?? []),
             'parts' => (object) $parts, 'slots' => (object) $slots, 'events' => (object) $events,
             'examples' => $contract === null ? [] : array_values(array_map($contract->exampleArray(...), $contract->examples)),
-            'preview_safe' => $contract?->previewSafe ?? false,
+            'preview_safe' => $contract->previewSafe ?? false,
         ];
         if ($metadata instanceof BehaviorMetadata) {
             $result += $metadata->toArray();
@@ -172,7 +172,7 @@ final class UiCatalogProjector
                 };
                 $props[] = new UiProp($option->name, $type, default: $option->default, nullable: $option->default === null, values: $option->values, description: $option->description ?? '');
             }
-            $contract = new UiContract($declared?->summary ?? $metadata->name, $props, $declared?->examples ?? [], $declared?->previewSafe ?? false);
+            $contract = new UiContract($declared->summary ?? $metadata->name, $props, $declared->examples ?? [], $declared->previewSafe ?? false);
         }
         $file = $reflection->getFileName() ?: '';
         $root = rtrim((string) getcwd(), '/') . '/';
