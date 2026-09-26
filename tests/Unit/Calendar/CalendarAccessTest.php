@@ -51,15 +51,17 @@ final class CalendarAccessTest extends TestCase
     #[Test]
     public function a_user_cannot_delete_another_users_event(): void
     {
-        $events = $this->repository(new CalendarEvent('ev-1', null, 'alice', 'Standup', new \DateTimeImmutable(), new \DateTimeImmutable()));
+        // The event exists, so the ownership check — not a findById() miss —
+        // is what has to stop the delete.
+        $events = $this->createMock(CalendarEventRepositoryInterface::class);
+        $events->expects(self::once())
+            ->method('findById')
+            ->with('ev-1')
+            ->willReturn(new CalendarEvent('ev-1', null, 'alice', 'Standup', new \DateTimeImmutable(), new \DateTimeImmutable()));
+        $events->expects(self::never())->method('deleteById');
 
-        try {
-            $this->deleteAs('mallory', $events, 'ev-1');
-            self::fail('Deleting another user\'s event must be denied.');
-        } catch (AccessDeniedException) {
-        }
-
-        self::assertSame([], $events->deleted);
+        $this->expectException(AccessDeniedException::class);
+        $this->deleteAs('mallory', $events, 'ev-1');
     }
 
     #[Test]
