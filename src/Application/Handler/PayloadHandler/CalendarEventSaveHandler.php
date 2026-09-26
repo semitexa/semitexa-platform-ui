@@ -6,12 +6,14 @@ namespace Semitexa\PlatformUi\Application\Handler\PayloadHandler;
 
 use Semitexa\Core\Attribute\AsPayloadHandler;
 use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Core\Auth\AuthContextInterface;
 use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Orm\Application\Service\Uuid7;
 use Semitexa\PlatformUi\Domain\Model\CalendarEvent;
 use Semitexa\PlatformUi\Application\Payload\Request\CalendarEventSavePayload;
 use Semitexa\PlatformUi\Application\Service\CalendarEventView;
+use Semitexa\PlatformUi\Application\Service\CalendarOwner;
 use Semitexa\PlatformUi\Domain\Contract\CalendarEventRepositoryInterface;
 
 /**
@@ -25,11 +27,18 @@ final class CalendarEventSaveHandler implements TypedHandlerInterface
     #[InjectAsReadonly]
     protected CalendarEventRepositoryInterface $events;
 
+    #[InjectAsReadonly]
+    protected AuthContextInterface $auth;
+
     public function handle(CalendarEventSavePayload $payload, ResourceResponse $resource): ResourceResponse
     {
         $now = new \DateTimeImmutable();
         $id = $payload->getId();
+        $owner = CalendarOwner::of($this->auth);
         $existing = $id !== '' ? $this->events->findById($id) : null;
+        if ($existing !== null) {
+            CalendarOwner::assertOwns($owner, $existing);
+        }
 
         // A naive datetime at the boundary is interpreted in the configured
         // calendar zone (default UTC) rather than blindly as UTC, so a
@@ -39,7 +48,7 @@ final class CalendarEventSaveHandler implements TypedHandlerInterface
         $event = new CalendarEvent(
             id: $existing?->getId() ?? Uuid7::generate(),
             tenantId: $existing?->getTenantId(),
-            userId: $existing !== null ? $existing->getUserId() : $payload->getUserId(),
+            userId: $owner,
             title: $payload->getTitle(),
             startsAt: $payload->getStartsAt($assume),
             endsAt: $payload->getEndsAt($assume),

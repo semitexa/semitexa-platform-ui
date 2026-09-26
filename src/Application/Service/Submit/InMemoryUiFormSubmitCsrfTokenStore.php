@@ -29,6 +29,10 @@ final class InMemoryUiFormSubmitCsrfTokenStore implements UiFormSubmitCsrfTokenS
 
     public function issue(int $ttlSeconds): UiFormSubmitCsrfTokenHandle
     {
+        // Purged here too, not only on consume(): every render of a form
+        // issues a token, most are never submitted, and in a long-lived
+        // worker those would otherwise pile up for the life of the process.
+        $this->purgeExpired();
         $ttl = $ttlSeconds < 1 ? 1 : $ttlSeconds;
         $id = CacheBackedUiFormSubmitCsrfTokenStore::ID_PREFIX . bin2hex(random_bytes(8));
         $raw = bin2hex(random_bytes(16));

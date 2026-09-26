@@ -112,4 +112,22 @@ final class InMemoryUiFormSubmitCsrfTokenStoreTest extends TestCase
         self::assertStringNotContainsString($h->raw, $tokens[$h->id]['hash']);
         self::assertSame(64, strlen($tokens[$h->id]['hash']));
     }
+
+    #[Test]
+    public function issuing_drops_expired_tokens_that_were_never_consumed(): void
+    {
+        // Forms render far more often than they submit: tokens nobody
+        // consumes must not live for the whole life of the worker.
+        $store = new InMemoryUiFormSubmitCsrfTokenStore();
+        $stale = $store->issue(60);
+        $tokens = new \ReflectionProperty($store, 'tokens');
+        /** @var array<string, array{hash: string, expiresAt: int}> $held */
+        $held = $tokens->getValue($store);
+        $held[$stale->id]['expiresAt'] = time() - 1;
+        $tokens->setValue($store, $held);
+
+        $fresh = $store->issue(60);
+
+        self::assertSame([$fresh->id], array_keys($tokens->getValue($store)));
+    }
 }

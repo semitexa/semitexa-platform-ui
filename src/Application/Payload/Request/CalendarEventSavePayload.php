@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Authorization\Attribute\RequiresPermission;
+use Semitexa\PlatformUi\Domain\Security\CalendarPermission;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Environment;
 use Semitexa\Core\Http\Response\ResourceResponse;
@@ -14,13 +16,14 @@ use Semitexa\Core\Http\Response\ResourceResponse;
  * `id`) a calendar event. On a separate path from the SSE feed so it never
  * collides with the feed's POST re-hydrate. Datetime strings are ISO-8601.
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/platform/calendar/events/save',
     methods: ['POST'],
     responseWith: ResourceResponse::class,
     consumes: ['application/json'],
     produces: ['application/json'],
 )]
+#[RequiresPermission(CalendarPermission::WRITE)]
 final class CalendarEventSavePayload implements ValidatablePayloadInterface
 {
     private string $id = '';
