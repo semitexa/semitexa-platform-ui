@@ -6,12 +6,14 @@ namespace Semitexa\PlatformUi\Application\Handler\PayloadHandler;
 
 use Semitexa\Core\Attribute\AsPayloadHandler;
 use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Core\Auth\AuthContextInterface;
 use Semitexa\Core\Contract\TypedHandlerInterface;
 use Semitexa\Core\Http\HttpStatus;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Core\Resource\JsonResourceResponse;
 use Semitexa\PlatformUi\Application\Payload\Request\CalendarEventsFeedPayload;
 use Semitexa\PlatformUi\Application\Service\CalendarEventView;
+use Semitexa\PlatformUi\Application\Service\CalendarOwner;
 use Semitexa\PlatformUi\Domain\Contract\CalendarEventRepositoryInterface;
 use Semitexa\Ssr\Application\Handler\PayloadHandler\AbstractSseFeedHandler;
 use Semitexa\Ssr\Domain\Contract\SseFeedPayloadInterface;
@@ -30,6 +32,9 @@ final class CalendarEventsFeedHandler extends AbstractSseFeedHandler implements 
     #[InjectAsReadonly]
     protected CalendarEventRepositoryInterface $events;
 
+    #[InjectAsReadonly]
+    protected AuthContextInterface $auth;
+
     public function handle(CalendarEventsFeedPayload $payload, JsonResourceResponse $response): JsonResourceResponse
     {
         return $this->serve($payload, $response);
@@ -42,7 +47,9 @@ final class CalendarEventsFeedHandler extends AbstractSseFeedHandler implements 
         }
 
         [$from, $to] = self::resolveWindow($payload->getFrom(), $payload->getTo());
-        $userId = $payload->getUserId();
+        // The signed-in user's own events only. The payload's userId filter
+        // is client input and used to decide whose calendar was returned.
+        $userId = CalendarOwner::of($this->auth);
 
         $rows = array_map(
             static fn ($event): array => CalendarEventView::toArray($event),

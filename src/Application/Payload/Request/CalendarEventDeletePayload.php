@@ -4,20 +4,23 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Authorization\Attribute\RequiresPermission;
+use Semitexa\PlatformUi\Domain\Security\CalendarPermission;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
 /**
  * `POST /platform/calendar/events/delete` — remove a calendar event by id.
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/platform/calendar/events/delete',
     methods: ['POST'],
     responseWith: ResourceResponse::class,
     consumes: ['application/json'],
     produces: ['application/json'],
 )]
+#[RequiresPermission(CalendarPermission::WRITE)]
 final class CalendarEventDeletePayload implements ValidatablePayloadInterface
 {
     private string $id = '';

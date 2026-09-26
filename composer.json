@@ -11,6 +11,7 @@
     ],
     "require": {
         "php": "^8.4",
+        "semitexa/authorization": "*",
         "semitexa/core": "*",
         "semitexa/llm": "*",
         "semitexa/ssr": ">=2026.09.17.1037 || dev-master",

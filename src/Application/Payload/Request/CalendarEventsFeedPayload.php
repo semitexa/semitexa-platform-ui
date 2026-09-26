@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Payload\Request;
 
-use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Authorization\Attribute\AsProtectedPayload;
+use Semitexa\Authorization\Attribute\RequiresPermission;
+use Semitexa\PlatformUi\Domain\Security\CalendarPermission;
 use Semitexa\Core\Attribute\LiveFilterParam;
 use Semitexa\Core\Attribute\SseGateModel;
 use Semitexa\Core\Attribute\TransportType;
@@ -25,7 +27,7 @@ use Semitexa\Ssr\Domain\Contract\SseFeedPayloadInterface;
  * fields — only they are applied by a re-hydrate intake; `streamId` / the HTTP
  * request are transport metadata, never filters.
  */
-#[AsPublicPayload(
+#[AsProtectedPayload(
     path: '/platform/calendar/events',
     methods: ['GET', 'POST'],
     responseWith: JsonResourceResponse::class,
@@ -33,6 +35,7 @@ use Semitexa\Ssr\Domain\Contract\SseFeedPayloadInterface;
     transport: TransportType::Sse,
     sseGateModel: SseGateModel::BearerSession,
 )]
+#[RequiresPermission(CalendarPermission::READ)]
 #[WatchScopes('platform_calendar_events')]
 final class CalendarEventsFeedPayload implements SseFeedPayloadInterface
 {
