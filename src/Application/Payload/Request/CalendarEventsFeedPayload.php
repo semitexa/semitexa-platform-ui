@@ -6,7 +6,7 @@ namespace Semitexa\PlatformUi\Application\Payload\Request;
 
 use Semitexa\Authorization\Attribute\AsProtectedPayload;
 use Semitexa\Authorization\Attribute\RequiresPermission;
-use Semitexa\PlatformUi\Domain\Security\CalendarPermission;
+use Semitexa\PlatformUi\Domain\Enum\CalendarPermission;
 use Semitexa\Core\Attribute\LiveFilterParam;
 use Semitexa\Core\Attribute\SseGateModel;
 use Semitexa\Core\Attribute\TransportType;
@@ -35,7 +35,7 @@ use Semitexa\Ssr\Domain\Contract\SseFeedPayloadInterface;
     transport: TransportType::Sse,
     sseGateModel: SseGateModel::BearerSession,
 )]
-#[RequiresPermission(CalendarPermission::READ)]
+#[RequiresPermission(CalendarPermission::Read->value)]
 #[WatchScopes('platform_calendar_events')]
 final class CalendarEventsFeedPayload implements SseFeedPayloadInterface
 {

@@ -19,7 +19,7 @@ use Semitexa\PlatformUi\Application\Payload\Request\CalendarEventSavePayload;
 use Semitexa\PlatformUi\Application\Payload\Request\CalendarEventsFeedPayload;
 use Semitexa\PlatformUi\Domain\Contract\CalendarEventRepositoryInterface;
 use Semitexa\PlatformUi\Domain\Model\CalendarEvent;
-use Semitexa\PlatformUi\Domain\Security\CalendarPermission;
+use Semitexa\PlatformUi\Domain\Enum\CalendarPermission;
 
 /**
  * The calendar endpoints used to be public: anyone could read, create, change
@@ -31,9 +31,9 @@ final class CalendarAccessTest extends TestCase
     /** @return iterable<string, array{class-string, string}> */
     public static function endpoints(): iterable
     {
-        yield 'feed' => [CalendarEventsFeedPayload::class, CalendarPermission::READ];
-        yield 'save' => [CalendarEventSavePayload::class, CalendarPermission::WRITE];
-        yield 'delete' => [CalendarEventDeletePayload::class, CalendarPermission::WRITE];
+        yield 'feed' => [CalendarEventsFeedPayload::class, CalendarPermission::Read->value];
+        yield 'save' => [CalendarEventSavePayload::class, CalendarPermission::Write->value];
+        yield 'delete' => [CalendarEventDeletePayload::class, CalendarPermission::Write->value];
     }
 
     #[Test]
