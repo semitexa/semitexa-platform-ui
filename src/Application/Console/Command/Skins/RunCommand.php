@@ -6,6 +6,7 @@ namespace Semitexa\PlatformUi\Application\Console\Command\Skins;
 
 use ReflectionClass;
 use Semitexa\Core\Attribute\AsCommand;
+use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Llm\Domain\Contract\LlmProviderInterface;
 use Semitexa\PlatformUi\Application\Service\SkinResolver\Eval\ResolverScorer;
 use Semitexa\PlatformUi\Application\Service\SkinResolver\Llm\PromptResolverFactory;
@@ -21,11 +22,8 @@ use Symfony\Component\Console\Output\OutputInterface;
 )]
 final class RunCommand extends Command
 {
-    public function __construct(
-        private readonly LlmProviderInterface $llmProvider,
-    ) {
-        parent::__construct();
-    }
+    #[InjectAsReadonly]
+    protected LlmProviderInterface $llmProvider;
 
     protected function configure(): void
     {

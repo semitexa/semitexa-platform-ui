@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Console\Command\Skins;
 
 use Semitexa\Core\Attribute\AsCommand;
+use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Llm\Attribute\AsAiSkill;
 use Semitexa\Llm\Domain\Contract\LlmProviderInterface;
 use Semitexa\Llm\Domain\Enum\AiArgumentPolicy;
@@ -38,11 +39,8 @@ use Symfony\Component\Console\Output\OutputInterface;
 )]
 final class ExplainPromptCommand extends Command
 {
-    public function __construct(
-        private readonly LlmProviderInterface $llmProvider,
-    ) {
-        parent::__construct();
-    }
+    #[InjectAsReadonly]
+    protected LlmProviderInterface $llmProvider;
 
     protected function configure(): void
     {
