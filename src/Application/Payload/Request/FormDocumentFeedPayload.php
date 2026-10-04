@@ -24,7 +24,7 @@ use Semitexa\Ssr\Domain\Model\FormDocumentScope;
  * per-record `formdoc:{formKey}:{recordId}` scope, re-projecting the live shared
  * draft + presence roster every time the inbound handler touches the document.
  *
- * TRUST BOUNDARY — the symmetric READ half of the `/__ui/event` write trust
+ * TRUST BOUNDARY — the symmetric READ half of the HUG (`POST /__semitexa_hug`) write trust
  * model. The watched document scope (and its mode) MUST NOT come from a
  * spoofable query param, or any client could subscribe to any document's draft.
  * They ride a SIGNED context token (`?ctx=sc1.…`, the same {@see SignedContext}

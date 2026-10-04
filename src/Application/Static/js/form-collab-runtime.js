@@ -10,7 +10,7 @@
  * EventSource degrade, stream-id adoption, backoff reconnect) — plus a
  * DOMContentLoaded + MutationObserver boot scan; this adds the form-specific
  * behaviour: apply remote field deltas, render the presence roster, and emit
- * each local edit back as a `field.edit` event on the canonical `/__ui/event`
+ * each local edit back as a `field.edit` event on the canonical HUG (`POST /__semitexa_hug`)
  * write path (the same signed-context envelope event-runtime.js uses).
  *
  * TRUST: every server call carries a signed context token minted server-side

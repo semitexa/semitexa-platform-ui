@@ -54,7 +54,7 @@ The implementation around it already solves several hard problems:
 - `ComponentRenderer` requires script assets through `AssetCollector`.
 - `ComponentEventBridge` signs event manifests and annotates rendered roots.
 - `component-events.js` delegates frontend triggers.
-- `ComponentEventDispatchHandler` validates origin, trigger, event class, signature, TTL, and session binding before dispatching a typed event.
+- `ComponentEventReceiver (behind HUG)` validates origin, trigger, event class, signature, TTL, and session binding before dispatching a typed event.
 - `component-runtime.js` mounts asset-key JavaScript behavior by component name.
 
 This is the prototype for the shared UI runtime substrate. It should inform primitives, but it should not collapse primitives and components into one public concept.

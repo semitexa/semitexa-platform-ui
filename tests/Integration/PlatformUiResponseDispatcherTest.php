@@ -45,8 +45,8 @@ use Semitexa\Ssr\Application\Service\UiEvent\UiSseMessageInterface;
  * Uses the same APP_SECRET + APP_ENV harness as
  * {@see FormSubmitDispatchTest} so the signed-context machinery and the
  * submit security policy are configured identically; this guarantees
- * the canonical /__ui/event path goes through the same hardened
- * dispatcher as /__ui/dispatch (Phase 3 ADR-0001 requirement).
+ * the canonical /__semitexa_hug path goes through the same hardened
+ * dispatcher as /__semitexa_hug (Phase 3 ADR-0001 requirement).
  */
 final class PlatformUiResponseDispatcherTest extends TestCase
 {
@@ -379,7 +379,7 @@ final class PlatformUiResponseDispatcherTest extends TestCase
         // Phase 5: PlatformUiResponseDispatcher must propagate a
         // container-backed handler resolver into UiInteractionDispatcher
         // so service handlers (#[HandlesUiEvent]) bound to slots resolve
-        // identically on /__ui/event and /__ui/dispatch.
+        // identically on /__semitexa_hug and /__semitexa_hug.
         UiComponentRegistry::register(
             (new UiComponentMetadataFactory())->fromClass(PrdServiceHandlerComponent::class),
         );

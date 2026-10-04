@@ -311,7 +311,7 @@ final class CrossFieldValidationTest extends TestCase
         $resp = $this->post($tampered, ['value' => 'abcd']);
         self::assertSame(422, $resp->getStatusCode());
         $data = $this->decode($resp);
-        self::assertSame('hug_rejected', $data['reason']);
+        self::assertArrayHasKey('signedContext', $data['context']['errors'], 'HUG refuses the tampered signed context');
     }
 
     #[Test]

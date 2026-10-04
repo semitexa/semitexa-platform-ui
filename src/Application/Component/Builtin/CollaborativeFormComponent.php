@@ -26,7 +26,7 @@ use Semitexa\Ssr\Attribute\AsComponent;
  * Parts exist as the binding anchors the dispatcher validates a signed event's
  * `(component, part, event)` against — `field`/`presence`/`lock` are declared
  * as slots (no rendered primitive) precisely because the interaction arrives
- * over the canonical `/__ui/event` write path keyed by the signed claim, not by
+ * over the canonical HUG (`POST /__semitexa_hug`) write path keyed by the signed claim, not by
  * DOM part rendering. `content` is the caller's field markup (inputs tagged
  * `data-ui-field-name`).
  */

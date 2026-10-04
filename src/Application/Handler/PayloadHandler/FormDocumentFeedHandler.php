@@ -36,7 +36,7 @@ use Semitexa\Ssr\Domain\Model\FormDocumentScope;
  * context token on the payload (see {@see FormDocumentFeedPayload}). A missing /
  * forged / expired token raises {@see AccessDeniedException} — which the feed
  * base propagates (never frames), so a denied caller never mints a held-open
- * stream, exactly as on the `/__ui/event` write path.
+ * stream, exactly as on the HUG (`POST /__semitexa_hug`) write path.
  */
 #[AsPayloadHandler(payload: FormDocumentFeedPayload::class, resource: ResourceResponse::class)]
 final class FormDocumentFeedHandler extends AbstractSseDocumentFeedHandler implements TypedHandlerInterface

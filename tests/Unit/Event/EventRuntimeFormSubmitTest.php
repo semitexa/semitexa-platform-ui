@@ -104,7 +104,7 @@ final class EventRuntimeFormSubmitTest extends TestCase
     {
         $code = $this->jsCode();
         // No separate `/submit` / `/__ui/submit` endpoint. Submit
-        // goes through the same /__ui/dispatch as input.change.
+        // goes through the same /__semitexa_hug as input.change.
         self::assertStringNotContainsString('/__ui/submit', $code);
         self::assertStringNotContainsString("'/submit'", $code);
         // Submit introduces no new transport: the only fetch callsites are

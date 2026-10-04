@@ -18,7 +18,7 @@ use Semitexa\Ssr\Domain\Model\FormDocumentScope;
  *   - `feedCtx` carries the trusted `cfg.scope/mode` the `/__ui/form-doc` feed
  *     verifies (read trust);
  *   - each per-event token (`events['field.edit']`, `events['presence.ping']`,
- *     …) carries the `(c, p, e)` triple the `/__ui/event` dispatcher routes by
+ *     …) carries the `(c, p, e)` triple the HUG (`POST /__semitexa_hug`) dispatcher routes by
  *     PLUS the same `cfg`, so the inbound handler reads scope/mode from a signed
  *     claim, never the spoofable body (write trust). One token per semantic
  *     event because the dispatcher resolves the `#[HandlesUiEvent]` binding from

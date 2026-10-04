@@ -35,7 +35,7 @@ use Semitexa\Ssr\Application\Service\UiEvent\UiSseMessageInterface;
  * platform-ui {@see PlatformUiResponseDispatcher} and the legacy
  * {@see UiInteractionDispatcher}. Asserts the wire response carries
  * the canonical envelope keys and a safe success body, matching what
- * the legacy `/__ui/dispatch` path produces for an equivalent input.
+ * the legacy HUG (`POST /__semitexa_hug`) path produces for an equivalent input.
  *
  * Bridges the JavaScript-side wire-shape pin (`EventRuntimeAssetTest::
  * transport_canonical_wire_body_matches_ui_event_envelope_shape`) and

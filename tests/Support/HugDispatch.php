@@ -112,12 +112,13 @@ final class HugDispatch
         } catch (ValidationException $rejected) {
             // HUG refuses a tampered signed context or a smuggled field before
             // any dispatcher runs; the pipeline's ExceptionMapper answers 422.
+            // The exact body ExceptionMapper::mapDomainException() renders as JSON.
             return (new ResourceResponse())
                 ->setStatusCode($rejected->getStatusCode()->value)
                 ->setHeader('Content-Type', 'application/json; charset=utf-8')
                 ->setContent(json_encode([
-                    'error' => 'validation',
-                    'reason' => 'hug_rejected',
+                    'error' => $rejected->getErrorCode(),
+                    'message' => $rejected->getMessage(),
                     'context' => $rejected->getErrorContext(),
                 ], JSON_THROW_ON_ERROR));
         }

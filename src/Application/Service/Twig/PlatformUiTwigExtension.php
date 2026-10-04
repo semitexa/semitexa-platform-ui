@@ -719,7 +719,7 @@ final class PlatformUiTwigExtension
          * (`sse_<32 hex>` in practice). It is NOT a secret — KISS
          * routes incoming subscribers on this id directly, so we
          * publish it to the page in the open. Defence-in-depth comes
-         * from the signed ctx: a request for `/__ui/event` with a
+         * from the signed ctx: a request for HUG (`POST /__semitexa_hug`) with a
          * forged `sub` would also need a valid HMAC over the rest of
          * the claim set, which the client cannot mint.
          */

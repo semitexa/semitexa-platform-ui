@@ -24,7 +24,7 @@ use Throwable;
 /**
  * Platform-UI binding of {@see UiResponseDispatcherInterface} — the
  * concrete `#[SatisfiesServiceContract]` winner that routes canonical
- * `POST /__ui/event` traffic through the existing
+ * `POST /__semitexa_hug` traffic through the existing
  * {@see UiInteractionDispatcher} pipeline (Phase 3 of the
  * `packages/semitexa-platform-ui/docs/transport-architecture.md`
  * ADR-0001, back-end portion only).
@@ -95,8 +95,8 @@ use Throwable;
  *   - environment variable names, framework internals
  *
  * It sits behind HUG (`POST /__semitexa_hug`), the single inbound door;
- * `event-runtime.js` posts every UI event there. The former `/__ui/dispatch`
- * and `/__ui/event` doors are gone (KISS/HUG are the whole transport).
+ * `event-runtime.js` posts every UI event there. The former HUG (`POST /__semitexa_hug`)
+ * and HUG (`POST /__semitexa_hug`) doors are gone (KISS/HUG are the whole transport).
  */
 #[SatisfiesServiceContract(of: UiResponseDispatcherInterface::class)]
 final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterface

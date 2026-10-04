@@ -324,7 +324,7 @@ final class FormSubmitDispatchTest extends TestCase
             'form' => ['values' => ['access_code' => 'abcd']],
         ]);
         self::assertSame(422, $resp->getStatusCode());
-        self::assertSame('hug_rejected', $this->decode($resp)['reason']);
+        self::assertArrayHasKey('signedContext', $this->decode($resp)['context']['errors'], 'HUG refuses the tampered signed context');
     }
 
     #[Test]
@@ -592,7 +592,7 @@ final class FormSubmitDispatchTest extends TestCase
             'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
         ]);
         self::assertSame(422, $resp->getStatusCode());
-        self::assertSame('hug_rejected', $this->decode($resp)['reason']);
+        self::assertArrayHasKey('signedContext', $this->decode($resp)['context']['errors'], 'HUG refuses the tampered signed context');
     }
 
     #[Test]
@@ -725,7 +725,7 @@ final class FormSubmitDispatchTest extends TestCase
         ]);
         $resp = $this->post($ctx . 'xx', ['form' => ['values' => ['access_code' => 'abcd']]]);
         self::assertSame(422, $resp->getStatusCode());
-        self::assertSame('hug_rejected', $this->decode($resp)['reason']);
+        self::assertArrayHasKey('signedContext', $this->decode($resp)['context']['errors'], 'HUG refuses the tampered signed context');
     }
 
     #[Test]
@@ -901,7 +901,7 @@ final class FormSubmitDispatchTest extends TestCase
             'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
         ]);
         self::assertSame(422, $resp->getStatusCode());
-        self::assertSame('hug_rejected', $this->decode($resp)['reason']);
+        self::assertArrayHasKey('signedContext', $this->decode($resp)['context']['errors'], 'HUG refuses the tampered signed context');
     }
 
     #[Test]
@@ -1457,7 +1457,7 @@ final class FormSubmitDispatchTest extends TestCase
             'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
         ]);
         self::assertSame(422, $resp->getStatusCode());
-        self::assertSame('hug_rejected', $this->decode($resp)['reason']);
+        self::assertArrayHasKey('signedContext', $this->decode($resp)['context']['errors'], 'HUG refuses the tampered signed context');
     }
 
     #[Test]

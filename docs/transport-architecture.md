@@ -8,8 +8,11 @@
 > third door alive next to `/__ui/dispatch` and `/__semitexa_component_event`.
 > That choice is reversed: the canonical inbound is **`POST /__semitexa_hug`**
 > (`HugEventPayload` → `HugEventHandler` → `UiResponseDispatcherInterface`), and
-> `/__ui/event` and `/__ui/dispatch` are deleted. Component events and the
-> collaborative-form document feed move onto the same two doors. A feature that
+> `/__ui/event` and `/__ui/dispatch` are deleted, and component events ride
+> HUG as `{"componentEvent": {…}}`. Feeds — the collaborative-form document
+> included — are being moved to HUG-controlled subscriptions over KISS
+> (`tk-kh-form-doc-over-kiss`); until then `/__ui/form-doc` is the one door
+> `lint:transport-doors` still lists as pending. A feature that
 > needs a verb HUG lacks extends HUG; it does not add a route. Below, read every
 > "`/__ui/event`" as `POST /__semitexa_hug`.
 
@@ -25,7 +28,7 @@
 
 **Status**: ~~Proposed~~ → **Implemented (streaming unified on `/__semitexa_kiss`; `/__ui/stream` + `/sse` retired)**.
 **Owners**: framework (semitexa-ssr) + platform-ui (semitexa-platform-ui).
-**Companion docs**: the hub pages `rendering/ui-composition` and `rendering/ui-events` (component-side details), `vendor/semitexa/ssr/src/Application/Handler/PayloadHandler/UiEventEndpointHandler.php` (foundation handler docblock — "Step-1 scope … later steps").
+**Companion docs**: the hub pages `rendering/ui-composition` and `rendering/ui-events` (component-side details), `vendor/semitexa/ssr/src/Application/Handler/PayloadHandler/HugEventHandler.php` (HUG, the single inbound door — the former `UiEventEndpointHandler` is gone; the tables below are the history that led there).
 **Supersedes (eventually)**: every reference to `POST /__ui/dispatch` and `GET /__ui/stream` as *primary* transport in `primitives.md`. Both endpoints stay during migration but become temporary compatibility layers, never the long-term target.
 
 > Location note: this ADR lives in `packages/semitexa-platform-ui/docs/` because that's where the duplicate transports were introduced and where the platform.grid runtime + dispatcher overlay live. The framework changes the ADR proposes (handler resolution on `/__ui/event`, typed messages on `/__semitexa_kiss`) will need a mirror entry in `semitexa-ssr` once the framework slice begins.
