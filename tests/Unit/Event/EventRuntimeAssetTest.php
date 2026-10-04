@@ -150,31 +150,25 @@ final class EventRuntimeAssetTest extends TestCase
     }
 
     #[Test]
-    public function transport_default_endpoint_is_canonical_ui_event(): void
+    public function transport_default_endpoint_is_hug(): void
     {
         $code = $this->jsCode();
-        // Phase 3 Part 2: the runtime default endpoint is now the
-        // canonical `POST /__ui/event` route on semitexa-ssr. Callers
-        // that explicitly pass `attachTransport({ endpoint:
-        // '/__ui/dispatch' })` still get the legacy compatibility
-        // endpoint with its legacy wire body.
+        // KISS and HUG are the whole transport: every UI event goes to
+        // HUG (`POST /__semitexa_hug`), the one inbound door.
         self::assertMatchesRegularExpression(
-            "/var\\s+DEFAULT_TRANSPORT_ENDPOINT\\s*=\\s*['\"]\\/__ui\\/event['\"]\\s*;/",
+            "/var\\s+DEFAULT_TRANSPORT_ENDPOINT\\s*=\\s*['\"]\\/__semitexa_hug['\"]\\s*;/",
             $code,
-            'Runtime default endpoint must be /__ui/event.',
+            'Runtime default endpoint must be HUG (/__semitexa_hug).',
         );
-        self::assertMatchesRegularExpression(
-            "/var\\s+CANONICAL_TRANSPORT_ENDPOINT\\s*=\\s*['\"]\\/__ui\\/event['\"]\\s*;/",
-            $code,
-            'Runtime canonical endpoint constant must point to /__ui/event.',
-        );
+        self::assertStringNotContainsString('/__ui/event', $code);
+        self::assertStringNotContainsString('/__ui/dispatch', $code);
     }
 
     #[Test]
     public function transport_canonical_wire_body_matches_ui_event_envelope_shape(): void
     {
         $code = $this->jsCode();
-        // Canonical body shape for /__ui/event — must serialise a
+        // Body shape for HUG — must serialise a
         // UiEventEnvelope: schemaVersion, eventId, correlationId,
         // semanticEvent, signedContext, timestamp, payload. The shape
         // is the framework contract from
@@ -190,7 +184,7 @@ final class EventRuntimeAssetTest extends TestCase
                 . 'payload:\s*payloadObj\s*'
                 . '\}\s*\)/',
             $code,
-            'Canonical /__ui/event branch must serialise exactly the UiEventEnvelope fields.',
+            'The HUG body must serialise exactly the UiEventEnvelope fields.',
         );
         // Schema version must be 1 (matches UiEventEnvelope::SCHEMA_VERSION).
         self::assertMatchesRegularExpression(
@@ -206,7 +200,7 @@ final class EventRuntimeAssetTest extends TestCase
         self::assertMatchesRegularExpression(
             '/var\s+dispatchId\s*=\s*generateDispatchId\(\s*\)\s*;/',
             $code,
-            'Same dispatchId generator must produce both the canonical eventId and the legacy dispatchId.',
+            'The envelope eventId must come from the dispatchId generator.',
         );
         // The correlationId helper exists and mints fresh ids.
         self::assertStringContainsString('function generateCorrelationId(', $code);
@@ -221,36 +215,18 @@ final class EventRuntimeAssetTest extends TestCase
     }
 
     #[Test]
-    public function transport_legacy_wire_body_for_ui_dispatch_endpoint_is_preserved(): void
+    public function transport_sends_only_the_envelope(): void
     {
         $code = $this->jsCode();
-        // Direct callers that opt into the compatibility endpoint
-        // `/__ui/dispatch` (e.g. UiPlayground demos) still receive the
-        // legacy `{ctx, dispatchId, payload}` body — that's the legacy
-        // server decoder's contract.
-        self::assertMatchesRegularExpression(
-            '/JSON\.stringify\s*\(\s*\{\s*'
-                . 'ctx:\s*captured\.ctx\s*,\s*'
-                . 'dispatchId:\s*dispatchId\s*,\s*'
-                . 'payload:\s*payloadObj\s*'
-                . '\}\s*\)/',
+        // verify:accept-test-change the legacy /__ui/dispatch body and its endpoint branch were removed with the door; this test now pins their absence
+        // One door, one body: the legacy `{ctx, dispatchId, payload}` shape
+        // the removed /__ui/dispatch decoded must not come back.
+        self::assertDoesNotMatchRegularExpression(
+            '/JSON\.stringify\s*\(\s*\{\s*ctx:\s*captured\.ctx/',
             $code,
-            'Legacy fallback branch must still serialise {ctx, dispatchId, payload: payloadObj}.',
+            'The legacy {ctx, dispatchId, payload} body must not be serialised.',
         );
-    }
-
-    #[Test]
-    public function transport_endpoint_branch_picks_canonical_for_default(): void
-    {
-        $code = $this->jsCode();
-        // The branch between canonical and legacy body shapes is keyed
-        // on the endpoint string itself, so the choice is local and
-        // auditable.
-        self::assertMatchesRegularExpression(
-            '/if\s*\(\s*endpoint\s*===\s*CANONICAL_TRANSPORT_ENDPOINT\s*\)/',
-            $code,
-            'Body-shape decision must branch on `endpoint === CANONICAL_TRANSPORT_ENDPOINT`.',
-        );
+        self::assertStringNotContainsString('CANONICAL_TRANSPORT_ENDPOINT', $code);
     }
 
     #[Test]
@@ -530,12 +506,11 @@ final class EventRuntimeAssetTest extends TestCase
             $code,
             'Auto-attach must require fetch availability.',
         );
-        // Auto-attach must use the canonical default endpoint, not
-        // /__ui/dispatch.
+        // Auto-attach must use the default endpoint (HUG).
         self::assertMatchesRegularExpression(
             '/attachTransport\(\s*\{\s*endpoint:\s*DEFAULT_TRANSPORT_ENDPOINT\s*\}\s*\)/',
             $code,
-            'Auto-attach must target DEFAULT_TRANSPORT_ENDPOINT (/__ui/event).',
+            'Auto-attach must target DEFAULT_TRANSPORT_ENDPOINT (HUG).',
         );
         // The hook must fire from both readyState branches in the
         // DOMContentLoaded / synchronous init paths, plus the late-

@@ -102,7 +102,7 @@ final class UiInteractionDispatcher
      * UsesUiFieldRuleRegistry. Null means "fall back to the static
      * UiFieldRuleRegistry holder", which itself lazily-defaults to
      * DefaultUiFieldRuleRegistry. Production wiring fills this
-     * through UiDispatchHandler with the container-bound winner of
+     * through PlatformUiResponseDispatcher with the container-bound winner of
      * UiFieldRuleRegistryInterface; tests pass an explicit registry
      * here to drive end-to-end paths.
      */
@@ -118,7 +118,7 @@ final class UiInteractionDispatcher
      * that case any signed ctx targeting an external #[HandlesUiEvent]
      * binding fails with a configuration-style 422 rather than silently
      * 404'ing the event. Production wiring binds the closure in
-     * UiDispatchHandler; tests pass an explicit closure to drive the
+     * PlatformUiResponseDispatcher; tests pass an explicit closure to drive the
      * service-handler path.
      *
      * @var Closure(class-string<UiEventHandlerInterface>): UiEventHandlerInterface|null

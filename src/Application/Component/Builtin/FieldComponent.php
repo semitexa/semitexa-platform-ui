@@ -52,7 +52,7 @@ use Semitexa\Ssr\Attribute\AsComponent;
  *
  * Event metadata: the `onInputChanged` method is the declared handler for
  * the `input.change` event (inherits the bound `value` path as `updates`).
- * The HTTP dispatch endpoint (POST /__ui/dispatch) invokes it after
+ * HUG (POST /__semitexa_hug) invokes it after
  * SignedContext verification and UiOn resolution. The handler is
  * intentionally ack-only — it does NOT persist, validate, or patch DOM.
  */

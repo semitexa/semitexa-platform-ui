@@ -36,7 +36,7 @@ final class CollabManifestBuilder
 {
     public const SCHEMA_VERSION = 1;
     public const FEED_URL = '/__ui/form-doc';
-    public const EVENT_URL = '/__ui/event';
+    public const EVENT_URL = '/__semitexa_hug';
     public const HEARTBEAT_MS = 15000;
 
     /**

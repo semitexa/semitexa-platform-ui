@@ -426,10 +426,8 @@ import { withCsrf } from 'platform-ui/core';
      * generate a well-formed id; the replay guard treats dispatchIds as
      * opaque anyway.
      *
-     * The same generator is also used for `eventId` on the canonical
-     * `/__ui/event` envelope (Phase 3 Part 2 — the adapter maps
-     * `eventId → dispatchId` 1:1 for replay protection, so the strict
-     * pattern matters in both transports).
+     * It is the envelope's `eventId` on HUG; the dispatcher maps
+     * `eventId → dispatchId` 1:1 for replay protection.
      */
     function generateDispatchId() {
         return mintHexPrefixedId('ui_evt_', 16);
@@ -483,15 +481,11 @@ import { withCsrf } from 'platform-ui/core';
     }
 
     /**
-     * Default endpoint for the canonical inbound `POST /__ui/event`
-     * (semitexa-ssr's `UiEventEndpointHandler`). The legacy
-     * `/__ui/dispatch` endpoint remains as a compatibility shim — direct
-     * callers passing `attachTransport({ endpoint: '/__ui/dispatch' })`
-     * still work and continue to receive the legacy `{ctx, dispatchId,
-     * payload}` wire body so the server-side decoder stays unchanged.
+     * HUG — `POST /__semitexa_hug` (semitexa-ssr's `HugEventHandler`) — is
+     * the one inbound door for every UI event; KISS (`/__semitexa_kiss`) is
+     * the one stream back. The body is always the canonical envelope.
      */
-    var DEFAULT_TRANSPORT_ENDPOINT = '/__ui/event';
-    var CANONICAL_TRANSPORT_ENDPOINT = '/__ui/event';
+    var DEFAULT_TRANSPORT_ENDPOINT = '/__semitexa_hug';
     var ENVELOPE_SCHEMA_VERSION = 1;
 
     function attachTransport(options) {
@@ -535,36 +529,20 @@ import { withCsrf } from 'platform-ui/core';
                 payloadObj.form = { values: formSnapshot };
             }
 
-            // Body shape depends on the endpoint. The canonical
-            // `/__ui/event` route in semitexa-ssr decodes a
-            // `UiEventEnvelope`; the legacy `/__ui/dispatch` route in
-            // semitexa-platform-ui decodes the older
-            // `{ctx, dispatchId, payload}` shape. We branch on the
-            // string match so direct callers that explicitly opt into
-            // `/__ui/dispatch` (e.g. demo pages) keep their legacy
-            // wire contract intact, while the new default
-            // (`/__ui/event`) gets the canonical envelope.
+            // The canonical envelope HUG decodes (`UiEventEnvelope`).
             var body;
             var correlationId = generateCorrelationId();
             var semanticEvent = deriveSemanticEvent(captured);
             try {
-                if (endpoint === CANONICAL_TRANSPORT_ENDPOINT) {
-                    body = JSON.stringify({
-                        schemaVersion: ENVELOPE_SCHEMA_VERSION,
-                        eventId: dispatchId,
-                        correlationId: correlationId,
-                        semanticEvent: semanticEvent,
-                        signedContext: captured.ctx,
-                        timestamp: new Date().toISOString(),
-                        payload: payloadObj
-                    });
-                } else {
-                    body = JSON.stringify({
-                        ctx: captured.ctx,
-                        dispatchId: dispatchId,
-                        payload: payloadObj
-                    });
-                }
+                body = JSON.stringify({
+                    schemaVersion: ENVELOPE_SCHEMA_VERSION,
+                    eventId: dispatchId,
+                    correlationId: correlationId,
+                    semanticEvent: semanticEvent,
+                    signedContext: captured.ctx,
+                    timestamp: new Date().toISOString(),
+                    payload: payloadObj
+                });
             } catch (encErr) {
                 emitTransportEvent('semitexa:ui-event:failed', {
                     captured: captured,
@@ -1151,7 +1129,7 @@ import { withCsrf } from 'platform-ui/core';
      *     a JSON object `{v, patches, messageId?, publishedAt?}`. The
      *     bridge refuses unknown schema versions.
      *   - The bridge feeds the `patches` array into the SAME
-     *     applyResponsePatches path used by POST /__ui/dispatch
+     *     applyResponsePatches path used by POST /__semitexa_hug
      *     responses. There is no second DOM mutation engine.
      *   - The bridge also listens for `connected` and `close` events
      *     so consumers can correlate UI state with stream lifecycle.
@@ -1635,11 +1613,11 @@ import { withCsrf } from 'platform-ui/core';
      *     captured — `handleNativeEvent` walks up to a
      *     `[data-ui-component-instance-id]` ancestor and bails out
      *     when there is none.
-     *   - The auto-attached transport uses the canonical
-     *     `/__ui/event` endpoint. Direct callers explicitly attaching
-     *     `/__ui/dispatch` still win because they call before us
-     *     (page-level script tags execute synchronously; the auto-
-     *     attach runs after `scan()` + observer setup).
+     *   - The auto-attached transport posts to HUG
+     *     (`/__semitexa_hug`). A page that attaches its own transport
+     *     first still wins (page-level script tags execute
+     *     synchronously; the auto-attach runs after `scan()` +
+     *     observer setup).
      *
      * Opt-out for tests / niche pages:
      *

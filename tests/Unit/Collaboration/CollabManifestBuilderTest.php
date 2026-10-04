@@ -44,7 +44,7 @@ final class CollabManifestBuilderTest extends TestCase
         self::assertSame('formdoc:article:42', $m['scope']);
         self::assertSame('shared', $m['mode']);
         self::assertSame('/__ui/form-doc', $m['feedUrl']);
-        self::assertSame('/__ui/event', $m['eventUrl']);
+        self::assertSame('/__semitexa_hug', $m['eventUrl']);
         self::assertSame(['title', 'body'], $m['fields']);
         // self defaults to the instance id when no auth user is present.
         self::assertSame(self::INSTANCE, $m['self']);

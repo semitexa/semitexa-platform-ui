@@ -94,9 +94,9 @@ use Throwable;
  *   - FQCNs, file paths, line numbers, stack traces
  *   - environment variable names, framework internals
  *
- * The legacy `/__ui/dispatch` endpoint remains unchanged in this slice.
- * The frontend runtime ({@see /__ui/dispatch} consumer in
- * `event-runtime.js`) has not been repointed.
+ * It sits behind HUG (`POST /__semitexa_hug`), the single inbound door;
+ * `event-runtime.js` posts every UI event there. The former `/__ui/dispatch`
+ * and `/__ui/event` doors are gone (KISS/HUG are the whole transport).
  */
 #[SatisfiesServiceContract(of: UiResponseDispatcherInterface::class)]
 final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterface
@@ -125,10 +125,7 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
     /**
      * PSR-11 container used by {@see self::buildHandlerResolver()} to
      * resolve class-level #[HandlesUiEvent] service handlers by FQCN
-     * at dispatch time — same seam as
-     * {@see \Semitexa\PlatformUi\Application\Handler\PayloadHandler\UiDispatchHandler}
-     * uses for the legacy `/__ui/dispatch` endpoint. Without this
-     * propagation the canonical `/__ui/event` route would fall back
+     * at dispatch time. Without this propagation HUG would fall back
      * to the dispatcher's null-resolver branch and emit
      * `ui_handler_resolver_missing` 422 for every service-handler
      * dispatch — a divergence between the two endpoints that the
@@ -217,13 +214,9 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
 
     private function resolveLegacyDispatcher(): UiInteractionDispatcher
     {
-        // Production wiring resolves UiDispatchHandler through the container
-        // and inherits the same CacheBackedUiReplayStore / authorizer / rule
-        // registry winners via SatisfiesServiceContract. Mirror that here so
-        // both inbound endpoints (`/__ui/event` and `/__ui/dispatch`) share
-        // a single dispatcher configuration — including the closure-based
-        // resolver for class-level #[HandlesUiEvent] service handlers
-        // (Phase 5).
+        // The container fills the CacheBackedUiReplayStore / authorizer / rule
+        // registry winners via SatisfiesServiceContract, plus the closure-based
+        // resolver for class-level #[HandlesUiEvent] service handlers.
         return new UiInteractionDispatcher(
             payloadGuard:   new UiPayloadFieldGuard(),
             patchValidator: new UiPatchValidator(),

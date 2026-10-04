@@ -1,5 +1,18 @@
 # ADR-0001 — Semitexa UI Transport Unification
 
+> **AMENDMENT 2026-10-04 — operator decision: KISS and HUG are the whole
+> transport.** The framework was designed with two doors: KISS
+> (`GET /__semitexa_kiss`, the one SSE stream per page, server → browser) and
+> HUG (`/__semitexa_hug`, browser → server). This ADR unified the outbound half
+> on KISS but chose `POST /__ui/event` as the canonical *inbound*, which kept a
+> third door alive next to `/__ui/dispatch` and `/__semitexa_component_event`.
+> That choice is reversed: the canonical inbound is **`POST /__semitexa_hug`**
+> (`HugEventPayload` → `HugEventHandler` → `UiResponseDispatcherInterface`), and
+> `/__ui/event` and `/__ui/dispatch` are deleted. Component events and the
+> collaborative-form document feed move onto the same two doors. A feature that
+> needs a verb HUG lacks extends HUG; it does not add a route. Below, read every
+> "`/__ui/event`" as `POST /__semitexa_hug`.
+
 > **STATUS UPDATE — IMPLEMENTED / SUPERSEDED.** The unification this ADR proposed
 > is done. All UI streaming now rides the single canonical stream
 > `GET /__semitexa_kiss` (`AsyncResourceSseServer`). The duplicate transports this

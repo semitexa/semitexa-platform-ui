@@ -19,8 +19,8 @@ use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult;
  * component props, frontend instructions, SSE subscriptions, redirects).
  * The adapter folds the richer fields into the result's `debug` map so
  * they flow through the existing JSON wire format without changing the
- * envelope: `UiDispatchHandler::successResponse()` emits `debug` verbatim
- * under the top-level `"debug"` key, and the frontend reads the same
+ * envelope: HUG's response carries `debug` verbatim under the top-level
+ * `"debug"` key, and the frontend reads the same
  * fields it would read from a canonical UiEventResponse JSON, just nested
  * one level deeper.
  *
