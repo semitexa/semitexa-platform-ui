@@ -6,6 +6,9 @@ namespace Semitexa\PlatformUi\Application\Component\Builtin;
 
 use Semitexa\Ssr\Attribute\AsComponent;
 use Semitexa\PlatformUi\Attribute\UiSlot;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiProp;
 
 /**
  * platform.empty-state — a centered placeholder for no-data situations.
@@ -31,6 +34,19 @@ use Semitexa\PlatformUi\Attribute\UiSlot;
 )]
 #[UiSlot(name: 'media', description: 'Custom illustration markup; overrides the icon prop when present.')]
 #[UiSlot(name: 'actions', description: 'Recovery controls (buttons/links) rendered below the text.')]
+#[AsUiContract(
+    summary: 'Explain why a view is empty and offer the next step.',
+    props: [
+        new UiProp('icon', nullable: true, description: 'Icon name; the media slot overrides it.'),
+        new UiProp('title', default: ''),
+        new UiProp('description', nullable: true),
+    ],
+    examples: [
+        new UiExample('first-run', 'First run', ['icon' => 'inbox', 'title' => 'No customers yet', 'description' => 'Create your first customer to start sending invoices.'], ['actions' => 'Use the New customer button above.']),
+        new UiExample('search', 'No results', ['icon' => 'search', 'title' => 'No matches', 'description' => 'Try a shorter search or clear the filters.']),
+    ],
+    previewSafe: true,
+)]
 final class EmptyStateComponent
 {
 }

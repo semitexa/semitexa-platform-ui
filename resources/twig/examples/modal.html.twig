@@ -1,0 +1,17 @@
+<button ui="button" ui-behavior-open="#{{ uid }}-dialog" type="button">New customer</button>
+<dialog id="{{ uid }}-dialog" ui-behavior="modal"{% if opts %} ui-modal="{{ opts }}"{% endif %} aria-labelledby="{{ uid }}-title">
+    <div ui-modal="header">
+        <div>
+            <h2 ui-modal="title" id="{{ uid }}-title">New customer</h2>
+            <p ui-modal="description">They will get an invite by email.</p>
+        </div>
+        <button ui-behavior-dismiss type="button" aria-label="Close">{{ icon('x') }}</button>
+    </div>
+    <div ui-modal="body">
+        <label><span ui="label">Email</span><input ui="input" type="email" placeholder="jane@acme.io"></label>
+    </div>
+    <div ui-modal="footer">
+        <button ui="button" ui-variant="soft" ui-behavior-dismiss type="button">Cancel</button>
+        <button ui="button" type="button">Create</button>
+    </div>
+</dialog>

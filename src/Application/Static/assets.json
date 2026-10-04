@@ -135,6 +135,11 @@
         "type": "module"
       },
       "specifier": "platform-ui/navigation"
+    },
+    "css/workbench.css": {
+      "scope": "page",
+      "position": "head",
+      "priority": 47
     }
   }
 }

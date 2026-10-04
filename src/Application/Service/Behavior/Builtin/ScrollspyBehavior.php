@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Behavior\Builtin;
 
 use Semitexa\PlatformUi\Attribute\AsUiBehavior;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiBehaviorOption;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
 
@@ -25,5 +27,12 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
         new UiBehaviorOption('threshold', UiOptionType::Number, default: 0, description: 'IntersectionObserver visibility threshold 0..1.'),
     ],
     a11y: [],
+)]
+#[AsUiContract(
+    summary: 'Reveal content as it scrolls into view.',
+    examples: [
+        new UiExample('reveal', 'Reveal on enter', [], template: '@platform-ui/examples/scrollspy.html.twig'),
+    ],
+    previewSafe: true,
 )]
 final class ScrollspyBehavior {}

@@ -6,6 +6,10 @@ namespace Semitexa\PlatformUi\Application\Component\Builtin;
 
 use Semitexa\Ssr\Attribute\AsComponent;
 use Semitexa\PlatformUi\Attribute\UiSlot;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiProp;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiPropType;
 
 /**
  * platform.breadcrumb — a mostly data-driven navigation trail.
@@ -38,6 +42,18 @@ use Semitexa\PlatformUi\Attribute\UiSlot;
     cacheable: true,
 )]
 #[UiSlot(name: 'trailing', description: 'Optional inline actions rendered after the trail (e.g. a copy-path button or status badge).')]
+#[AsUiContract(
+    summary: 'Show where the current page sits in the hierarchy.',
+    props: [
+        new UiProp('items', UiPropType::Array, default: [], items: new UiProp('item', UiPropType::Object, properties: [new UiProp('label', required: true), new UiProp('href', nullable: true), new UiProp('current', UiPropType::Boolean, default: false)]), description: 'Trail from root; the last item is the current page.'),
+        new UiProp('ariaLabel', default: 'Breadcrumb'),
+    ],
+    examples: [
+        new UiExample('trail', 'Trail', ['items' => [['label' => 'Home', 'href' => '/'], ['label' => 'Customers', 'href' => '/customers'], ['label' => 'Jane Doe']]]),
+        new UiExample('with-action', 'With trailing action', ['items' => [['label' => 'Settings', 'href' => '/settings'], ['label' => 'Billing']]], ['trailing' => 'Last saved 2 minutes ago']),
+    ],
+    previewSafe: true,
+)]
 final class BreadcrumbComponent
 {
 }

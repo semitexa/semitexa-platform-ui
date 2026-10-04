@@ -1,0 +1,7 @@
+<button ui="button" ui-variant="soft" ui-behavior-open="#{{ uid }}-panel" type="button">{{ icon('menu') }}Open menu</button>
+<aside id="{{ uid }}-panel" ui-behavior="offcanvas" ui-offcanvas="{{ opts }}" hidden aria-label="Navigation">
+    <div sx-layout="stack" sx-gap="4">
+        <div sx-layout="cluster" sx-gap="2"><strong>Acme</strong><button ui-behavior-dismiss type="button" aria-label="Close" style="margin-inline-start:auto">{{ icon('x') }}</button></div>
+        <nav sx-layout="stack" sx-gap="2" aria-label="Sections"><a href="#dashboard">Dashboard</a><a href="#customers">Customers</a><a href="#settings">Settings</a></nav>
+    </div>
+</aside>

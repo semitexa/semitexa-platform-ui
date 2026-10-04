@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Behavior\Builtin;
 
 use Semitexa\PlatformUi\Attribute\AsUiBehavior;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiBehaviorOption;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
 
@@ -26,5 +28,13 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
         new UiBehaviorOption('delay', UiOptionType::Number, default: 100, description: 'Show delay in ms.'),
     ],
     a11y: ['aria-describedby'],
+)]
+#[AsUiContract(
+    summary: 'A short label shown on hover or focus.',
+    examples: [
+        new UiExample('top', 'Above', ['title' => 'Copies the link to your clipboard'], template: '@platform-ui/examples/tooltip.html.twig'),
+        new UiExample('bottom', 'Below', ['title' => 'Opens in a new tab', 'pos' => 'bottom'], template: '@platform-ui/examples/tooltip.html.twig'),
+    ],
+    previewSafe: true,
 )]
 final class TooltipBehavior {}

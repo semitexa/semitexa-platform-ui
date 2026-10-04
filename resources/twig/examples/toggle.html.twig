@@ -1,0 +1,4 @@
+<div sx-layout="stack" sx-gap="2">
+    <button ui="button" ui-variant="soft" ui-behavior="toggle" ui-toggle="target: #{{ uid }}-panel{% if opts %}; {{ opts }}{% endif %}">Show details</button>
+    <div id="{{ uid }}-panel" hidden ui-text="muted">Billing contact: finance@acme.io</div>
+</div>

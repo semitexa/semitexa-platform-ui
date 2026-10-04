@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Behavior\Builtin;
 
 use Semitexa\PlatformUi\Attribute\AsUiBehavior;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiBehaviorOption;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
 
@@ -30,5 +32,13 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
         new UiBehaviorOption('active', UiOptionType::Number, default: 0, description: 'Index of the initially-selected tab.'),
     ],
     a11y: ['tab-roles', 'aria-selected', 'aria-controls', 'arrow-nav', 'roving-tabindex'],
+)]
+#[AsUiContract(
+    summary: 'Switch between related panels in one place.',
+    examples: [
+        new UiExample('underline', 'Underline tabs', [], template: '@platform-ui/examples/tabs.html.twig'),
+        new UiExample('segmented', 'Segmented control', [], template: '@platform-ui/examples/tabs-segmented.html.twig'),
+    ],
+    previewSafe: true,
 )]
 final class TabsBehavior {}

@@ -12,6 +12,7 @@
 {%- if _id %} id="{{ _id }}"{% endif -%}
 {%- if value|default(null) is not null %} value="{{ value }}"{% endif -%}
 {%- if placeholder|default(null) %} placeholder="{{ placeholder }}"{% endif -%}
+{%- if label|default(null) %} aria-label="{{ label }}"{% endif -%}
 {%- if size|default(null) %} ui-size="{{ size }}"{% endif -%}
 {%- if _state %} ui-state="{{ _state }}"{% endif -%}
 {%- if _explicit_aria_invalid is not null %} aria-invalid="{{ _explicit_aria_invalid ? 'true' : 'false' }}"

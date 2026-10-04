@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Behavior\Builtin;
 
 use Semitexa\PlatformUi\Attribute\AsUiBehavior;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiBehaviorOption;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
 
@@ -29,5 +31,13 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
         new UiBehaviorOption('multiple', UiOptionType::Bool, default: false, description: 'Allow more than one section open at once.'),
     ],
     a11y: ['aria-expanded', 'aria-controls', 'region-roles', 'arrow-nav'],
+)]
+#[AsUiContract(
+    summary: 'Stacked sections that expand one at a time.',
+    examples: [
+        new UiExample('single', 'Single open', [], template: '@platform-ui/examples/accordion.html.twig'),
+        new UiExample('multiple', 'Several open', ['multiple' => true], template: '@platform-ui/examples/accordion.html.twig'),
+    ],
+    previewSafe: true,
 )]
 final class AccordionBehavior {}
