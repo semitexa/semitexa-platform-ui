@@ -1999,7 +1999,7 @@ import { withCsrf } from 'platform-ui/core';
     }
 
     function buildKissUrl(sessionId, mode) {
-        var url = KISS_PATH + '?session_id=' + encodeURIComponent(sessionId)
+        var url = '/__semitexa_kiss?session_id=' + encodeURIComponent(sessionId)
             + '&mode=' + encodeURIComponent(mode);
         // Unify the deferred-SSR stream into this connection: when the page
         // emitted deferred placeholders, append the one-shot deferred request

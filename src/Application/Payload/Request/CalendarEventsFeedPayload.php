@@ -30,7 +30,7 @@ use Semitexa\Ssr\Domain\Contract\SseFeedPayloadInterface;
 #[AsProtectedPayload(
     path: '/platform/calendar/events',
     name: 'platform-ui.calendar.events',
-    methods: ['GET', 'POST'],
+    methods: ['GET'],
     responseWith: JsonResourceResponse::class,
     renderProfile: RenderProfile::Json,
     transport: TransportType::Sse,

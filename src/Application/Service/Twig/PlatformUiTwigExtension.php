@@ -378,7 +378,7 @@ final class PlatformUiTwigExtension
          * tokens the inbound collaboration handler routes by — see
          * {@see CollabManifestBuilder}. The block is pure data (no executable
          * JS); the runtime finds it by the `data-ui-collab-manifest` marker and
-         * connects `/__ui/form-doc`.
+         * subscribes the form-document feed (`platform-ui.form-doc`) over KISS.
          *
          * Placed INSIDE the form's component root (the element carrying
          * `data-ui-component-instance-id`) so the runtime resolves the root via

@@ -4,7 +4,7 @@
  * The browser half of live collaborative forms. The document-feed sibling of
  * grid-runtime-v2.js: where the grid runtime subscribes a list route and
  * re-renders rows on `ui.collection.data`, this subscribes ONE collaborative
- * document at `/__ui/form-doc` and re-applies field values on
+ * document (feed `platform-ui.form-doc`) and re-applies field values on
  * `ui.document.data`. Both runtimes ride the SAME transport —
  * core.openFeedChannel in ui-core.js (shared KISS subscribe, dedicated
  * EventSource degrade, stream-id adoption, backoff reconnect) — plus a
