@@ -15,8 +15,9 @@ use Semitexa\Ssr\Domain\Model\FormDocumentScope;
  * The READ + WRITE trust surface in one place. The browser runtime never names
  * a scope or a handler — it relays opaque {@see SignedContext} tokens this
  * builder mints:
- *   - `feedCtx` carries the trusted `cfg.scope/mode` the `/__ui/form-doc` feed
- *     verifies (read trust);
+ *   - `feedCtx` carries the trusted `cfg.scope/mode` the form-document feed
+ *     (`feed`, subscribed through HUG onto the page's KISS stream) verifies
+ *     (read trust);
  *   - each per-event token (`events['field.edit']`, `events['presence.ping']`,
  *     …) carries the `(c, p, e)` triple the HUG (`POST /__semitexa_hug`) dispatcher routes by
  *     PLUS the same `cfg`, so the inbound handler reads scope/mode from a signed
@@ -35,7 +36,8 @@ use Semitexa\Ssr\Domain\Model\FormDocumentScope;
 final class CollabManifestBuilder
 {
     public const SCHEMA_VERSION = 1;
-    public const FEED_URL = '/__ui/form-doc';
+    /** The form-document feed's route name; HUG subscribes it onto KISS. */
+    public const FEED = 'platform-ui.form-doc';
     public const EVENT_URL = '/__semitexa_hug';
     public const HEARTBEAT_MS = 15000;
 
@@ -89,7 +91,7 @@ final class CollabManifestBuilder
             'scope'       => $scope,
             'mode'        => $resolvedMode->value,
             'self'        => self::resolveSelf($instanceId),
-            'feedUrl'     => self::FEED_URL,
+            'feed'        => self::FEED,
             'feedCtx'     => $feedCtx,
             'eventUrl'    => self::EVENT_URL,
             'events'      => $events,

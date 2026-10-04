@@ -122,14 +122,9 @@ import {
         .catch(function () { /* leave the last render standing */ });
     }
 
-    // The transport is openFeedChannel's, not this file's. It used to hand-roll
-    // a dedicated EventSource with a `gotData` flag and a one-shot fallback, and
-    // no reconnect at all — so a stream dropped by a server restart left the
-    // calendar frozen on its last frame with no way back. openFeedChannel
-    // prefers the page's shared KISS connection, degrades to a dedicated stream
-    // with backoff, and re-reads `params` on every reopen, which is what makes
-    // the CURRENT month ride a reconnect instead of the one that was visible
-    // when the stream first opened.
+    // The transport is openFeedChannel's, not this file's: the feed rides the
+    // page's KISS stream, subscribed through HUG by name with the CURRENT
+    // month as its params; a page without a KISS session pulls once.
     function load() {
       // A released calendar opens nothing. An in-flight write can resolve
       // after this root was detached and let go of, and its continuation calls
@@ -137,28 +132,28 @@ import {
       // any more, so nothing could ever close it again.
       if (S.released) { return; }
 
+      // A month change is a view change on the live subscription.
+      if (S.channel && S.channel.mode() === 'shared') {
+        S.channel.view(rangeParamsObject());
+        return;
+      }
       if (S.channel) { try { S.channel.close(); } catch (e) { /* already gone */ } S.channel = null; }
 
-      // `data-ui-calendar-live="0"` opts out of the held-open stream and just
-      // pulls events once (used by the single-user OS calendar, where the SSE
-      // held-open loop's blocking Redis read can deadlock a Swoole worker).
-      if (root.getAttribute('data-ui-calendar-live') === '0' || typeof window.EventSource === 'undefined') {
+      // `data-ui-calendar-live="0"` opts out of the live feed and just pulls
+      // events once (the single-user OS calendar).
+      if (root.getAttribute('data-ui-calendar-live') === '0') {
         pullOnce();
         return;
       }
 
       S.channel = openFeedChannel({
-        url: endpoint,
+        feed: root.getAttribute('data-ui-calendar-feed') || 'platform-ui.calendar.events',
         params: rangeParamsObject,
         dataEvent: 'ui.collection.data',
         errorEvent: 'ui.collection.error',
         onData: applyEnvelope,
-        // A stream that errors before EVER delivering a frame cannot stream in
-        // this context (no SSE session) — pull once and stop. That is exactly
-        // what the old `gotData` flag expressed, now the channel's own
-        // vocabulary rather than a local reimplementation of it.
-        permanentPullDegrade: true,
-        onPermanentDegrade: pullOnce
+        onError: function () { /* leave the last render standing */ },
+        onPull: pullOnce
       });
     }
 

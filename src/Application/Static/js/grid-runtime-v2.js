@@ -12,20 +12,15 @@
  * `{data, meta.pagination}`).
  *
  * One Way Phase 4 — SSE transport on the SAME canonical envelope. When the
- * contract advertises `modes: [... 'sse']` and the browser has EventSource,
- * the runtime opens ONE persistent held-open EventSource on the endpoint:
- *   - adopts the server-minted stream id from the first `ui.stream.id`
- *     event (the GET carries NO stream_id; the server is sole coordinate);
+ * contract advertises `modes: [... 'sse']`, the grid rides the page's ONE
+ * KISS stream (openFeedChannel, platform-ui/core):
+ *   - subscribes through HUG by the contract's route `name`;
  *   - renders every `ui.collection.data` frame through the SAME render()
  *     path as a pull body (the frame IS the canonical `{data, meta}`
  *     envelope, `_type` aside);
- *   - routes view changes as one-URL re-hydrate COMMANDS — a POST to the
- *     same endpoint with `X-Semitexa-Stream-Rehydrate: 1`, the adopted
- *     stream id, the COMPLETE canonical view state and the CSRF token;
- *     fresh rows arrive on the open stream, never on the POST;
- *   - reconnects with exponential backoff on a transport drop (adopting a
- *     fresh id), and degrades PERMANENTLY to plain JSON pull when the
- *     EventSource fails before its first data frame.
+ *   - sends a view change as the COMPLETE canonical view through HUG
+ *     (`op: view`); fresh rows arrive on KISS, never on the POST;
+ *   - pulls the feed's plain JSON GET when the page has no KISS session.
  *
  * Hard client rules (One Way design §1.5 / Phase 2 lessons):
  *   - pagination branches on `meta.pagination.mode` ('page' vs 'cursor'),
@@ -282,15 +277,12 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
             pullAgain: false,     // a refresh landed while a pull was in flight
             recovered: false,     // one-shot guard for invalid_pagination auto-recovery
             // --- One Way Phase 4: SSE transport state -------------------
-            transport: null,      // 'sse' | 'pull' — decided in start(), may degrade sse→pull
-            streamId: null,       // adopted server-minted id; ONLY set from `ui.stream.id`
-            subscriptionId: null, // SSE unification: this grid's id on the SHARED KISS connection (null = dedicated stream)
-            gotFrame: false,      // any data frame on the current stream yet?
-            everStreamed: false,  // any frame on ANY connection — gates permanent degrade
-            reconnectAttempts: 0,
+            transport: null,      // 'sse' | 'pull' — decided in start(); sse→pull without a KISS session
+            subscriptionId: null, // this grid's subscription on the page's KISS stream
         };
-        var channel = null;         // openFeedChannel handle (shared KISS or dedicated stream)
-        var sseAdvertised = Array.isArray(contract.modes) && contract.modes.indexOf('sse') >= 0;
+        var channel = null;         // openFeedChannel handle
+        var sseAdvertised = Array.isArray(contract.modes) && contract.modes.indexOf('sse') >= 0
+            && typeof contract.name === 'string' && contract.name !== '';
         Object.keys(filterFields).forEach(function (field) {
             state.filters[field] = { op: defaultOperatorFor(filterFields[field]), value: '' };
         });
@@ -582,67 +574,41 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
         }
 
         // ---- One Way Phase 4: SSE transport -----------------------------
-        // start() decides the transport ONCE from the contract: SSE when the
-        // route advertises it and the browser can; plain pull otherwise. The
-        // connection dance itself (shared KISS subscribe, dedicated
-        // EventSource degrade, stream-id adoption, backoff reconnect,
-        // permanent pull degrade) lives in openFeedChannel (platform-ui/core).
+        // start() decides the transport ONCE from the contract: the page's KISS
+        // stream when the route advertises SSE, plain pull otherwise. The
+        // subscription itself lives in openFeedChannel (platform-ui/core).
         function start() {
-            if (sseAdvertised && typeof window.EventSource !== 'undefined') {
-                state.transport = 'sse';
-                channel = openFeedChannel({
-                    url: endpoint,
-                    params: currentViewParams,
-                    dataEvent: 'ui.collection.data',
-                    errorEvent: 'ui.collection.error',
-                    onData: onDataEnvelope,
-                    onError: function (envelope) {
-                        state.gotFrame = true;
-                        state.everStreamed = true;
-                        if (!envelope) { showError('The grid stream reported an error.'); return; }
-                        handleErrorEnvelope(envelope);
-                    },
-                    onBadFrame: function (e) { showError('Bad frame: ' + e.message); },
-                    onStreamId: function (id, mode) {
-                        if (mode === 'shared') {
-                            // The subscription id IS the view-change addressing
-                            // coordinate (the server keys tier-2 re-run state by
-                            // it). Client-minted → commands un-gated immediately.
-                            state.subscriptionId = id;
-                        }
-                        state.streamId = id;
-                    },
-                    onConnecting: function () {
-                        // Re-gate on every dedicated (re)connect: the OLD id is
-                        // dead; the new connection mints a fresh one.
-                        state.streamId = null;
-                        state.gotFrame = false;
-                        root.setAttribute('data-ui-grid-v2-state', 'loading');
-                    },
-                    permanentPullDegrade: true,
-                    onPermanentDegrade: function () {
-                        // NEVER delivered a frame on ANY connection → SSE is not
-                        // usable here; documented PERMANENT degrade to plain
-                        // JSON pull.
-                        state.transport = 'pull';
-                        state.streamId = null;
-                        channel = null;
-                        pull();
-                    }
-                });
-            } else {
+            if (!sseAdvertised) {
                 state.transport = 'pull';
                 pull();
+                return;
             }
+            state.transport = 'sse';
+            channel = openFeedChannel({
+                feed: contract.name,
+                params: currentViewParams,
+                dataEvent: 'ui.collection.data',
+                errorEvent: 'ui.collection.error',
+                onData: onDataEnvelope,
+                onError: function (envelope) {
+                    if (!envelope) { showError('The grid stream reported an error.'); return; }
+                    handleErrorEnvelope(envelope);
+                },
+                onStreamId: function (id) { state.subscriptionId = id; },
+                onPull: function () {
+                    // No KISS session on this page: the feed's plain JSON GET.
+                    state.transport = 'pull';
+                    state.subscriptionId = null;
+                    channel = null;
+                    pull();
+                }
+            });
         }
 
-        // A data frame from EITHER path (shared demux or dedicated stream) —
-        // the body is the same canonical `{data, meta}` envelope a pull body
-        // carries, so it routes through the SAME render/error paths.
+        // A data frame — the body is the same canonical `{data, meta}`
+        // envelope a pull body carries, so it routes through the SAME
+        // render/error paths.
         function onDataEnvelope(envelope) {
-            state.gotFrame = true;
-            state.everStreamed = true;
-            state.reconnectAttempts = 0;
             if (!envelope || !Array.isArray(envelope.data)) { handleErrorEnvelope(envelope); return; }
             state.recovered = false;
             refs.error.setAttribute('hidden', '');
@@ -650,67 +616,23 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
         }
 
         // The current view as a plain params object (q/sort/filter/perPage/page/
-        // cursor) for the subscribe query — the same coordinates buildQuery emits.
+        // cursor) — the same coordinates buildQuery emits.
         function currentViewParams() {
             var p = {};
             buildQuery().forEach(function (value, key) { p[key] = value; });
             return p;
         }
 
-        // One-URL re-hydrate: the view-change command POSTs the SAME endpoint
-        // the EventSource holds open, distinguished by the
-        // `X-Semitexa-Stream-Rehydrate` header, carrying the adopted stream
-        // id + the COMPLETE canonical view state + the CSRF token.
-        // Fire-and-forget, ack-only — the fresh envelope arrives on the open
-        // stream as a `ui.collection.data` frame, never on this POST.
-        function sendRehydrate() {
-            if (!state.streamId) return; // hard gate: no command before adoption
-            root.setAttribute('data-ui-grid-v2-state', 'loading');
-            var terms = [];
-            Object.keys(state.filters).forEach(function (field) {
-                var f = state.filters[field];
-                if (f.value !== '') terms.push(field + ':' + f.op + ':' + f.value);
-            });
-            var body = {
-                stream_id: state.streamId,
-                q: state.q,
-                sort: state.sort,
-                filter: terms.join(';'),
-                perPage: state.perPage === null ? '' : String(state.perPage),
-                page: (state.mode === 'page' && state.page > 1) ? String(state.page) : '',
-                cursor: (state.mode === 'cursor') ? state.cursor : '',
-            };
-            var headers = withCsrf('POST', {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'X-Semitexa-Stream-Rehydrate': '1',
-            });
-            // Multiplexed grid: address the view-change to this grid's subscription
-            // on the page's shared KISS connection (the server delivers to the
-            // session queue and targets the subscription). Degrade path omits these
-            // and the server falls back to the body `stream_id`.
-            if (state.subscriptionId) {
-                var mgr = window.SemitexaUi && window.SemitexaUi.sse;
-                var sessionId = (mgr && typeof mgr.sessionId === 'function') ? mgr.sessionId() : null;
-                if (sessionId) {
-                    headers['X-Semitexa-Kiss-Session'] = sessionId;
-                    headers['X-Semitexa-Subscription-Id'] = state.subscriptionId;
-                }
-            }
-            fetch(endpoint, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: headers,
-                body: JSON.stringify(body),
-            }).catch(function () { /* a dropped command is retried by the next view change */ });
+        function isLive() {
+            return state.transport === 'sse' && state.subscriptionId !== null && channel !== null;
         }
 
-        // Every view change funnels here: a re-hydrate command on a live
-        // stream, a classic re-fetch otherwise (pull transport, or SSE not
-        // yet adopted/degraded).
+        // Every view change funnels here: the complete new view through HUG on
+        // a live subscription (fresh rows arrive on KISS), a re-fetch otherwise.
         function refresh() {
-            if (state.transport === 'sse' && state.streamId) {
-                sendRehydrate();
+            if (isLive()) {
+                root.setAttribute('data-ui-grid-v2-state', 'loading');
+                channel.view(currentViewParams());
                 return;
             }
             pull();
@@ -760,7 +682,7 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
                 // Live stream → the write's ui.invalidate publish re-runs the
                 // feed and the fresh frame arrives on the open fd; nothing to
                 // do here. Pull transport → one re-pull of the current view.
-                if (!(state.transport === 'sse' && state.streamId)) pull();
+                if (!isLive()) pull();
             }).catch(function () {
                 btn.disabled = false;
                 showError('Action failed: network error.');

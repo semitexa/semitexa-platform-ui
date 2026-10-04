@@ -23,6 +23,9 @@
    scope=global, so every page in the application downloaded and parsed 54 KB
    of grid runtime whether or not it had a grid. #}
 {{ asset_require('platform-ui:js:grid-runtime-v2') }}
+{# A live grid rides the page's one KISS stream, so the grid brings the page's
+   KISS session with it (idempotent: one id per page however many grids). #}
+{{ ui_page_sse_session_meta() }}
 <div
     data-ui-component="platform.grid-v2"
     data-ui-grid-v2="{{ _grid_v2_id }}"

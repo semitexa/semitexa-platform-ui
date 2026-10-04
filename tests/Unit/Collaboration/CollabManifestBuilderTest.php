@@ -43,7 +43,9 @@ final class CollabManifestBuilderTest extends TestCase
         self::assertSame(self::INSTANCE, $m['i']);
         self::assertSame('formdoc:article:42', $m['scope']);
         self::assertSame('shared', $m['mode']);
-        self::assertSame('/__ui/form-doc', $m['feedUrl']);
+        // The feed is addressed by route name; HUG subscribes it onto KISS.
+        self::assertSame('platform-ui.form-doc', $m['feed']);
+        self::assertArrayNotHasKey('feedUrl', $m);
         self::assertSame('/__semitexa_hug', $m['eventUrl']);
         self::assertSame(['title', 'body'], $m['fields']);
         // self defaults to the instance id when no auth user is present.

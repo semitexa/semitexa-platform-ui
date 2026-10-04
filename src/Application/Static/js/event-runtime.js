@@ -1157,6 +1157,7 @@ import { withCsrf } from 'platform-ui/core';
     // can re-sync state that may have been published while the socket was
     // down. Keyed by url so two distinct streams do not cross-trigger.
     var SSE_LAST_CONNECTED_AT = {};
+    var KISS_PATH = '/__semitexa_kiss';
     var SSE_RECONNECT_MIN_GAP_MS = 2000;
 
     function attachSse(options) {
@@ -1372,6 +1373,18 @@ import { withCsrf } from 'platform-ui/core';
                 error: err,
                 url: url
             });
+            // A KISS stream that fails before it EVER connected cannot stream on
+            // this page: stop retrying and let every feed fall back to pull. A
+            // stream that drops after connecting stays on the browser's own
+            // reconnect, and the `reconnected` signal re-subscribes.
+            if (url.indexOf(KISS_PATH) !== -1 && !SSE_LAST_CONNECTED_AT[url]) {
+                try { source.close(); } catch (closeErr) { /* ignore */ }
+                var failedIdx = ATTACHED_SSE_CONNECTIONS.indexOf(entry);
+                if (failedIdx >= 0) {
+                    ATTACHED_SSE_CONNECTIONS.splice(failedIdx, 1);
+                }
+                failAllSubscriptions();
+            }
         };
 
         var entry = { url: url, source: source };
@@ -1755,54 +1768,65 @@ import { withCsrf } from 'platform-ui/core';
         return true;
     }
 
-    /** The feed route URL with the feed's params on the query (like the GET connect). */
-    function feedControlUrl(feedRef, params) {
-        var url = feedRef.url;
-        var qs = [];
+    /** The params a feed control may carry: flat scalars only, nulls dropped. */
+    function flatStreamParams(params) {
+        var out = {};
         if (params) {
             for (var k in params) {
-                if (Object.prototype.hasOwnProperty.call(params, k) && params[k] != null) {
-                    qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+                if (!Object.prototype.hasOwnProperty.call(params, k)) {
+                    continue;
+                }
+                var v = params[k];
+                if (v === null || v === undefined) {
+                    continue;
+                }
+                if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+                    out[k] = v;
                 }
             }
         }
-        if (qs.length) {
-            url += (url.indexOf('?') === -1 ? '?' : '&') + qs.join('&');
-        }
-        return url;
+        return out;
     }
 
-    function postSseControl(feedRef, params, sessionId, subscriptionId, unsubscribe) {
+    /**
+     * Feed control goes to HUG — `{"stream": {op, feed, params, session,
+     * subscriptionId}}` — and only acknowledges; every frame arrives on KISS.
+     * op: subscribe | view | unsubscribe. Best-effort: a reconnect re-subscribes.
+     */
+    function postStreamControl(op, feed, params, sessionId, subscriptionId) {
         if (typeof fetch !== 'function') {
             return;
         }
-        var headers = {
-            'X-Semitexa-Kiss-Session': sessionId,
-            'X-Semitexa-Subscription-Id': subscriptionId
-        };
-        headers[unsubscribe ? 'X-Semitexa-Stream-Unsubscribe' : 'X-Semitexa-Stream-Subscribe'] = '1';
+        var stream = { op: op, feed: feed, session: sessionId, subscriptionId: subscriptionId };
+        if (op !== 'unsubscribe') {
+            stream.params = flatStreamParams(params);
+        }
         try {
-            fetch(feedControlUrl(feedRef, params), {
+            fetch(DEFAULT_TRANSPORT_ENDPOINT, {
                 method: 'POST',
                 credentials: 'same-origin',
                 keepalive: true,
-                headers: withCsrf('POST', headers)
+                headers: withCsrf('POST', { 'Content-Type': 'application/json', 'Accept': 'application/json' }),
+                body: JSON.stringify({ stream: stream })
             }).catch(function () { /* best-effort; reconnect re-subscribes */ });
         } catch (postErr) { /* ignore */ }
     }
 
     /**
      * Subscribe a feed to the shared KISS connection.
-     *   feedRef = { url }, params = feed query params (e.g. { ctx }),
-     *   onFrame(frame) = called with each demuxed frame body.
-     * Returns { degraded, subscriptionId, unsubscribe() }. When `degraded` is
-     * true the page has no KISS session — the caller keeps its own EventSource.
+     *   feedRef = { feed } — the feed's route name (its OPTIONS contract `name`),
+     *   params = feed query params (e.g. { ctx }),
+     *   onFrame(frame) = called with each demuxed frame body,
+     *   onUnavailable() = optional; the page's KISS stream failed before it
+     *   ever connected, so this subscription is dropped and the caller pulls.
+     * Returns { degraded, subscriptionId, view(params), unsubscribe() }. When
+     * `degraded` is true the page has no KISS session — the caller pulls.
      */
-    function sseSubscribe(feedRef, params, onFrame) {
-        var noop = { degraded: true, subscriptionId: null, unsubscribe: function () {} };
+    function sseSubscribe(feedRef, params, onFrame, onUnavailable) {
+        var noop = { degraded: true, subscriptionId: null, view: function () {}, unsubscribe: function () {} };
         var sessionId = readPageSseSessionId();
         if (sessionId === null || typeof EventSource !== 'function' || typeof fetch !== 'function'
-            || !feedRef || typeof feedRef.url !== 'string' || feedRef.url === ''
+            || !feedRef || typeof feedRef.feed !== 'string' || feedRef.feed === ''
             || typeof onFrame !== 'function') {
             return noop;
         }
@@ -1810,20 +1834,41 @@ import { withCsrf } from 'platform-ui/core';
         ensureKissOpen(sessionId);
 
         var subscriptionId = mintHexPrefixedId('sse_', 16); // sse_<32hex>
-        SSE_SUBSCRIPTIONS[subscriptionId] = { feedRef: feedRef, params: params || {}, onFrame: onFrame };
-        postSseControl(feedRef, params, sessionId, subscriptionId, false);
+        SSE_SUBSCRIPTIONS[subscriptionId] = { feed: feedRef.feed, params: params || {}, onFrame: onFrame, onUnavailable: onUnavailable };
+        postStreamControl('subscribe', feedRef.feed, params, sessionId, subscriptionId);
 
         return {
             degraded: false,
             subscriptionId: subscriptionId,
+            view: function (nextParams) {
+                var s = SSE_SUBSCRIPTIONS[subscriptionId];
+                if (!s) {
+                    return;
+                }
+                // A reconnect re-subscribes with the CURRENT view, not the first one.
+                s.params = nextParams || {};
+                postStreamControl('view', s.feed, s.params, sessionId, subscriptionId);
+            },
             unsubscribe: function () {
                 if (!SSE_SUBSCRIPTIONS[subscriptionId]) {
                     return;
                 }
                 delete SSE_SUBSCRIPTIONS[subscriptionId];
-                postSseControl(feedRef, params, sessionId, subscriptionId, true);
+                postStreamControl('unsubscribe', feedRef.feed, null, sessionId, subscriptionId);
             }
         };
+    }
+
+    /** The page's KISS stream cannot open: every subscription falls back to pull. */
+    function failAllSubscriptions() {
+        var ids = Object.keys(SSE_SUBSCRIPTIONS);
+        for (var i = 0; i < ids.length; i++) {
+            var s = SSE_SUBSCRIPTIONS[ids[i]];
+            delete SSE_SUBSCRIPTIONS[ids[i]];
+            if (s && typeof s.onUnavailable === 'function') {
+                try { s.onUnavailable(); } catch (cbErr) { /* one feed must not break the rest */ }
+            }
+        }
     }
 
     /** Re-POST every active subscribe (same ids) after the shared connection reconnects. */
@@ -1835,7 +1880,7 @@ import { withCsrf } from 'platform-ui/core';
         for (var id in SSE_SUBSCRIPTIONS) {
             if (Object.prototype.hasOwnProperty.call(SSE_SUBSCRIPTIONS, id)) {
                 var s = SSE_SUBSCRIPTIONS[id];
-                postSseControl(s.feedRef, s.params, sessionId, id, false);
+                postStreamControl('subscribe', s.feed, s.params, sessionId, id);
             }
         }
     }
@@ -1954,7 +1999,7 @@ import { withCsrf } from 'platform-ui/core';
     }
 
     function buildKissUrl(sessionId, mode) {
-        var url = '/__semitexa_kiss?session_id=' + encodeURIComponent(sessionId)
+        var url = KISS_PATH + '?session_id=' + encodeURIComponent(sessionId)
             + '&mode=' + encodeURIComponent(mode);
         // Unify the deferred-SSR stream into this connection: when the page
         // emitted deferred placeholders, append the one-shot deferred request

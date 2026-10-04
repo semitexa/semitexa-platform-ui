@@ -31,7 +31,7 @@
  *   {
  *     v, i,                       schema version + render instance id
  *     scope, mode, self,          document scope, collaboration mode, my id
- *     feedUrl, feedCtx,           SSE read feed + its signed cfg token
+ *     feed, feedCtx,              the read feed's route name + its signed cfg token
  *     eventUrl, events,           write endpoint + { "field.edit": ctx, "presence.ping": ctx }
  *     fields, heartbeatMs         managed field names + presence cadence
  *   }
@@ -50,7 +50,6 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
     var PRESENCE_SELECTOR = '[data-ui-collab-presence]';
     var STATUS_SELECTOR = '[data-ui-collab-status]';
     var DEFAULT_HEARTBEAT_MS = 15000;
-    var MAX_BACKOFF_MS = 30000;
 
     /** Booted instances, keyed by render instance id, so a re-scan is idempotent. */
     var booted = Object.create(null);
@@ -86,7 +85,7 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
         } catch (e) {
             return null;
         }
-        if (!data || data.v !== SCHEMA_VERSION || typeof data.feedUrl !== 'string' || typeof data.feedCtx !== 'string') {
+        if (!data || data.v !== SCHEMA_VERSION || typeof data.feed !== 'string' || typeof data.feedCtx !== 'string') {
             return null;
         }
         return data;
@@ -158,10 +157,8 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
         }
     };
 
-    // -- transport: openFeedChannel (platform-ui/core) owns the whole connection dance —
-    //    shared KISS subscribe first, dedicated EventSource degrade with
-    //    stream-id adoption + backoff reconnect (this file used to mirror
-    //    grid-runtime-v2's copy verbatim) ------------------------------------
+    // -- transport: openFeedChannel (platform-ui/core) — the document feed on
+    //    the page's KISS stream, subscribed through HUG by name ---------------
 
     CollabForm.prototype.subscribe = function () {
         if (this.closed) {
@@ -169,17 +166,17 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
         }
         var self = this;
         this.channel = openFeedChannel({
-            url: this.m.feedUrl,
+            feed: this.m.feed,
             params: { ctx: this.m.feedCtx },
             dataEvent: 'ui.document.data',
             errorEvent: 'ui.document.error',
-            maxBackoffMs: MAX_BACKOFF_MS,
-            // The envelope is the same `{_type, data, meta}` shape on both
-            // paths, so applySnapshot/onDocumentError are shared.
             onData: function (envelope) { self.applySnapshot(envelope); },
             onError: function (envelope) { self.onDocumentError(envelope || {}); },
             onStreamId: function (id) { self.streamId = id; },
-            onStatus: function (status) { self.setStatus(status); }
+            onStatus: function (status) { self.setStatus(status); },
+            // Collaboration is live or nothing: a page without a KISS session
+            // says so instead of showing a stale document as shared.
+            onPull: function () { self.setStatus('offline'); }
         });
     };
 
