@@ -135,7 +135,8 @@ final class WorkbenchViewBuilder
     /** @return array<string, mixed> */
     private function example(UiCatalogItem $item, UiExample $example): array
     {
-        $uid = 'wb-' . self::shortName($item->name()) . '-' . $example->name;
+        // An id that is also a CSS selector (#uid in ui-behavior-open): only [a-z0-9-].
+        $uid = 'wb-' . trim((string) preg_replace('/[^a-z0-9-]+/', '-', strtolower(self::shortName($item->name()) . '-' . $example->name)), '-');
         $props = $example->props;
         // Example slots are declared as literal text; the runtime renders slots
         // raw, so the Workbench escapes them on the way in.

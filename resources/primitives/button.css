@@ -74,7 +74,7 @@
     /* Soft: the tone tinted onto the surface. Without a tone it is a quiet neutral button. */
     [ui="button"][ui-variant="soft"] {
         background: color-mix(in oklab, var(--_tone) var(--ui-tint-weak), var(--ui-surface-raised));
-        color: color-mix(in oklab, var(--_tone) 82%, var(--ui-text-primary));
+        color: color-mix(in oklab, var(--_tone) 60%, var(--ui-text-primary));
         border-color: color-mix(in oklab, var(--_tone) var(--ui-tint-strong), transparent);
     }
     [ui="button"][ui-variant="soft"]:hover:not(:disabled, [aria-disabled="true"]) {

@@ -51,7 +51,7 @@
         {% endfor %}
     </aside>
 
-    <main class="wb-main">
+    <div class="wb-main">
         <div class="wb-toolbar" role="toolbar" aria-label="Preview settings">
             <div class="wb-seg" role="group" aria-label="Colour scheme">
                 {% for m in ['light', 'dark'] %}
@@ -74,7 +74,7 @@
                 </div>
                 <h1>{{ entry.short|replace({'-': ' '})|capitalize }}</h1>
                 {% if entry.summary %}<p ui-text="lead">{{ entry.summary }}</p>{% endif %}
-                <p ui-text="caption">{{ entry.class }} · {{ entry.source.file }}:{{ entry.source.line }}</p>
+                {% if wb.showSource %}<p ui-text="caption">{{ entry.class }} · {{ entry.source.file }}:{{ entry.source.line }}</p>{% endif %}
             </header>
 
             {% if entry.examples is empty %}
@@ -154,6 +154,6 @@
                 </section>
             {% endfor %}
         {% endif %}
-    </main>
+    </div>
 </div>
 {% endblock %}

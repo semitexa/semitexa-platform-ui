@@ -1,5 +1,5 @@
 <button ui="button" ui-behavior-open="#{{ uid }}-dialog" type="button">New customer</button>
-<dialog id="{{ uid }}-dialog" ui-behavior="modal"{% if opts %} ui-modal="{{ opts }}"{% endif %} aria-labelledby="{{ uid }}-title">
+<dialog id="{{ uid }}-dialog" ui-behavior="modal" ui-modal="{{ opts }}" aria-labelledby="{{ uid }}-title">
     <div ui-modal="header">
         <div>
             <h2 ui-modal="title" id="{{ uid }}-title">New customer</h2>

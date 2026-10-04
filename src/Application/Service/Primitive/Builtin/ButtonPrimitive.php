@@ -20,6 +20,7 @@ use Semitexa\PlatformUi\Domain\Model\Contract\UiPropType;
     summary: 'Trigger an action or navigate; renders <a> when href is set.',
     props: [
         new UiProp('text', default: '', description: 'Visible label; the accessible name of an icon-only button.'),
+        new UiProp('label', nullable: true, description: 'Alias of text.'),
         new UiProp('href', nullable: true, description: 'Renders a link-button instead of <button>.'),
         new UiProp('type', default: 'button', values: ['button', 'submit', 'reset']),
         new UiProp('variant', default: 'solid', values: ['solid', 'soft', 'outline', 'ghost', 'link'], description: 'How the tone is used.'),

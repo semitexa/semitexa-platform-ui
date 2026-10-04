@@ -1,4 +1,4 @@
-<div style="max-height:12rem;overflow:auto;border-radius:var(--ui-radius-lg);box-shadow:var(--ui-hairline)" tabindex="0" aria-label="Scrollable sticky example">
+<div style="max-height:12rem;overflow:auto;border-radius:var(--ui-radius-lg);box-shadow:var(--ui-hairline)" tabindex="0" role="region" aria-label="Scrollable sticky example">
     <header ui-behavior="sticky" ui-sticky="{{ opts }}" style="position:sticky;top:0;padding:var(--ui-space-3) var(--ui-space-4)"><strong>Section header</strong></header>
     <div sx-layout="stack" sx-gap="3" style="padding:var(--ui-space-4)">
         {% for i in 1..8 %}<p ui-text="muted">Row {{ i }} of scrolling content.</p>{% endfor %}

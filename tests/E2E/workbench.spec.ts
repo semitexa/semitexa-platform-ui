@@ -68,43 +68,73 @@ function auditStage(stage: Element): string[] {
     }
 
     // WCAG 2 contrast of visible text against the composited background.
-    const parse = (c: string): [number, number, number, number] | null => {
-        const m = c.match(/rgba?\(([^)]+)\)/);
-        if (!m) return null;
-        const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number);
-        return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1];
+    // Computed colours come back in whatever space they were written in
+    // (`color-mix(in oklab, …)` stays oklab), so every colour is resolved to
+    // sRGB by painting it — a colour that cannot be resolved is a violation,
+    // never a skip.
+    const canvas = doc.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    const ctx2d = canvas.getContext('2d', { willReadFrequently: true })!;
+    const toRgba = (c: string): [number, number, number, number] | null => {
+        if (!c || c === 'transparent') return [0, 0, 0, 0];
+        ctx2d.clearRect(0, 0, 1, 1);
+        ctx2d.fillStyle = '#010203';
+        ctx2d.fillStyle = c;
+        if (ctx2d.fillStyle === '#010203' && !/^#010203$/i.test(c)) return null;
+        ctx2d.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = ctx2d.getImageData(0, 0, 1, 1).data;
+        return [r, g, b, a / 255];
     };
     const lum = ([r, g, b]: number[]): number => {
         const f = (v: number) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
         return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
     };
-    const backgroundOf = (el: Element | null): number[] => {
+    const backgroundOf = (el: Element | null): number[] | null => {
         const layers: [number, number, number, number][] = [];
         for (let n = el; n; n = n.parentElement) {
-            const c = parse(getComputedStyle(n).backgroundColor);
-            if (c && c[3] > 0) { layers.push(c); if (c[3] >= 1) break; }
+            const c = toRgba(getComputedStyle(n).backgroundColor);
+            if (c === null) return null;
+            if (c[3] > 0) { layers.push(c); if (c[3] >= 1) break; }
         }
         let rgb = [255, 255, 255];
         for (const [r, g, b, a] of layers.reverse()) rgb = [r * a + rgb[0] * (1 - a), g * a + rgb[1] * (1 - a), b * a + rgb[2] * (1 - a)];
         return rgb;
+    };
+    const effectiveOpacity = (el: Element): number => {
+        let o = 1;
+        for (let n: Element | null = el; n; n = n.parentElement) o *= Number(getComputedStyle(n).opacity);
+        return o;
+    };
+    const check = (el: Element, text: string): void => {
+        const style = getComputedStyle(el);
+        const fg = toRgba(style.color);
+        const bg = backgroundOf(el);
+        if (fg === null || bg === null) { problems.push(`unresolvable colour for "${text.slice(0, 24)}"`); return; }
+        const alpha = fg[3] * effectiveOpacity(el);
+        const blended = [fg[0] * alpha + bg[0] * (1 - alpha), fg[1] * alpha + bg[1] * (1 - alpha), fg[2] * alpha + bg[2] * (1 - alpha)];
+        const [hi, lo] = [lum(blended), lum(bg)].sort((a, b) => b - a);
+        const ratio = (hi + 0.05) / (lo + 0.05);
+        const size = parseFloat(style.fontSize);
+        const large = size >= 24 || (size >= 18.66 && Number(style.fontWeight) >= 700);
+        if (ratio < (large ? 3 : 4.5)) problems.push(`contrast ${ratio.toFixed(2)}:1 for "${text.slice(0, 24)}"`);
+    };
+    const visible = (el: Element): boolean => {
+        const style = getComputedStyle(el);
+        return style.visibility !== 'hidden' && effectiveOpacity(el) > 0.05 && el.getClientRects().length > 0;
     };
     const walker = doc.createTreeWalker(stage, NodeFilter.SHOW_TEXT);
     for (let t = walker.nextNode(); t; t = walker.nextNode()) {
         const text = (t.textContent ?? '').trim();
         const el = t.parentElement;
         if (!text || !el || el.closest('[hidden], [aria-hidden="true"], :disabled, [aria-disabled="true"]')) continue;
-        const style = getComputedStyle(el);
-        if (style.visibility === 'hidden' || Number(style.opacity) === 0 || el.getClientRects().length === 0) continue;
         if (el.closest('[ui-state="loading"]')) continue; // label is transparent by design while busy
-        const fg = parse(style.color);
-        if (!fg) continue;
-        const bg = backgroundOf(el);
-        const blended = [fg[0] * fg[3] + bg[0] * (1 - fg[3]), fg[1] * fg[3] + bg[1] * (1 - fg[3]), fg[2] * fg[3] + bg[2] * (1 - fg[3])];
-        const [hi, lo] = [lum(blended), lum(bg)].sort((a, b) => b - a);
-        const ratio = (hi + 0.05) / (lo + 0.05);
-        const size = parseFloat(style.fontSize);
-        const large = size >= 24 || (size >= 18.66 && Number(style.fontWeight) >= 700);
-        if (ratio < (large ? 3 : 4.5)) problems.push(`contrast ${ratio.toFixed(2)}:1 for "${text.slice(0, 24)}"`);
+        if (!visible(el)) continue;
+        check(el, text);
+    }
+    // A field's value is text too, but not a text node.
+    for (const input of stage.querySelectorAll('input:not([type="hidden"]), textarea')) {
+        const value = (input as HTMLInputElement).value.trim();
+        if (value && !(input as HTMLInputElement).disabled && visible(input)) check(input, value);
     }
     return problems;
 }
@@ -134,6 +164,33 @@ test.describe('platform-ui · UI Workbench', () => {
                     expect(await stage.evaluate((s) => s.children.length), `${entry.name}/${id} renders`).toBeGreaterThan(0);
                     const problems = await stage.evaluate(auditStage);
                     violations.push(...problems.map((p) => `${entry.name}/${id} (${mode}): ${p}`));
+
+                    // A behavior's content only exists on screen once opened:
+                    // open it, then audit what appeared (menus, panels,
+                    // dialogs, tooltips, toasts) the same way.
+                    const openers = stage.locator('[ui-behavior-toggle], [ui-behavior-open], [ui-behavior="toast"], [ui-behavior="toggle"], [ui-behavior-tab]');
+                    const count = await openers.count();
+                    if (count > 0) {
+                        for (let i = 0; i < count; i++) {
+                            const opener = openers.nth(i);
+                            if (await opener.isVisible()) { await opener.click(); }
+                        }
+                        const tip = stage.locator('[ui-behavior="tooltip"]');
+                        if (await tip.count() > 0) await tip.first().focus();
+                        await page.waitForTimeout(350);
+                        const opened = await page.evaluate(([audit, exampleId]) => {
+                            const fn = new Function('return ' + audit)() as (e: Element) => string[];
+                            const roots = [...document.querySelectorAll('dialog[open], [ui-behavior~="offcanvas"].sx-open, [role="tooltip"].sx-open, .sx-toast-region')];
+                            const own = document.querySelector(`[data-workbench-example="${exampleId}"] [data-workbench-stage]`);
+                            return [...roots, ...(own ? [own] : [])].flatMap((r) => fn(r));
+                        }, [auditStage.toString(), id ?? ''] as const);
+                        violations.push(...[...new Set(opened)].map((p) => `${entry.name}/${id} opened (${mode}): ${p}`));
+                        await page.keyboard.press('Escape');
+                        await page.evaluate(() => {
+                            document.querySelectorAll('dialog[open]').forEach((d) => (d as HTMLDialogElement).close());
+                            document.querySelectorAll('.sx-toast').forEach((t) => t.remove());
+                        });
+                    }
                 }
 
                 const ids = await page.evaluate(() => {
@@ -159,7 +216,7 @@ test.describe('platform-ui · UI Workbench', () => {
                     const id = await example.getAttribute('data-workbench-example');
                     await expect(example.locator('[data-workbench-stage]')).toHaveScreenshot(
                         `${entry.name.replace('platform.', '')}-${id}-${mode}.png`,
-                        { animations: 'disabled', caret: 'hide', maxDiffPixelRatio: 0.01 },
+                        { animations: 'disabled', caret: 'hide', maxDiffPixels: 0, threshold: 0.1 },
                     );
                 }
             }

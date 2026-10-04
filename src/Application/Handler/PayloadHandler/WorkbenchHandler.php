@@ -38,6 +38,6 @@ final class WorkbenchHandler implements TypedHandlerInterface
         }
 
         $resource->pageTitle($entry === null ? 'UI Workbench' : $entry['short'] . ' · UI Workbench', ' · Semitexa');
-        return $resource->withWorkbench($this->view->index(), $entry, $payload->entry, $this->view->skins($payload->skin), $payload->mode);
+        return $resource->withWorkbench($this->view->index(), $entry, $payload->entry, $this->view->skins($payload->skin), $payload->mode, $this->gate->showsSource());
     }
 }

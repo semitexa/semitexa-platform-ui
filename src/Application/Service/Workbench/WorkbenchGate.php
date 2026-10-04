@@ -23,12 +23,30 @@ final class WorkbenchGate
 {
     public const ENV_FLAG = 'PLATFORM_UI_WORKBENCH';
 
+    /** Per worker: the environment does not change under a running worker. */
+    private static ?bool $dev = null;
+    private static ?bool $enabled = null;
+
     public function allows(): bool
     {
-        $enabled = Environment::create()->isDev()
-            || Environment::getEnvValue(self::ENV_FLAG) === '1';
+        self::$enabled ??= self::isDev() || Environment::getEnvValue(self::ENV_FLAG) === '1';
 
-        return $enabled && !$this->isCrossSiteRead(CurrentRequestStore::get());
+        return self::$enabled && !$this->isCrossSiteRead(CurrentRequestStore::get());
+    }
+
+    /**
+     * Class names and file paths are for a developer's machine. A showcase
+     * deployment (the flag without APP_ENV=dev) shows the components, not
+     * where they live.
+     */
+    public function showsSource(): bool
+    {
+        return self::isDev();
+    }
+
+    private static function isDev(): bool
+    {
+        return self::$dev ??= Environment::create()->isDev();
     }
 
     /**

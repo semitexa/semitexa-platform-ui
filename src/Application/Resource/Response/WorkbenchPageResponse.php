@@ -16,8 +16,8 @@ final class WorkbenchPageResponse extends HtmlResponse implements ResourceInterf
      * @param array<string, mixed>|null $entry
      * @param array{slugs: list<string>, current: string, url: ?string} $skins
      */
-    public function withWorkbench(array $index, ?array $entry, string $requested, array $skins, string $mode): self
+    public function withWorkbench(array $index, ?array $entry, string $requested, array $skins, string $mode, bool $showSource): self
     {
-        return $this->with('workbench', ['index' => $index, 'entry' => $entry, 'requested' => $requested, 'skins' => $skins, 'mode' => $mode]);
+        return $this->with('workbench', ['index' => $index, 'entry' => $entry, 'requested' => $requested, 'skins' => $skins, 'mode' => $mode, 'showSource' => $showSource]);
     }
 }

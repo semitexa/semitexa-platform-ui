@@ -32,7 +32,7 @@
 
     [ui="badge"]:where(:not([ui-variant]), [ui-variant="soft"]) {
         background: color-mix(in oklab, var(--_tone) 13%, var(--ui-surface-raised));
-        color: color-mix(in oklab, var(--_tone) 85%, var(--ui-text-primary));
+        color: color-mix(in oklab, var(--_tone) 60%, var(--ui-text-primary));
         border-color: color-mix(in oklab, var(--_tone) 22%, transparent);
     }
     [ui="badge"][ui-variant="solid"] {
@@ -41,7 +41,7 @@
     }
     [ui="badge"][ui-variant="outline"] {
         background: transparent;
-        color: color-mix(in oklab, var(--_tone) 85%, var(--ui-text-primary));
+        color: color-mix(in oklab, var(--_tone) 60%, var(--ui-text-primary));
         border-color: color-mix(in oklab, var(--_tone) 50%, transparent);
     }
 
