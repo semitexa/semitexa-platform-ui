@@ -83,6 +83,7 @@
         --ui-container-xl: 80rem;
         --ui-container-max: var(--ui-container-lg);
         --ui-grid-min: 16rem;
+        --ui-table-max-height: none;
 
         /* Focus. */
         --ui-focus-ring-width: 2px;

@@ -25,10 +25,10 @@
 
     [ui="badge"][ui-tone="neutral"] { --_tone: var(--ui-text-muted); --_on-tone: var(--ui-surface-page); }
     [ui="badge"][ui-tone="brand"]   { --_tone: var(--ui-accent-brand); --_on-tone: var(--ui-text-on-accent); }
-    [ui="badge"][ui-tone="info"]    { --_tone: var(--ui-state-info);    --_on-tone: #fff; }
-    [ui="badge"][ui-tone="success"] { --_tone: var(--ui-state-success); --_on-tone: #fff; }
-    [ui="badge"][ui-tone="warning"] { --_tone: var(--ui-state-warning); --_on-tone: #1a1300; }
-    [ui="badge"][ui-tone="danger"]  { --_tone: var(--ui-state-danger);  --_on-tone: #fff; }
+    [ui="badge"][ui-tone="info"]    { --_tone: var(--ui-state-info);    --_on-tone: var(--ui-text-on-info); }
+    [ui="badge"][ui-tone="success"] { --_tone: var(--ui-state-success); --_on-tone: var(--ui-text-on-success); }
+    [ui="badge"][ui-tone="warning"] { --_tone: var(--ui-state-warning); --_on-tone: var(--ui-text-on-warning); }
+    [ui="badge"][ui-tone="danger"]  { --_tone: var(--ui-state-danger);  --_on-tone: var(--ui-text-on-danger); }
 
     [ui="badge"]:where(:not([ui-variant]), [ui-variant="soft"]) {
         background: color-mix(in oklab, var(--_tone) 13%, var(--ui-surface-raised));

@@ -246,10 +246,12 @@
         padding: var(--ui-space-3) var(--_cell-x);
         border-bottom: 1px solid var(--ui-border-subtle);
     }
-    /* The table scrolls inside its frame on narrow screens; the page does not. */
+    /* The table scrolls inside its frame on narrow screens; the page does not.
+       Set --ui-table-max-height to scroll vertically too (the header then sticks). */
     [ui-component="table"] [ui-table="scroll"] {
-        overflow-x: auto;
-        overscroll-behavior-x: contain;
+        overflow: auto;
+        max-height: var(--ui-table-max-height, none);
+        overscroll-behavior: contain;
     }
     [ui-component="table"] [ui-table="scroll"]:focus-visible {
         outline: var(--ui-focus-ring-width) solid var(--ui-focus-ring);
@@ -293,16 +295,18 @@
     [ui-component="table"] tbody td:first-child { color: var(--ui-text-primary); font-weight: var(--ui-font-weight-medium); }
     [ui-component="table"] tbody td { color: color-mix(in oklab, var(--ui-text-primary) 80%, var(--ui-text-muted)); }
     [ui-component="table"] tbody tr { transition: background-color var(--ui-motion-duration-fast) var(--ui-motion-easing-standard); }
-    [ui-component="table"]:not([ui-hover="false"]) tbody tr:hover {
-        background: color-mix(in oklab, var(--ui-accent-brand) 4%, var(--ui-surface-raised));
-    }
     [ui-component="table"][ui-striped] tbody tr:nth-child(even) {
         background: color-mix(in oklab, var(--ui-surface-panel) 55%, transparent);
+    }
+    /* After the stripes, at equal specificity, so hover shows on even rows too. */
+    [ui-component="table"]:not([ui-hover="false"]) tbody tr:hover {
+        background: color-mix(in oklab, var(--ui-accent-brand) 4%, var(--ui-surface-raised));
     }
     [ui-component="table"] tbody tr:last-child td { border-bottom: none; }
     [ui-component="table"] [ui-align="center"] { text-align: center; }
     [ui-component="table"] [ui-align="end"] { text-align: end; }
-    [ui-component="table"] [ui-table="empty"] {
+    [ui-component="table"] tbody td[ui-table="empty"] {
+        font-weight: var(--ui-font-weight-regular);
         text-align: center;
         color: var(--ui-text-muted);
         padding: var(--ui-space-10) var(--_cell-x);

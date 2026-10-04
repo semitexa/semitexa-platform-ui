@@ -128,6 +128,7 @@
         --ui-container-xl: 80rem;
         --ui-container-max: var(--ui-container-lg);
         --ui-grid-min: 16rem;
+        --ui-table-max-height: none;
 
         /* Focus. */
         --ui-focus-ring-width: 2px;
@@ -266,9 +267,9 @@
      * hierarchy to speak of. :where() keeps the specificity at zero — any
      * project rule wins.
      */
+    /* No colour here: a heading inherits from its container (a solid alert, a hero). */
     :where(h1, h2, h3, h4, h5, h6) {
         font-weight: var(--ui-font-weight-semibold);
-        color: var(--ui-text-primary, inherit);
         text-wrap: balance;
     }
     :where(h1) { font-size: var(--ui-text-4xl); line-height: var(--ui-text-4xl-leading); letter-spacing: var(--ui-tracking-tighter); }
@@ -304,7 +305,7 @@
 [sx-layout="cluster"] { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; }
 [sx-layout="container"] { display: block; width: 100%; max-width: var(--ui-container-max); margin-inline: auto; padding-inline: var(--ui-space-4); }
 [sx-layout="frame"] { display: block; }
-[sx-layout="grid"] { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--ui-grid-min, 16rem), 100%), 1fr)); }
+[sx-layout="grid"] { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--grid-min, var(--ui-grid-min, 16rem)), 100%), 1fr)); }
 [sx-layout="stack"] { display: flex; flex-direction: column; }
 [sx-padding="0"] { padding: 0; }
 [sx-padding="1"] { padding: var(--ui-space-1); }
@@ -345,7 +346,7 @@
      */
     [ui="alert"] {
         --_tone: var(--ui-state-info);
-        --_on-tone: #fff;
+        --_on-tone: var(--ui-text-on-info);
 
         display: flex;
         align-items: flex-start;
@@ -359,11 +360,11 @@
         line-height: var(--ui-text-sm-leading);
     }
 
-    [ui="alert"][ui-tone="neutral"] { --_tone: var(--ui-text-muted); }
-    [ui="alert"][ui-tone="info"]    { --_tone: var(--ui-state-info); }
-    [ui="alert"][ui-tone="success"] { --_tone: var(--ui-state-success); }
-    [ui="alert"][ui-tone="warning"] { --_tone: var(--ui-state-warning); --_on-tone: #1a1300; }
-    [ui="alert"][ui-tone="danger"]  { --_tone: var(--ui-state-danger); }
+    [ui="alert"][ui-tone="neutral"] { --_tone: var(--ui-text-muted); --_on-tone: var(--ui-surface-page); }
+    [ui="alert"][ui-tone="info"]    { --_tone: var(--ui-state-info);    --_on-tone: var(--ui-text-on-info); }
+    [ui="alert"][ui-tone="success"] { --_tone: var(--ui-state-success); --_on-tone: var(--ui-text-on-success); }
+    [ui="alert"][ui-tone="warning"] { --_tone: var(--ui-state-warning); --_on-tone: var(--ui-text-on-warning); }
+    [ui="alert"][ui-tone="danger"]  { --_tone: var(--ui-state-danger);  --_on-tone: var(--ui-text-on-danger); }
 
     [ui="alert"] > .sx-icon {
         flex: none;
@@ -456,10 +457,10 @@
 
     [ui="badge"][ui-tone="neutral"] { --_tone: var(--ui-text-muted); --_on-tone: var(--ui-surface-page); }
     [ui="badge"][ui-tone="brand"]   { --_tone: var(--ui-accent-brand); --_on-tone: var(--ui-text-on-accent); }
-    [ui="badge"][ui-tone="info"]    { --_tone: var(--ui-state-info);    --_on-tone: #fff; }
-    [ui="badge"][ui-tone="success"] { --_tone: var(--ui-state-success); --_on-tone: #fff; }
-    [ui="badge"][ui-tone="warning"] { --_tone: var(--ui-state-warning); --_on-tone: #1a1300; }
-    [ui="badge"][ui-tone="danger"]  { --_tone: var(--ui-state-danger);  --_on-tone: #fff; }
+    [ui="badge"][ui-tone="info"]    { --_tone: var(--ui-state-info);    --_on-tone: var(--ui-text-on-info); }
+    [ui="badge"][ui-tone="success"] { --_tone: var(--ui-state-success); --_on-tone: var(--ui-text-on-success); }
+    [ui="badge"][ui-tone="warning"] { --_tone: var(--ui-state-warning); --_on-tone: var(--ui-text-on-warning); }
+    [ui="badge"][ui-tone="danger"]  { --_tone: var(--ui-state-danger);  --_on-tone: var(--ui-text-on-danger); }
 
     [ui="badge"]:where(:not([ui-variant]), [ui-variant="soft"]) {
         background: color-mix(in oklab, var(--_tone) 13%, var(--ui-surface-raised));
@@ -545,10 +546,10 @@
 
     /* Tones — colour only */
     [ui="button"][ui-tone="neutral"] { --_tone: var(--ui-text-primary); --_on-tone: var(--ui-surface-page); }
-    [ui="button"][ui-tone="success"] { --_tone: var(--ui-state-success); --_on-tone: #fff; }
-    [ui="button"][ui-tone="warning"] { --_tone: var(--ui-state-warning); --_on-tone: #1a1300; }
-    [ui="button"][ui-tone="danger"]  { --_tone: var(--ui-state-danger);  --_on-tone: #fff; }
-    [ui="button"][ui-tone="info"]    { --_tone: var(--ui-state-info);    --_on-tone: #fff; }
+    [ui="button"][ui-tone="success"] { --_tone: var(--ui-state-success); --_on-tone: var(--ui-text-on-success); }
+    [ui="button"][ui-tone="warning"] { --_tone: var(--ui-state-warning); --_on-tone: var(--ui-text-on-warning); }
+    [ui="button"][ui-tone="danger"]  { --_tone: var(--ui-state-danger);  --_on-tone: var(--ui-text-on-danger); }
+    [ui="button"][ui-tone="info"]    { --_tone: var(--ui-state-info);    --_on-tone: var(--ui-text-on-info); }
 
     /* Variants — how the tone is used */
     [ui="button"]:where(:not([ui-variant]), [ui-variant="solid"]) {
@@ -571,13 +572,13 @@
     [ui="button"][ui-variant="soft"]:hover:not(:disabled, [aria-disabled="true"]) {
         background: color-mix(in oklab, var(--_tone) var(--ui-tint-strong), var(--ui-surface-raised));
     }
-    [ui="button"][ui-variant="soft"]:not([ui-tone]) {
+    [ui="button"][ui-variant="soft"]:where(:not([ui-tone])) {
         background: var(--ui-surface-raised);
         color: var(--ui-text-primary);
         border-color: var(--ui-border-subtle);
         box-shadow: var(--ui-shadow-xs);
     }
-    [ui="button"][ui-variant="soft"]:not([ui-tone]):hover:not(:disabled, [aria-disabled="true"]) {
+    [ui="button"][ui-variant="soft"]:where(:not([ui-tone])):hover:not(:disabled, [aria-disabled="true"]) {
         background: var(--ui-surface-panel);
         border-color: var(--ui-border-strong);
     }
@@ -597,11 +598,11 @@
         background: transparent;
         color: var(--_tone);
     }
-    [ui="button"][ui-variant="ghost"]:not([ui-tone]) { color: var(--ui-text-primary); }
+    [ui="button"][ui-variant="ghost"]:where(:not([ui-tone])) { color: var(--ui-text-primary); }
     [ui="button"][ui-variant="ghost"]:hover:not(:disabled, [aria-disabled="true"]) {
         background: color-mix(in oklab, var(--_tone) var(--ui-tint-weak), transparent);
     }
-    [ui="button"][ui-variant="ghost"]:not([ui-tone]):hover:not(:disabled, [aria-disabled="true"]) {
+    [ui="button"][ui-variant="ghost"]:where(:not([ui-tone])):hover:not(:disabled, [aria-disabled="true"]) {
         background: var(--ui-surface-panel);
     }
 
@@ -628,7 +629,8 @@
         pointer-events: none;
         box-shadow: none;
     }
-    [ui="button"][aria-pressed="true"] {
+    /* Pressed outranks every variant fallback above (they are :where()-flattened). */
+    [ui="button"][aria-pressed="true"][aria-pressed] {
         background: color-mix(in oklab, var(--_tone) var(--ui-tint-strong), var(--ui-surface-raised));
         color: var(--_tone);
         border-color: color-mix(in oklab, var(--_tone) 40%, transparent);

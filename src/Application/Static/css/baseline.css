@@ -128,6 +128,7 @@
         --ui-container-xl: 80rem;
         --ui-container-max: var(--ui-container-lg);
         --ui-grid-min: 16rem;
+        --ui-table-max-height: none;
 
         /* Focus. */
         --ui-focus-ring-width: 2px;
@@ -266,9 +267,9 @@
      * hierarchy to speak of. :where() keeps the specificity at zero — any
      * project rule wins.
      */
+    /* No colour here: a heading inherits from its container (a solid alert, a hero). */
     :where(h1, h2, h3, h4, h5, h6) {
         font-weight: var(--ui-font-weight-semibold);
-        color: var(--ui-text-primary, inherit);
         text-wrap: balance;
     }
     :where(h1) { font-size: var(--ui-text-4xl); line-height: var(--ui-text-4xl-leading); letter-spacing: var(--ui-tracking-tighter); }

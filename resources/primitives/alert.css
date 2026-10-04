@@ -6,7 +6,7 @@
      */
     [ui="alert"] {
         --_tone: var(--ui-state-info);
-        --_on-tone: #fff;
+        --_on-tone: var(--ui-text-on-info);
 
         display: flex;
         align-items: flex-start;
@@ -20,11 +20,11 @@
         line-height: var(--ui-text-sm-leading);
     }
 
-    [ui="alert"][ui-tone="neutral"] { --_tone: var(--ui-text-muted); }
-    [ui="alert"][ui-tone="info"]    { --_tone: var(--ui-state-info); }
-    [ui="alert"][ui-tone="success"] { --_tone: var(--ui-state-success); }
-    [ui="alert"][ui-tone="warning"] { --_tone: var(--ui-state-warning); --_on-tone: #1a1300; }
-    [ui="alert"][ui-tone="danger"]  { --_tone: var(--ui-state-danger); }
+    [ui="alert"][ui-tone="neutral"] { --_tone: var(--ui-text-muted); --_on-tone: var(--ui-surface-page); }
+    [ui="alert"][ui-tone="info"]    { --_tone: var(--ui-state-info);    --_on-tone: var(--ui-text-on-info); }
+    [ui="alert"][ui-tone="success"] { --_tone: var(--ui-state-success); --_on-tone: var(--ui-text-on-success); }
+    [ui="alert"][ui-tone="warning"] { --_tone: var(--ui-state-warning); --_on-tone: var(--ui-text-on-warning); }
+    [ui="alert"][ui-tone="danger"]  { --_tone: var(--ui-state-danger);  --_on-tone: var(--ui-text-on-danger); }
 
     [ui="alert"] > .sx-icon {
         flex: none;

@@ -7,6 +7,7 @@ namespace Semitexa\PlatformUi\Tests\Unit\Css;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Semitexa\PlatformUi\Application\Service\Css\PrimitiveRegistry;
 
 /**
  * Tone and variant are independent axes: a tone rule names a colour, a
@@ -51,10 +52,13 @@ final class ToneVariantIndependenceTest extends TestCase
         $tones = array_unique($m[1]);
         sort($tones);
 
-        $expected = match ($primitive) {
-            'button', 'badge' => ['danger', 'info', 'neutral', 'success', 'warning'],
-            'alert' => ['danger', 'info', 'neutral', 'success', 'warning'],
-        };
+        // The declared vocabulary is the list to cover; `brand` is the base
+        // colour every primitive starts from, so it needs no rule of its own
+        // where it is the default.
+        $declared = (new PrimitiveRegistry())->get($primitive);
+        self::assertNotNull($declared);
+        $expected = array_diff($declared->tones, $primitive === 'badge' ? [] : ['brand']);
+        self::assertNotSame([], $expected);
         foreach ($expected as $tone) {
             self::assertContains($tone, $tones, "ui-tone=\"{$tone}\" must set --_tone on [ui=\"{$primitive}\"].");
         }

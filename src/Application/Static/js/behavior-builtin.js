@@ -84,20 +84,22 @@ registerBehavior({
         const dismiss = useDismiss(el, { onDismiss: () => close(true), esc: true, outside: true });
 
         // A panel of [ui-behavior-item]s is a menu (WAI-ARIA menu button). Any
-        // other panel (a form, a picker) keeps its own semantics.
-        const isMenu = ctx.roles('item').length > 0;
+        // other panel (a form, a picker) keeps its own semantics. Items of a
+        // behavior nested in the panel (an accordion) are not this menu's.
+        const ownItems = () => ctx.roles('item').filter((i) => i.closest('[ui-behavior]') === el);
+        const isMenu = ownItems().length > 0;
         ensureId(content, 'sx-dd');
         setIfMissing(trigger, 'aria-controls', content.id);
         setIfMissing(trigger, 'aria-expanded', 'false');
         if (isMenu) {
             setIfMissing(trigger, 'aria-haspopup', 'menu');
             setIfMissing(content, 'role', 'menu');
-            for (const item of ctx.roles('item')) {
+            for (const item of ownItems()) {
                 setIfMissing(item, 'role', 'menuitem');
                 setIfMissing(item, 'tabindex', '-1');
             }
         }
-        const visibleItems = () => ctx.roles('item').filter((i) => i.offsetParent !== null && !i.hasAttribute('disabled') && i.getAttribute('aria-disabled') !== 'true');
+        const visibleItems = () => ownItems().filter((i) => i.offsetParent !== null && !i.hasAttribute('disabled') && i.getAttribute('aria-disabled') !== 'true');
 
         function open(focusLast) {
             if (togglable.isOpen()) return;
@@ -134,8 +136,13 @@ registerBehavior({
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); open(e.key === 'ArrowUp'); }
         });
 
+        const editable = (t) => t instanceof Element && t.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]') !== null;
         ctx.on(content, 'keydown', (e) => {
+            // Only a menu closes on Tab; a form in a panel keeps normal tabbing.
+            if (!isMenu) return;
             if (e.key === 'Tab') { close(false); return; }
+            // A filter box inside a menu keeps its letters and Home/End.
+            if (editable(e.target)) return;
             const items = visibleItems();
             if (items.length === 0) return;
             const i = items.indexOf(document.activeElement);
@@ -225,7 +232,7 @@ registerBehavior({
         const tabs = ctx.roles('tab');
         const panels = ctx.roles('panel');
         if (tabs.length === 0) return {};
-        const list = tabs[0].parentElement;
+        const list = ctx.role('list') || tabs[0].parentElement;
         if (list && list !== el) setIfMissing(list, 'role', 'tablist');
         tabs.forEach((tab, i) => {
             setIfMissing(tab, 'role', 'tab');
@@ -423,6 +430,13 @@ registerBehavior({
 function ensureToastRegion(pos) {
     const id = 'sx-toast-region-' + pos;
     let region = document.getElementById(id);
+    // A modal <dialog> makes everything outside it inert — a toast there would
+    // show but its close button would not work. Host the region in the
+    // topmost open modal, else in <body>.
+    const modals = document.querySelectorAll('dialog[open]');
+    let host = document.body;
+    for (const d of modals) { if (d.matches(':modal')) host = d; }
+    if (region && region.parentNode !== host) { region.remove(); region = null; }
     if (!region) {
         region = document.createElement('div');
         region.id = id;
@@ -430,7 +444,7 @@ function ensureToastRegion(pos) {
         region.setAttribute('aria-live', 'polite');
         region.setAttribute('role', 'status');
         region.setAttribute('popover', 'manual');
-        document.body.appendChild(region);
+        host.appendChild(region);
     }
     // Top layer, and topmost: re-showing moves it above a dialog opened since.
     if (typeof region.showPopover === 'function') {
@@ -488,19 +502,25 @@ function showToast(message, o) {
     requestAnimationFrame(() => t.classList.add('sx-open'));
 
     let timer = null;
+    let hovered = false;
     const remove = () => {
         clearTimeout(timer);
         t.classList.remove('sx-open');
         setTimeout(() => { if (t.parentNode) t.remove(); }, 200);
     };
     const timeout = (o.timeout == null) ? 4000 : o.timeout;
-    const arm = () => { if (timeout > 0) timer = setTimeout(remove, timeout); };
+    // Reading a toast must not race its timer: it waits while hovered or focused.
+    const arm = () => {
+        clearTimeout(timer);
+        if (timeout > 0 && !hovered && !t.contains(document.activeElement)) timer = setTimeout(remove, timeout);
+    };
     arm();
-    // Reading a toast must not race its timer.
-    t.addEventListener('mouseenter', () => clearTimeout(timer));
-    t.addEventListener('mouseleave', arm);
+    t.addEventListener('mouseenter', () => { hovered = true; clearTimeout(timer); });
+    t.addEventListener('mouseleave', () => { hovered = false; arm(); });
     t.addEventListener('focusin', () => clearTimeout(timer));
-    close.addEventListener('click', remove);
+    t.addEventListener('focusout', () => setTimeout(arm, 0));
+    // Clicking the toast dismisses it, as before; the close button is the accessible way.
+    t.addEventListener('click', remove);
     return remove;
 }
 if (typeof window !== 'undefined') { window.SemitexaUi = window.SemitexaUi || {}; window.SemitexaUi.toast = showToast; }

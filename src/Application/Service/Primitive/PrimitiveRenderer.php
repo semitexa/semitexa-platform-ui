@@ -92,9 +92,6 @@ final class PrimitiveRenderer
     }
 
     /**
-     * @param array<string, mixed> $props
-     */
-    /**
      * `variant="primary"` on a button used to render a transparent button —
      * quieter than the default — with nothing to say why. An unknown value now
      * fails loudly in development, naming what is allowed; elsewhere it is
@@ -145,6 +142,9 @@ final class PrimitiveRenderer
         return self::$devStrict ??= Environment::create()->isDev();
     }
 
+    /**
+     * @param array<string, mixed> $props
+     */
     private function renderTemplate(PrimitiveMetadata $metadata, array $props): string
     {
         $template = (string) $metadata->template;
