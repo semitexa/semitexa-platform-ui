@@ -1,13 +1,16 @@
 @layer platform-ui.primitives {
     [ui="label"] {
         display: block;
-        font-size: 0.8125rem;
-        font-weight: 500;
+        font-size: var(--ui-text-sm);
+        font-weight: var(--ui-font-weight-medium);
         color: var(--ui-text-primary);
-        margin-bottom: 0.25rem;
-        line-height: 1.4;
+        margin-bottom: var(--ui-space-1-5);
+        line-height: var(--ui-text-sm-leading);
     }
 
-    [ui="label"][ui-size="sm"] { font-size: 0.75rem; }
-    [ui="label"][ui-size="lg"] { font-size: 0.9375rem; }
+    [ui="label"][ui-size="sm"] { font-size: var(--ui-text-xs); margin-bottom: var(--ui-space-1); }
+    [ui="label"][ui-size="lg"] { font-size: var(--ui-text-base); }
+
+    /* <label ui="label" ui-required> appends a quiet marker. */
+    [ui="label"][ui-required]::after { content: " *"; color: var(--ui-state-danger); }
 }

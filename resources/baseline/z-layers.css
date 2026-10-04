@@ -33,5 +33,7 @@
          */
         --ui-z-component-popover: 40;
         --ui-z-component-overlay: 20;
+        /* A sticky header row inside a scrolling table: above its own cells only. */
+        --ui-z-component-sticky: 1;
     }
 }

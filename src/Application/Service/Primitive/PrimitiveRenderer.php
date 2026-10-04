@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Primitive;
 
+use Semitexa\Core\Environment;
+use Semitexa\PlatformUi\Application\Service\Css\PrimitiveRegistry as PrimitiveVocabulary;
 use Semitexa\PlatformUi\Domain\Exception\PrimitiveRegistryException;
 use Semitexa\PlatformUi\Domain\Model\Primitive\PrimitiveMetadata;
 use Semitexa\Ssr\Application\Service\Asset\AssetCollector;
@@ -30,8 +32,20 @@ final class PrimitiveRenderer
     public const ROOT_ATTR_PRIMITIVE = 'data-ui-primitive';
     public const ROOT_ATTR_UI = 'ui';
 
+    /** Props whose values must come from the primitive's declared vocabulary. */
+    private const VOCABULARY_PROPS = ['variant' => 'variants', 'tone' => 'tones', 'size' => 'sizes'];
+
+    private static ?PrimitiveVocabulary $vocabulary = null;
+    private static ?bool $devStrict = null;
+
+    /**
+     * @param bool|null $strictVocabulary true: an unknown variant/tone/size throws;
+     *                                    false: it is dropped and the default renders;
+     *                                    null: strict when APP_ENV=dev.
+     */
     public function __construct(
         private readonly ?TwigEnvironment $twig = null,
+        private readonly ?bool $strictVocabulary = null,
     ) {}
 
     /**
@@ -66,6 +80,7 @@ final class PrimitiveRenderer
     {
         $resolved = $this->resolve($nameOrAlias, $props);
         $metadata = $resolved['primitive'];
+        $props = $this->checkVocabulary($metadata, $props);
 
         $this->collectAssets($metadata);
 
@@ -79,6 +94,57 @@ final class PrimitiveRenderer
     /**
      * @param array<string, mixed> $props
      */
+    /**
+     * `variant="primary"` on a button used to render a transparent button —
+     * quieter than the default — with nothing to say why. An unknown value now
+     * fails loudly in development, naming what is allowed; elsewhere it is
+     * dropped so the primitive falls back to its default look instead of an
+     * unstyled one. The vocabulary is the one platform-ui:css:explain prints.
+     *
+     * @param array<string, mixed> $props
+     * @return array<string, mixed>
+     */
+    private function checkVocabulary(PrimitiveMetadata $metadata, array $props): array
+    {
+        self::$vocabulary ??= new PrimitiveVocabulary();
+        $declared = self::$vocabulary->get($metadata->ui);
+        if ($declared === null) {
+            return $props;
+        }
+
+        foreach (self::VOCABULARY_PROPS as $prop => $list) {
+            $value = $props[$prop] ?? null;
+            if ($value === null || $value === '' || !is_string($value)) {
+                continue;
+            }
+            /** @var list<string> $allowed */
+            $allowed = $declared->{$list};
+            if ($allowed === [] || in_array($value, $allowed, true)) {
+                continue;
+            }
+            if ($this->isStrict()) {
+                throw new PrimitiveRegistryException(sprintf(
+                    'Primitive "%s" has no %s "%s". Allowed: %s.',
+                    $metadata->name,
+                    $prop,
+                    $value,
+                    implode(', ', $allowed),
+                ));
+            }
+            unset($props[$prop]);
+        }
+
+        return $props;
+    }
+
+    private function isStrict(): bool
+    {
+        if ($this->strictVocabulary !== null) {
+            return $this->strictVocabulary;
+        }
+        return self::$devStrict ??= Environment::create()->isDev();
+    }
+
     private function renderTemplate(PrimitiveMetadata $metadata, array $props): string
     {
         $template = (string) $metadata->template;
@@ -141,9 +207,7 @@ final class PrimitiveRenderer
 
     private static function activeCollector(): ?AssetCollector
     {
-        if (!class_exists(AssetCollectorStore::class, true)) {
-            return null;
-        }
+        // semitexa/ssr is a hard requirement of this package; no existence probe.
         try {
             return AssetCollectorStore::get();
         } catch (Throwable) {

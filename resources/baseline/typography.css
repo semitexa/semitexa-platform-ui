@@ -18,4 +18,27 @@
         color: var(--ui-accent-brand, currentColor);
         text-decoration-skip-ink: auto;
     }
+
+    /*
+     * Headings get a scale. The reset zeroes their margins; until now nothing
+     * sized them, so every page fell back to user-agent defaults and had no
+     * hierarchy to speak of. :where() keeps the specificity at zero — any
+     * project rule wins.
+     */
+    :where(h1, h2, h3, h4, h5, h6) {
+        font-weight: var(--ui-font-weight-semibold);
+        color: var(--ui-text-primary, inherit);
+        text-wrap: balance;
+    }
+    :where(h1) { font-size: var(--ui-text-4xl); line-height: var(--ui-text-4xl-leading); letter-spacing: var(--ui-tracking-tighter); }
+    :where(h2) { font-size: var(--ui-text-3xl); line-height: var(--ui-text-3xl-leading); letter-spacing: var(--ui-tracking-tighter); }
+    :where(h3) { font-size: var(--ui-text-2xl); line-height: var(--ui-text-2xl-leading); letter-spacing: var(--ui-tracking-tight); }
+    :where(h4) { font-size: var(--ui-text-xl); line-height: var(--ui-text-xl-leading); letter-spacing: var(--ui-tracking-tight); }
+    :where(h5) { font-size: var(--ui-text-lg); line-height: var(--ui-text-lg-leading); }
+    :where(h6) { font-size: var(--ui-text-base); line-height: var(--ui-text-base-leading); }
+
+    :where(p) { text-wrap: pretty; }
+
+    /* Figures line up in tables and stats. */
+    :where(table, [ui-component="stat"], [ui-component="table"]) { font-variant-numeric: tabular-nums; }
 }

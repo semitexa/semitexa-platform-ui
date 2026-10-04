@@ -6,12 +6,15 @@
     {%- set type = options.type|default('button') -%}
     {%- set href = options.href|default(null) -%}
     {%- set disabled = options.disabled|default(false) -%}
+    {%- set loading = options.loading|default(false) -%}
     {%- set tag = href ? 'a' : 'button' -%}
 <{{ tag }} ui="button"
     {%- if href %} href="{{ href }}"{% else %} type="{{ type }}"{% endif -%}
     {%- if variant %} ui-variant="{{ variant }}"{% endif -%}
     {%- if tone %} ui-tone="{{ tone }}"{% endif -%}
     {%- if size %} ui-size="{{ size }}"{% endif -%}
+    {%- if loading %} ui-state="loading" aria-busy="true"{% endif -%}
     {%- if disabled and not href %} disabled{% endif -%}
+    {%- if disabled and href %} aria-disabled="true" tabindex="-1"{% endif -%}
 >{{ label }}</{{ tag }}>
 {% endmacro %}

@@ -56,7 +56,9 @@ final class BuiltinBehaviorsTest extends TestCase
         self::assertSame(4, $offset->default);
 
         // The a11y capability manifest the showcase will assert against.
-        self::assertTrue($dropdown->declaresA11y('focus-trap'));
+        // A menu is not a focus trap (WAI-ARIA menu button): Tab leaves it.
+        self::assertFalse($dropdown->declaresA11y('focus-trap'));
+        self::assertTrue($dropdown->declaresA11y('menu-roles'));
         self::assertTrue($dropdown->declaresA11y('esc-dismiss'));
     }
 

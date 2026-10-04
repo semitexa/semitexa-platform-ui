@@ -12,6 +12,7 @@ use Semitexa\PlatformUi\Application\Service\Component\UiComponentMetadataFactory
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
 use Semitexa\PlatformUi\Application\Service\Component\UiPartPropResolver;
 use Semitexa\PlatformUi\Application\Service\Event\UiInstanceIdGenerator;
+use Semitexa\PlatformUi\Application\Service\Icon\IconRegistry;
 use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\ButtonPrimitive;
 use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\InputPrimitive;
 use Semitexa\PlatformUi\Application\Service\Primitive\PrimitiveRenderer;
@@ -84,6 +85,13 @@ final class FormComponentRenderTest extends TestCase
             'strict_variables' => false,
             'autoescape' => 'html',
         ]);
+
+        // Primitive templates call icon(); production registers it in PlatformUiTwigExtension.
+        $this->twig->addFunction(new TwigFunction(
+            'icon',
+            static fn (string $name, array $opts = []): Markup => new Markup(IconRegistry::render($name, $opts), 'UTF-8'),
+            ['is_safe' => ['html']],
+        ));
 
         $renderer = new PrimitiveRenderer($this->twig);
         $this->twig->addFunction(new TwigFunction(

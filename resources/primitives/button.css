@@ -1,58 +1,178 @@
 @layer platform-ui.primitives {
+    /*
+     * Tone and variant are independent axes. A tone only names a colour
+     * (--_tone, and the text that sits on it); a variant only decides how that
+     * colour is used. Every pair works, including a tone with no variant.
+     *
+     * Before this split the colour rules were written per pair and required
+     * ui-variant="solid" to be spelled out, so ui-tone="danger" on its own
+     * rendered the brand colour.
+     */
     [ui="button"] {
+        --_tone: var(--ui-accent-brand);
+        --_on-tone: var(--ui-text-on-accent);
+        --_height: var(--ui-control-height-md);
+        --_pad: var(--ui-control-padding-md);
+
+        position: relative;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        gap: 0.5rem;
+        gap: var(--ui-space-2);
+        min-height: var(--_height);
+        padding: 0 var(--_pad);
         border: 1px solid transparent;
         border-radius: var(--ui-radius-md, 0.5rem);
         font: inherit;
-        font-weight: 500;
+        font-size: var(--ui-text-sm);
+        font-weight: var(--ui-font-weight-medium);
+        line-height: 1;
         cursor: pointer;
-        transition:
-            background-color var(--ui-motion-duration-fast, 120ms),
-            border-color     var(--ui-motion-duration-fast, 120ms),
-            color            var(--ui-motion-duration-fast, 120ms),
-            filter           var(--ui-motion-duration-fast, 120ms);
         white-space: nowrap;
         user-select: none;
         text-decoration: none;
+        transition:
+            background-color var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease),
+            border-color     var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease),
+            color            var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease),
+            box-shadow       var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease),
+            transform        var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease);
     }
 
-    [ui="button"][ui-size="sm"] { font-size: 0.8125rem; padding: 0.375rem 0.625rem; }
-    [ui="button"]:where(:not([ui-size]), [ui-size="md"]) { font-size: 0.9375rem; padding: 0.5rem 0.875rem; }
-    [ui="button"][ui-size="lg"] { font-size: 1rem; padding: 0.625rem 1.125rem; }
+    /* Sizes */
+    [ui="button"][ui-size="sm"] {
+        --_height: var(--ui-control-height-sm);
+        --_pad: var(--ui-control-padding-sm);
+        font-size: var(--ui-text-xs);
+        border-radius: var(--ui-radius-sm, 0.375rem);
+    }
+    [ui="button"][ui-size="lg"] {
+        --_height: var(--ui-control-height-lg);
+        --_pad: var(--ui-control-padding-lg);
+        font-size: var(--ui-text-base);
+    }
 
+    /* Tones — colour only */
+    [ui="button"][ui-tone="neutral"] { --_tone: var(--ui-text-primary); --_on-tone: var(--ui-surface-page); }
+    [ui="button"][ui-tone="success"] { --_tone: var(--ui-state-success); --_on-tone: #fff; }
+    [ui="button"][ui-tone="warning"] { --_tone: var(--ui-state-warning); --_on-tone: #1a1300; }
+    [ui="button"][ui-tone="danger"]  { --_tone: var(--ui-state-danger);  --_on-tone: #fff; }
+    [ui="button"][ui-tone="info"]    { --_tone: var(--ui-state-info);    --_on-tone: #fff; }
+
+    /* Variants — how the tone is used */
     [ui="button"]:where(:not([ui-variant]), [ui-variant="solid"]) {
-        background: var(--ui-accent-brand);
-        color: var(--ui-text-on-accent);
+        background: var(--_tone);
+        color: var(--_on-tone);
+        box-shadow:
+            inset 0 1px 0 rgb(255 255 255 / 0.14),
+            0 1px 2px color-mix(in oklab, var(--_tone) 35%, transparent);
     }
-    [ui="button"][ui-variant="solid"][ui-tone="neutral"] { background: var(--ui-text-primary); color: var(--ui-surface-page); }
-    [ui="button"][ui-variant="solid"][ui-tone="success"] { background: var(--ui-state-success); color: var(--ui-surface-page); }
-    [ui="button"][ui-variant="solid"][ui-tone="warning"] { background: var(--ui-state-warning); color: var(--ui-text-primary); }
-    [ui="button"][ui-variant="solid"][ui-tone="danger"] { background: var(--ui-state-danger); color: var(--ui-surface-page); }
+    [ui="button"]:where(:not([ui-variant]), [ui-variant="solid"]):hover:not(:disabled, [aria-disabled="true"]) {
+        background: color-mix(in oklab, var(--_tone) 88%, black);
+    }
 
+    /* Soft: the tone tinted onto the surface. Without a tone it is a quiet neutral button. */
     [ui="button"][ui-variant="soft"] {
-        background: var(--ui-surface-panel);
+        background: color-mix(in oklab, var(--_tone) var(--ui-tint-weak), var(--ui-surface-raised));
+        color: color-mix(in oklab, var(--_tone) 82%, var(--ui-text-primary));
+        border-color: color-mix(in oklab, var(--_tone) var(--ui-tint-strong), transparent);
+    }
+    [ui="button"][ui-variant="soft"]:hover:not(:disabled, [aria-disabled="true"]) {
+        background: color-mix(in oklab, var(--_tone) var(--ui-tint-strong), var(--ui-surface-raised));
+    }
+    [ui="button"][ui-variant="soft"]:not([ui-tone]) {
+        background: var(--ui-surface-raised);
         color: var(--ui-text-primary);
         border-color: var(--ui-border-subtle);
+        box-shadow: var(--ui-shadow-xs);
     }
-    [ui="button"][ui-variant="soft"][ui-tone="brand"] { color: var(--ui-accent-brand); }
-    [ui="button"][ui-variant="soft"][ui-tone="success"] { color: var(--ui-state-success); }
-    [ui="button"][ui-variant="soft"][ui-tone="warning"] { color: var(--ui-state-warning); }
-    [ui="button"][ui-variant="soft"][ui-tone="danger"] { color: var(--ui-state-danger); }
+    [ui="button"][ui-variant="soft"]:not([ui-tone]):hover:not(:disabled, [aria-disabled="true"]) {
+        background: var(--ui-surface-panel);
+        border-color: var(--ui-border-strong);
+    }
 
+    /* Outline: a border in the tone, no fill. */
+    [ui="button"][ui-variant="outline"] {
+        background: transparent;
+        color: var(--_tone);
+        border-color: color-mix(in oklab, var(--_tone) 55%, transparent);
+    }
+    [ui="button"][ui-variant="outline"]:hover:not(:disabled, [aria-disabled="true"]) {
+        background: color-mix(in oklab, var(--_tone) var(--ui-tint-weak), transparent);
+    }
+
+    /* Ghost: text only until hovered. Without a tone it uses the body text colour. */
     [ui="button"][ui-variant="ghost"] {
         background: transparent;
-        color: var(--ui-text-primary);
+        color: var(--_tone);
     }
-    [ui="button"][ui-variant="ghost"][ui-tone="brand"] { color: var(--ui-accent-brand); }
-    [ui="button"][ui-variant="ghost"][ui-tone="success"] { color: var(--ui-state-success); }
-    [ui="button"][ui-variant="ghost"][ui-tone="warning"] { color: var(--ui-state-warning); }
-    [ui="button"][ui-variant="ghost"][ui-tone="danger"] { color: var(--ui-state-danger); }
-    [ui="button"][ui-variant="ghost"]:hover:not(:disabled) { background: var(--ui-surface-panel); }
+    [ui="button"][ui-variant="ghost"]:not([ui-tone]) { color: var(--ui-text-primary); }
+    [ui="button"][ui-variant="ghost"]:hover:not(:disabled, [aria-disabled="true"]) {
+        background: color-mix(in oklab, var(--_tone) var(--ui-tint-weak), transparent);
+    }
+    [ui="button"][ui-variant="ghost"]:not([ui-tone]):hover:not(:disabled, [aria-disabled="true"]) {
+        background: var(--ui-surface-panel);
+    }
 
-    [ui="button"]:hover:not(:disabled) { filter: brightness(0.95); }
-    [ui="button"]:active:not(:disabled) { transform: translateY(0.5px); }
-    [ui="button"]:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+    /* Link: an inline action that reads as text. */
+    [ui="button"][ui-variant="link"] {
+        min-height: auto;
+        padding: 0;
+        background: transparent;
+        color: var(--_tone);
+        text-decoration: underline;
+        text-decoration-color: color-mix(in oklab, var(--_tone) 40%, transparent);
+        text-underline-offset: 0.2em;
+    }
+
+    /* States */
+    [ui="button"]:focus-visible {
+        outline: var(--ui-focus-ring-width) solid var(--ui-focus-ring);
+        outline-offset: var(--ui-focus-ring-offset);
+    }
+    [ui="button"]:active:not(:disabled, [aria-disabled="true"]) { transform: translateY(1px) scale(0.99); }
+    [ui="button"]:is(:disabled, [aria-disabled="true"]) {
+        opacity: 0.5;
+        cursor: not-allowed;
+        pointer-events: none;
+        box-shadow: none;
+    }
+    [ui="button"][aria-pressed="true"] {
+        background: color-mix(in oklab, var(--_tone) var(--ui-tint-strong), var(--ui-surface-raised));
+        color: var(--_tone);
+        border-color: color-mix(in oklab, var(--_tone) 40%, transparent);
+    }
+
+    /* Loading: keeps the width, hides the label, shows a ring. */
+    [ui="button"][ui-state="loading"] {
+        color: transparent !important;
+        pointer-events: none;
+    }
+    [ui="button"][ui-state="loading"]::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        margin: auto;
+        width: 1em;
+        height: 1em;
+        border-radius: 50%;
+        border: 2px solid var(--_on-tone);
+        border-right-color: transparent;
+        animation: ui-button-spin 0.7s linear infinite;
+    }
+    [ui="button"]:is([ui-variant="soft"], [ui-variant="outline"], [ui-variant="ghost"], [ui-variant="link"])[ui-state="loading"]::after {
+        border-color: var(--_tone);
+        border-right-color: transparent;
+    }
+
+    /* Icons inside buttons size with the text. */
+    [ui="button"] > .sx-icon { width: 1.15em; height: 1.15em; flex: none; }
+    [ui="button"][ui-shape="square"] { padding: 0; width: var(--_height); }
+
+    @keyframes ui-button-spin { to { transform: rotate(1turn); } }
+
+    @media (prefers-reduced-motion: reduce) {
+        [ui="button"] { transition: none; }
+        [ui="button"][ui-state="loading"]::after { animation-duration: 1.6s; }
+    }
 }

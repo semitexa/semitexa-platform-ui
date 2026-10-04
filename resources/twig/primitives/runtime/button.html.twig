@@ -1,10 +1,27 @@
+{#-
+ # platform.button — props: text|label, href, type, variant, tone, size,
+ # disabled, loading, pressed, icon (leading), iconEnd, shape ('square' for icon-only;
+ # pass label for its accessible name).
+ #}
 {%- set tag = (href|default(null)) ? 'a' : 'button' -%}
 {%- set _type = type|default('button') -%}
+{%- set _text = text|default(label|default('')) -%}
+{%- set _disabled = disabled|default(false) -%}
+{%- set _iconOnly = shape|default(null) == 'square' -%}
 <{{ tag }} ui="{{ _primitive.ui }}" data-ui-primitive="{{ _primitive.name }}"
 {%- if href|default(null) %} href="{{ href }}"
 {%- else %} type="{{ _type }}"{% endif -%}
 {%- if variant|default(null) %} ui-variant="{{ variant }}"{% endif -%}
 {%- if tone|default(null) %} ui-tone="{{ tone }}"{% endif -%}
 {%- if size|default(null) %} ui-size="{{ size }}"{% endif -%}
-{%- if disabled|default(false) and not (href|default(null)) %} disabled{% endif -%}
->{{ text|default(label|default('')) }}</{{ tag }}>
+{%- if shape|default(null) %} ui-shape="{{ shape }}"{% endif -%}
+{%- if loading|default(false) %} ui-state="loading" aria-busy="true"{% endif -%}
+{%- if pressed is defined and pressed is not null %} aria-pressed="{{ pressed ? 'true' : 'false' }}"{% endif -%}
+{%- if _iconOnly and _text %} aria-label="{{ _text }}"{% endif -%}
+{%- if _disabled and not (href|default(null)) %} disabled{% endif -%}
+{%- if _disabled and href|default(null) %} aria-disabled="true" tabindex="-1"{% endif -%}
+>
+{%- if icon|default(null) %}{{ icon(icon) }}{% endif -%}
+{%- if not _iconOnly %}{{ _text }}{% endif -%}
+{%- if iconEnd|default(null) %}{{ icon(iconEnd) }}{% endif -%}
+</{{ tag }}>

@@ -6,11 +6,12 @@
         width: var(--sx-avatar-size, 2.5rem);
         height: var(--sx-avatar-size, 2.5rem);
         border-radius: var(--ui-radius-pill, 9999px);
-        background: var(--ui-surface-panel);
-        color: var(--ui-text-primary);
-        border: 1px solid var(--ui-border-subtle);
+        background: color-mix(in oklab, var(--ui-accent-brand) 14%, var(--ui-surface-raised));
+        color: color-mix(in oklab, var(--ui-accent-brand) 80%, var(--ui-text-primary));
+        box-shadow: 0 0 0 1px color-mix(in oklab, var(--ui-accent-brand) 18%, transparent);
         font-size: calc(var(--sx-avatar-size, 2.5rem) * 0.4);
-        font-weight: 600;
+        font-weight: var(--ui-font-weight-semibold);
+        letter-spacing: var(--ui-tracking-tight);
         line-height: 1;
         overflow: hidden;
         user-select: none;

@@ -329,6 +329,79 @@ final class PrimitiveTwigRenderTest extends TestCase
         $this->expectExceptionMessageMatches('/template .* failed to render/');
         $this->renderer()->render('broken');
     }
+
+
+    #[Test]
+    public function an_unknown_variant_fails_loudly_and_names_the_allowed_ones(): void
+    {
+        UiPrimitiveRegistry::register((new UiPrimitiveMetadataFactory())->fromClass(ButtonPrimitive::class));
+
+        try {
+            (new PrimitiveRenderer($this->twig, strictVocabulary: true))->render('button', ['text' => 'Go', 'variant' => 'primary']);
+            self::fail('variant="primary" must not render silently.');
+        } catch (\Semitexa\PlatformUi\Domain\Exception\PrimitiveRegistryException $e) {
+            self::assertStringContainsString('no variant "primary"', $e->getMessage());
+            self::assertStringContainsString('solid, soft, outline, ghost, link', $e->getMessage());
+        }
+    }
+
+    #[Test]
+    public function outside_strict_mode_an_unknown_value_falls_back_to_the_default(): void
+    {
+        UiPrimitiveRegistry::register((new UiPrimitiveMetadataFactory())->fromClass(BadgePrimitive::class));
+
+        $html = (new PrimitiveRenderer($this->twig, strictVocabulary: false))
+            ->render('badge', ['text' => 'New', 'tone' => 'purple', 'variant' => 'solid']);
+
+        self::assertStringNotContainsString('ui-tone=', $html);
+        self::assertStringContainsString('ui-variant="solid"', $html);
+    }
+
+    #[Test]
+    public function a_tone_is_rendered_without_requiring_a_variant(): void
+    {
+        UiPrimitiveRegistry::register((new UiPrimitiveMetadataFactory())->fromClass(ButtonPrimitive::class));
+
+        $html = (new PrimitiveRenderer($this->twig, strictVocabulary: true))->render('button', ['text' => 'Delete', 'tone' => 'danger']);
+
+        self::assertStringContainsString('ui-tone="danger"', $html);
+        self::assertStringNotContainsString('ui-variant', $html);
+    }
+
+    #[Test]
+    public function button_states_render_their_accessibility_attributes(): void
+    {
+        UiPrimitiveRegistry::register((new UiPrimitiveMetadataFactory())->fromClass(ButtonPrimitive::class));
+        $r = new PrimitiveRenderer($this->twig, strictVocabulary: true);
+
+        $loading = $r->render('button', ['text' => 'Saving', 'loading' => true]);
+        self::assertStringContainsString('ui-state="loading"', $loading);
+        self::assertStringContainsString('aria-busy="true"', $loading);
+
+        // An icon-only button keeps an accessible name and drops the visible label.
+        $square = $r->render('button', ['text' => 'Settings', 'shape' => 'square', 'icon' => 'settings']);
+        self::assertStringContainsString('aria-label="Settings"', $square);
+        self::assertStringContainsString('<svg', $square);
+        self::assertStringNotContainsString('>Settings<', $square);
+
+        // A disabled link cannot use the disabled attribute; it is announced and taken out of the tab order.
+        $link = $r->render('button', ['text' => 'Open', 'href' => '/x', 'disabled' => true]);
+        self::assertStringContainsString('aria-disabled="true"', $link);
+        self::assertStringContainsString('tabindex="-1"', $link);
+        self::assertStringNotContainsString(' disabled', $link);
+    }
+
+    #[Test]
+    public function badge_dot_and_alert_variant_render(): void
+    {
+        $factory = new UiPrimitiveMetadataFactory();
+        UiPrimitiveRegistry::register($factory->fromClass(BadgePrimitive::class));
+        UiPrimitiveRegistry::register($factory->fromClass(AlertPrimitive::class));
+        $r = new PrimitiveRenderer($this->twig, strictVocabulary: true);
+
+        self::assertStringContainsString(' ui-dot', $r->render('badge', ['text' => 'Live', 'tone' => 'success', 'dot' => true]));
+        self::assertStringContainsString('ui-variant="solid"', $r->render('alert', ['text' => 'Saved', 'tone' => 'success', 'variant' => 'solid']));
+    }
 }
 
 final class BrokenTemplateFixture {}

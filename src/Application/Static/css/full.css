@@ -37,6 +37,151 @@
          */
         --ui-z-component-popover: 40;
         --ui-z-component-overlay: 20;
+        /* A sticky header row inside a scrolling table: above its own cells only. */
+        --ui-z-component-sticky: 1;
+    }
+}
+
+
+/*
+ * Foundation tokens — the scales every primitive and component is built on.
+ *
+ * A skin owns colour, radius, shadow and motion (semitexa/theme TokenContract).
+ * It does not own rhythm: spacing, type scale and control heights are the same
+ * under every skin, the way a grid is the same under every paint job. Those
+ * live here.
+ *
+ * The second half derives the names components reach for (elevation, scrim,
+ * inverse surface, tone tints) from skin tokens, so one skin change restyles
+ * every overlay. Before this file existed, behaviors.css asked for
+ * --ui-elevation-*, --ui-space-*, --ui-overlay-scrim and friends that no skin
+ * defined, fell back to 26 hard-coded colours, and no skin could reach them.
+ *
+ * Everything sits in @layer platform-ui.tokens. A skin's :root is unlayered,
+ * so a skin that does define one of these names always wins.
+ */
+@layer platform-ui.tokens {
+    :root {
+        /* Spacing — a 4px grid. */
+        --ui-space-0: 0;
+        --ui-space-px: 1px;
+        --ui-space-0-5: 0.125rem;
+        --ui-space-1: 0.25rem;
+        --ui-space-1-5: 0.375rem;
+        --ui-space-2: 0.5rem;
+        --ui-space-2-5: 0.625rem;
+        --ui-space-3: 0.75rem;
+        --ui-space-3-5: 0.875rem;
+        --ui-space-4: 1rem;
+        --ui-space-5: 1.25rem;
+        --ui-space-6: 1.5rem;
+        --ui-space-8: 2rem;
+        --ui-space-10: 2.5rem;
+        --ui-space-12: 3rem;
+        --ui-space-16: 4rem;
+        --ui-space-20: 5rem;
+        --ui-space-24: 6rem;
+
+        /* Type scale — size / line-height pairs, tighter tracking as size grows. */
+        --ui-text-xs: 0.75rem;
+        --ui-text-xs-leading: 1rem;
+        --ui-text-sm: 0.875rem;
+        --ui-text-sm-leading: 1.25rem;
+        --ui-text-base: 1rem;
+        --ui-text-base-leading: 1.5rem;
+        --ui-text-lg: 1.125rem;
+        --ui-text-lg-leading: 1.75rem;
+        --ui-text-xl: 1.25rem;
+        --ui-text-xl-leading: 1.75rem;
+        --ui-text-2xl: 1.5rem;
+        --ui-text-2xl-leading: 2rem;
+        --ui-text-3xl: 1.875rem;
+        --ui-text-3xl-leading: 2.25rem;
+        --ui-text-4xl: 2.25rem;
+        --ui-text-4xl-leading: 2.5rem;
+        --ui-text-5xl: 3rem;
+        --ui-text-5xl-leading: 1.1;
+        --ui-text-6xl: 3.75rem;
+        --ui-text-6xl-leading: 1.05;
+
+        --ui-tracking-tight: -0.015em;
+        --ui-tracking-tighter: -0.025em;
+        --ui-tracking-wide: 0.04em;
+
+        --ui-font-weight-regular: 400;
+        --ui-font-weight-medium: 500;
+        --ui-font-weight-semibold: 600;
+        --ui-font-weight-bold: 700;
+
+        /* Controls — one height per size, shared by buttons, inputs, selects. */
+        --ui-control-height-sm: 2rem;
+        --ui-control-height-md: 2.375rem;
+        --ui-control-height-lg: 2.75rem;
+        --ui-control-padding-sm: 0.625rem;
+        --ui-control-padding-md: 0.875rem;
+        --ui-control-padding-lg: 1.125rem;
+
+        /* Layout. */
+        --ui-container-sm: 40rem;
+        --ui-container-md: 48rem;
+        --ui-container-lg: 64rem;
+        --ui-container-xl: 80rem;
+        --ui-container-max: var(--ui-container-lg);
+        --ui-grid-min: 16rem;
+
+        /* Focus. */
+        --ui-focus-ring-width: 2px;
+        --ui-focus-ring-offset: 2px;
+
+        /* ---- Derived from the skin ---------------------------------------- */
+
+        /* Elevation — named by intent, mapped onto the skin's shadow scale. */
+        --ui-elevation-0: none;
+        --ui-elevation-1: var(--ui-shadow-sm);
+        --ui-elevation-2: var(--ui-shadow-md);
+        --ui-elevation-3: var(--ui-shadow-lg);
+
+        /* A hairline drawn as a shadow composes with elevation in one declaration. */
+        --ui-hairline: 0 0 0 1px var(--ui-border-subtle);
+
+        --ui-motion-duration-base: var(--ui-motion-duration-normal);
+        --ui-text-body: var(--ui-text-primary);
+
+        /* The surface a toast or tooltip sits on: the text colour, inverted. */
+        --ui-surface-inverse: var(--ui-text-primary);
+        --ui-text-on-inverse: var(--ui-surface-page);
+
+        /* Dims the page behind a modal; dark in both modes, deeper in dark. */
+        --ui-overlay-scrim: light-dark(rgb(15 17 26 / 0.45), rgb(0 0 0 / 0.62));
+
+        /* Tone tints for soft variants: the tone over the raised surface. */
+        --ui-tint-weak: 10%;
+        --ui-tint-strong: 18%;
+    }
+}
+
+/*
+ * Density — one intent knob instead of a hundred overrides. Put
+ * ui-density="compact" (dense admin tables, toolbars) or "comfortable" (touch,
+ * marketing) on any container; every control, card and table inside rescales
+ * because they size from these tokens, not from literals.
+ */
+@layer platform-ui.tokens {
+    [ui-density="compact"] {
+        --ui-control-height-sm: 1.75rem;
+        --ui-control-height-md: 2rem;
+        --ui-control-height-lg: 2.375rem;
+        --ui-control-padding-sm: 0.5rem;
+        --ui-control-padding-md: 0.625rem;
+        --ui-control-padding-lg: 0.875rem;
+    }
+    [ui-density="comfortable"] {
+        --ui-control-height-sm: 2.25rem;
+        --ui-control-height-md: 2.75rem;
+        --ui-control-height-lg: 3.25rem;
+        --ui-control-padding-sm: 0.75rem;
+        --ui-control-padding-md: 1rem;
+        --ui-control-padding-lg: 1.375rem;
     }
 }
 
@@ -114,6 +259,29 @@
         color: var(--ui-accent-brand, currentColor);
         text-decoration-skip-ink: auto;
     }
+
+    /*
+     * Headings get a scale. The reset zeroes their margins; until now nothing
+     * sized them, so every page fell back to user-agent defaults and had no
+     * hierarchy to speak of. :where() keeps the specificity at zero — any
+     * project rule wins.
+     */
+    :where(h1, h2, h3, h4, h5, h6) {
+        font-weight: var(--ui-font-weight-semibold);
+        color: var(--ui-text-primary, inherit);
+        text-wrap: balance;
+    }
+    :where(h1) { font-size: var(--ui-text-4xl); line-height: var(--ui-text-4xl-leading); letter-spacing: var(--ui-tracking-tighter); }
+    :where(h2) { font-size: var(--ui-text-3xl); line-height: var(--ui-text-3xl-leading); letter-spacing: var(--ui-tracking-tighter); }
+    :where(h3) { font-size: var(--ui-text-2xl); line-height: var(--ui-text-2xl-leading); letter-spacing: var(--ui-tracking-tight); }
+    :where(h4) { font-size: var(--ui-text-xl); line-height: var(--ui-text-xl-leading); letter-spacing: var(--ui-tracking-tight); }
+    :where(h5) { font-size: var(--ui-text-lg); line-height: var(--ui-text-lg-leading); }
+    :where(h6) { font-size: var(--ui-text-base); line-height: var(--ui-text-base-leading); }
+
+    :where(p) { text-wrap: pretty; }
+
+    /* Figures line up in tables and stats. */
+    :where(table, [ui-component="stat"], [ui-component="table"]) { font-variant-numeric: tabular-nums; }
 }
 
 
@@ -123,27 +291,28 @@
 [sx-align="start"] { align-items: flex-start; }
 [sx-align="stretch"] { align-items: stretch; }
 [sx-gap="0"] { gap: 0; }
-[sx-gap="1"] { gap: 0.25rem; }
-[sx-gap="2"] { gap: 0.5rem; }
-[sx-gap="3"] { gap: 0.75rem; }
-[sx-gap="4"] { gap: 1rem; }
-[sx-gap="6"] { gap: 1.5rem; }
-[sx-gap="8"] { gap: 2rem; }
+[sx-gap="1"] { gap: var(--ui-space-1); }
+[sx-gap="2"] { gap: var(--ui-space-2); }
+[sx-gap="3"] { gap: var(--ui-space-3); }
+[sx-gap="4"] { gap: var(--ui-space-4); }
+[sx-gap="6"] { gap: var(--ui-space-6); }
+[sx-gap="8"] { gap: var(--ui-space-8); }
 [sx-justify="between"] { justify-content: space-between; }
 [sx-justify="center"] { justify-content: center; }
 [sx-justify="end"] { justify-content: flex-end; }
 [sx-justify="start"] { justify-content: flex-start; }
 [sx-layout="cluster"] { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; }
+[sx-layout="container"] { display: block; width: 100%; max-width: var(--ui-container-max); margin-inline: auto; padding-inline: var(--ui-space-4); }
 [sx-layout="frame"] { display: block; }
-[sx-layout="grid"] { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
+[sx-layout="grid"] { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--ui-grid-min, 16rem), 100%), 1fr)); }
 [sx-layout="stack"] { display: flex; flex-direction: column; }
 [sx-padding="0"] { padding: 0; }
-[sx-padding="1"] { padding: 0.25rem; }
-[sx-padding="2"] { padding: 0.5rem; }
-[sx-padding="3"] { padding: 0.75rem; }
-[sx-padding="4"] { padding: 1rem; }
-[sx-padding="6"] { padding: 1.5rem; }
-[sx-padding="8"] { padding: 2rem; }
+[sx-padding="1"] { padding: var(--ui-space-1); }
+[sx-padding="2"] { padding: var(--ui-space-2); }
+[sx-padding="3"] { padding: var(--ui-space-3); }
+[sx-padding="4"] { padding: var(--ui-space-4); }
+[sx-padding="6"] { padding: var(--ui-space-6); }
+[sx-padding="8"] { padding: var(--ui-space-8); }
 [sx-radius="lg"] { border-radius: var(--ui-radius-lg, 0.75rem); }
 [sx-radius="md"] { border-radius: var(--ui-radius-md, 0.5rem); }
 [sx-radius="none"] { border-radius: var(--ui-radius-none, 0); }
@@ -158,52 +327,71 @@
 [sx-tone="success"] { color: var(--ui-state-success); }
 [sx-tone="warning"] { color: var(--ui-state-warning); }
 [ui-text="body"] { font-size: 0.9375rem; line-height: 1.5; color: var(--ui-text-primary); }
+[ui-text="caption"] { font-size: var(--ui-text-xs); line-height: var(--ui-text-xs-leading); color: var(--ui-text-muted); }
+[ui-text="display"] { font-size: clamp(var(--ui-text-4xl), 5vw, var(--ui-text-6xl)); line-height: var(--ui-text-6xl-leading); font-weight: var(--ui-font-weight-bold); letter-spacing: var(--ui-tracking-tighter); color: var(--ui-text-primary); text-wrap: balance; }
+[ui-text="heading"] { font-size: var(--ui-text-2xl); line-height: var(--ui-text-2xl-leading); font-weight: var(--ui-font-weight-semibold); letter-spacing: var(--ui-tracking-tight); color: var(--ui-text-primary); text-wrap: balance; }
 [ui-text="label"] { font-size: 0.8125rem; line-height: 1.4; font-weight: 500; color: var(--ui-text-primary); }
+[ui-text="lead"] { font-size: var(--ui-text-lg); line-height: var(--ui-text-lg-leading); color: var(--ui-text-muted); text-wrap: pretty; }
 [ui-text="muted"] { font-size: 0.9375rem; line-height: 1.5; color: var(--ui-text-muted); }
-[ui-text="title"] { font-size: 1.25rem; line-height: 1.3; font-weight: 600; color: var(--ui-text-primary); letter-spacing: -0.01em; }
+[ui-text="overline"] { font-size: var(--ui-text-xs); line-height: var(--ui-text-xs-leading); font-weight: var(--ui-font-weight-semibold); letter-spacing: var(--ui-tracking-wide); text-transform: uppercase; color: var(--ui-text-muted); }
+[ui-text="title"] { font-size: var(--ui-text-xl); line-height: 1.3; font-weight: var(--ui-font-weight-semibold); color: var(--ui-text-primary); letter-spacing: var(--ui-tracking-tight); }
 }
 
 @layer platform-ui.primitives {
+    /*
+     * Tone colours the whole alert lightly (tinted surface, tinted border,
+     * coloured icon); the body text stays at full contrast. Variants:
+     * soft (default), outline, solid.
+     */
     [ui="alert"] {
+        --_tone: var(--ui-state-info);
+        --_on-tone: #fff;
+
         display: flex;
         align-items: flex-start;
-        gap: 0.625rem;
-        padding: 0.75rem 1rem;
-        border: 1px solid var(--ui-border-subtle);
-        border-left-width: 3px;
-        border-radius: var(--ui-radius-md, 0.5rem);
-        background: var(--ui-surface-panel);
+        gap: var(--ui-space-3);
+        padding: var(--ui-space-3) var(--ui-space-4);
+        border: 1px solid color-mix(in oklab, var(--_tone) 28%, var(--ui-border-subtle));
+        border-radius: var(--ui-radius-lg, 0.75rem);
+        background: color-mix(in oklab, var(--_tone) 7%, var(--ui-surface-raised));
         color: var(--ui-text-primary);
-        font-size: 0.9375rem;
-        line-height: 1.5;
+        font-size: var(--ui-text-sm);
+        line-height: var(--ui-text-sm-leading);
     }
 
-    [ui="alert"] .sx-icon {
-        margin-top: 0.125rem;
-        color: var(--ui-accent-brand);
+    [ui="alert"][ui-tone="neutral"] { --_tone: var(--ui-text-muted); }
+    [ui="alert"][ui-tone="info"]    { --_tone: var(--ui-state-info); }
+    [ui="alert"][ui-tone="success"] { --_tone: var(--ui-state-success); }
+    [ui="alert"][ui-tone="warning"] { --_tone: var(--ui-state-warning); --_on-tone: #1a1300; }
+    [ui="alert"][ui-tone="danger"]  { --_tone: var(--ui-state-danger); }
+
+    [ui="alert"] > .sx-icon {
+        flex: none;
+        width: 1.25rem;
+        height: 1.25rem;
+        color: var(--_tone);
     }
 
     [ui="alert"] > [data-alert-body] {
         min-width: 0;
         flex: 1;
+        color: color-mix(in oklab, var(--ui-text-primary) 85%, var(--_tone));
     }
     [ui="alert"] [data-alert-title] {
-        font-weight: 600;
-        margin-bottom: 0.125rem;
+        font-weight: var(--ui-font-weight-semibold);
+        color: var(--ui-text-primary);
+        margin-bottom: var(--ui-space-0-5);
     }
 
-    /* Tones tint the accent (icon + left border); body text stays readable. */
-    [ui="alert"]:where(:not([ui-tone]), [ui-tone="info"]) { border-left-color: var(--ui-accent-brand); }
-    [ui="alert"]:where(:not([ui-tone]), [ui-tone="info"]) .sx-icon { color: var(--ui-accent-brand); }
-
-    [ui="alert"][ui-tone="success"] { border-left-color: var(--ui-state-success); }
-    [ui="alert"][ui-tone="success"] .sx-icon { color: var(--ui-state-success); }
-
-    [ui="alert"][ui-tone="warning"] { border-left-color: var(--ui-state-warning); }
-    [ui="alert"][ui-tone="warning"] .sx-icon { color: var(--ui-state-warning); }
-
-    [ui="alert"][ui-tone="danger"] { border-left-color: var(--ui-state-danger); }
-    [ui="alert"][ui-tone="danger"] .sx-icon { color: var(--ui-state-danger); }
+    [ui="alert"][ui-variant="outline"] { background: var(--ui-surface-raised); }
+    [ui="alert"][ui-variant="solid"] {
+        background: var(--_tone);
+        border-color: transparent;
+        color: var(--_on-tone);
+    }
+    [ui="alert"][ui-variant="solid"] > .sx-icon,
+    [ui="alert"][ui-variant="solid"] > [data-alert-body],
+    [ui="alert"][ui-variant="solid"] [data-alert-title] { color: inherit; }
 }
 
 
@@ -215,11 +403,12 @@
         width: var(--sx-avatar-size, 2.5rem);
         height: var(--sx-avatar-size, 2.5rem);
         border-radius: var(--ui-radius-pill, 9999px);
-        background: var(--ui-surface-panel);
-        color: var(--ui-text-primary);
-        border: 1px solid var(--ui-border-subtle);
+        background: color-mix(in oklab, var(--ui-accent-brand) 14%, var(--ui-surface-raised));
+        color: color-mix(in oklab, var(--ui-accent-brand) 80%, var(--ui-text-primary));
+        box-shadow: 0 0 0 1px color-mix(in oklab, var(--ui-accent-brand) 18%, transparent);
         font-size: calc(var(--sx-avatar-size, 2.5rem) * 0.4);
-        font-weight: 600;
+        font-weight: var(--ui-font-weight-semibold);
+        letter-spacing: var(--ui-tracking-tight);
         line-height: 1;
         overflow: hidden;
         user-select: none;
@@ -241,96 +430,242 @@
 
 
 @layer platform-ui.primitives {
+    /*
+     * Same two axes as the button: a tone names a colour, a variant decides how
+     * it is used. Default is soft — a status label should inform, not shout.
+     * A badge with no tone is neutral.
+     */
     [ui="badge"] {
+        --_tone: var(--ui-text-muted);
+        --_on-tone: var(--ui-surface-page);
+
         display: inline-flex;
         align-items: center;
-        gap: 0.25rem;
-        font-size: 0.75rem;
-        font-weight: 500;
-        padding: 0.125rem 0.5rem;
+        gap: var(--ui-space-1);
+        min-height: 1.375rem;
+        padding: 0 var(--ui-space-2);
+        border: 1px solid transparent;
         border-radius: var(--ui-radius-pill, 9999px);
-        line-height: 1.4;
+        font-size: var(--ui-text-xs);
+        font-weight: var(--ui-font-weight-medium);
+        line-height: 1;
         white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+    [ui="badge"][ui-size="sm"] { min-height: 1.125rem; padding: 0 var(--ui-space-1-5); font-size: 0.6875rem; }
+
+    [ui="badge"][ui-tone="neutral"] { --_tone: var(--ui-text-muted); --_on-tone: var(--ui-surface-page); }
+    [ui="badge"][ui-tone="brand"]   { --_tone: var(--ui-accent-brand); --_on-tone: var(--ui-text-on-accent); }
+    [ui="badge"][ui-tone="info"]    { --_tone: var(--ui-state-info);    --_on-tone: #fff; }
+    [ui="badge"][ui-tone="success"] { --_tone: var(--ui-state-success); --_on-tone: #fff; }
+    [ui="badge"][ui-tone="warning"] { --_tone: var(--ui-state-warning); --_on-tone: #1a1300; }
+    [ui="badge"][ui-tone="danger"]  { --_tone: var(--ui-state-danger);  --_on-tone: #fff; }
+
+    [ui="badge"]:where(:not([ui-variant]), [ui-variant="soft"]) {
+        background: color-mix(in oklab, var(--_tone) 13%, var(--ui-surface-raised));
+        color: color-mix(in oklab, var(--_tone) 85%, var(--ui-text-primary));
+        border-color: color-mix(in oklab, var(--_tone) 22%, transparent);
+    }
+    [ui="badge"][ui-variant="solid"] {
+        background: var(--_tone);
+        color: var(--_on-tone);
+    }
+    [ui="badge"][ui-variant="outline"] {
+        background: transparent;
+        color: color-mix(in oklab, var(--_tone) 85%, var(--ui-text-primary));
+        border-color: color-mix(in oklab, var(--_tone) 50%, transparent);
     }
 
-    [ui="badge"]:where(:not([ui-variant]), [ui-variant="solid"]) {
-        background: var(--ui-accent-brand);
-        color: var(--ui-text-on-accent);
+    /* A leading dot: <span ui="badge" ui-dot>Live</span>. */
+    [ui="badge"][ui-dot]::before {
+        content: "";
+        width: 0.375rem;
+        height: 0.375rem;
+        border-radius: 50%;
+        background: var(--_tone);
     }
-    [ui="badge"][ui-variant="solid"][ui-tone="neutral"] { background: var(--ui-text-muted); color: var(--ui-surface-page); }
-    [ui="badge"][ui-variant="solid"][ui-tone="success"] { background: var(--ui-state-success); color: var(--ui-surface-page); }
-    [ui="badge"][ui-variant="solid"][ui-tone="warning"] { background: var(--ui-state-warning); color: var(--ui-text-primary); }
-    [ui="badge"][ui-variant="solid"][ui-tone="danger"] { background: var(--ui-state-danger); color: var(--ui-surface-page); }
-
-    [ui="badge"][ui-variant="soft"] {
-        background: var(--ui-surface-panel);
-        color: var(--ui-accent-brand);
-        border: 1px solid var(--ui-border-subtle);
-    }
-    [ui="badge"][ui-variant="soft"][ui-tone="neutral"] { color: var(--ui-text-muted); }
-    [ui="badge"][ui-variant="soft"][ui-tone="success"] { color: var(--ui-state-success); }
-    [ui="badge"][ui-variant="soft"][ui-tone="warning"] { color: var(--ui-state-warning); }
-    [ui="badge"][ui-variant="soft"][ui-tone="danger"] { color: var(--ui-state-danger); }
+    [ui="badge"][ui-variant="solid"][ui-dot]::before { background: currentColor; }
+    [ui="badge"] > .sx-icon { width: 0.875em; height: 0.875em; }
 }
 
 
 @layer platform-ui.primitives {
+    /*
+     * Tone and variant are independent axes. A tone only names a colour
+     * (--_tone, and the text that sits on it); a variant only decides how that
+     * colour is used. Every pair works, including a tone with no variant.
+     *
+     * Before this split the colour rules were written per pair and required
+     * ui-variant="solid" to be spelled out, so ui-tone="danger" on its own
+     * rendered the brand colour.
+     */
     [ui="button"] {
+        --_tone: var(--ui-accent-brand);
+        --_on-tone: var(--ui-text-on-accent);
+        --_height: var(--ui-control-height-md);
+        --_pad: var(--ui-control-padding-md);
+
+        position: relative;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        gap: 0.5rem;
+        gap: var(--ui-space-2);
+        min-height: var(--_height);
+        padding: 0 var(--_pad);
         border: 1px solid transparent;
         border-radius: var(--ui-radius-md, 0.5rem);
         font: inherit;
-        font-weight: 500;
+        font-size: var(--ui-text-sm);
+        font-weight: var(--ui-font-weight-medium);
+        line-height: 1;
         cursor: pointer;
-        transition:
-            background-color var(--ui-motion-duration-fast, 120ms),
-            border-color     var(--ui-motion-duration-fast, 120ms),
-            color            var(--ui-motion-duration-fast, 120ms),
-            filter           var(--ui-motion-duration-fast, 120ms);
         white-space: nowrap;
         user-select: none;
         text-decoration: none;
+        transition:
+            background-color var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease),
+            border-color     var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease),
+            color            var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease),
+            box-shadow       var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease),
+            transform        var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease);
     }
 
-    [ui="button"][ui-size="sm"] { font-size: 0.8125rem; padding: 0.375rem 0.625rem; }
-    [ui="button"]:where(:not([ui-size]), [ui-size="md"]) { font-size: 0.9375rem; padding: 0.5rem 0.875rem; }
-    [ui="button"][ui-size="lg"] { font-size: 1rem; padding: 0.625rem 1.125rem; }
+    /* Sizes */
+    [ui="button"][ui-size="sm"] {
+        --_height: var(--ui-control-height-sm);
+        --_pad: var(--ui-control-padding-sm);
+        font-size: var(--ui-text-xs);
+        border-radius: var(--ui-radius-sm, 0.375rem);
+    }
+    [ui="button"][ui-size="lg"] {
+        --_height: var(--ui-control-height-lg);
+        --_pad: var(--ui-control-padding-lg);
+        font-size: var(--ui-text-base);
+    }
 
+    /* Tones — colour only */
+    [ui="button"][ui-tone="neutral"] { --_tone: var(--ui-text-primary); --_on-tone: var(--ui-surface-page); }
+    [ui="button"][ui-tone="success"] { --_tone: var(--ui-state-success); --_on-tone: #fff; }
+    [ui="button"][ui-tone="warning"] { --_tone: var(--ui-state-warning); --_on-tone: #1a1300; }
+    [ui="button"][ui-tone="danger"]  { --_tone: var(--ui-state-danger);  --_on-tone: #fff; }
+    [ui="button"][ui-tone="info"]    { --_tone: var(--ui-state-info);    --_on-tone: #fff; }
+
+    /* Variants — how the tone is used */
     [ui="button"]:where(:not([ui-variant]), [ui-variant="solid"]) {
-        background: var(--ui-accent-brand);
-        color: var(--ui-text-on-accent);
+        background: var(--_tone);
+        color: var(--_on-tone);
+        box-shadow:
+            inset 0 1px 0 rgb(255 255 255 / 0.14),
+            0 1px 2px color-mix(in oklab, var(--_tone) 35%, transparent);
     }
-    [ui="button"][ui-variant="solid"][ui-tone="neutral"] { background: var(--ui-text-primary); color: var(--ui-surface-page); }
-    [ui="button"][ui-variant="solid"][ui-tone="success"] { background: var(--ui-state-success); color: var(--ui-surface-page); }
-    [ui="button"][ui-variant="solid"][ui-tone="warning"] { background: var(--ui-state-warning); color: var(--ui-text-primary); }
-    [ui="button"][ui-variant="solid"][ui-tone="danger"] { background: var(--ui-state-danger); color: var(--ui-surface-page); }
+    [ui="button"]:where(:not([ui-variant]), [ui-variant="solid"]):hover:not(:disabled, [aria-disabled="true"]) {
+        background: color-mix(in oklab, var(--_tone) 88%, black);
+    }
 
+    /* Soft: the tone tinted onto the surface. Without a tone it is a quiet neutral button. */
     [ui="button"][ui-variant="soft"] {
-        background: var(--ui-surface-panel);
+        background: color-mix(in oklab, var(--_tone) var(--ui-tint-weak), var(--ui-surface-raised));
+        color: color-mix(in oklab, var(--_tone) 82%, var(--ui-text-primary));
+        border-color: color-mix(in oklab, var(--_tone) var(--ui-tint-strong), transparent);
+    }
+    [ui="button"][ui-variant="soft"]:hover:not(:disabled, [aria-disabled="true"]) {
+        background: color-mix(in oklab, var(--_tone) var(--ui-tint-strong), var(--ui-surface-raised));
+    }
+    [ui="button"][ui-variant="soft"]:not([ui-tone]) {
+        background: var(--ui-surface-raised);
         color: var(--ui-text-primary);
         border-color: var(--ui-border-subtle);
+        box-shadow: var(--ui-shadow-xs);
     }
-    [ui="button"][ui-variant="soft"][ui-tone="brand"] { color: var(--ui-accent-brand); }
-    [ui="button"][ui-variant="soft"][ui-tone="success"] { color: var(--ui-state-success); }
-    [ui="button"][ui-variant="soft"][ui-tone="warning"] { color: var(--ui-state-warning); }
-    [ui="button"][ui-variant="soft"][ui-tone="danger"] { color: var(--ui-state-danger); }
+    [ui="button"][ui-variant="soft"]:not([ui-tone]):hover:not(:disabled, [aria-disabled="true"]) {
+        background: var(--ui-surface-panel);
+        border-color: var(--ui-border-strong);
+    }
 
+    /* Outline: a border in the tone, no fill. */
+    [ui="button"][ui-variant="outline"] {
+        background: transparent;
+        color: var(--_tone);
+        border-color: color-mix(in oklab, var(--_tone) 55%, transparent);
+    }
+    [ui="button"][ui-variant="outline"]:hover:not(:disabled, [aria-disabled="true"]) {
+        background: color-mix(in oklab, var(--_tone) var(--ui-tint-weak), transparent);
+    }
+
+    /* Ghost: text only until hovered. Without a tone it uses the body text colour. */
     [ui="button"][ui-variant="ghost"] {
         background: transparent;
-        color: var(--ui-text-primary);
+        color: var(--_tone);
     }
-    [ui="button"][ui-variant="ghost"][ui-tone="brand"] { color: var(--ui-accent-brand); }
-    [ui="button"][ui-variant="ghost"][ui-tone="success"] { color: var(--ui-state-success); }
-    [ui="button"][ui-variant="ghost"][ui-tone="warning"] { color: var(--ui-state-warning); }
-    [ui="button"][ui-variant="ghost"][ui-tone="danger"] { color: var(--ui-state-danger); }
-    [ui="button"][ui-variant="ghost"]:hover:not(:disabled) { background: var(--ui-surface-panel); }
+    [ui="button"][ui-variant="ghost"]:not([ui-tone]) { color: var(--ui-text-primary); }
+    [ui="button"][ui-variant="ghost"]:hover:not(:disabled, [aria-disabled="true"]) {
+        background: color-mix(in oklab, var(--_tone) var(--ui-tint-weak), transparent);
+    }
+    [ui="button"][ui-variant="ghost"]:not([ui-tone]):hover:not(:disabled, [aria-disabled="true"]) {
+        background: var(--ui-surface-panel);
+    }
 
-    [ui="button"]:hover:not(:disabled) { filter: brightness(0.95); }
-    [ui="button"]:active:not(:disabled) { transform: translateY(0.5px); }
-    [ui="button"]:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+    /* Link: an inline action that reads as text. */
+    [ui="button"][ui-variant="link"] {
+        min-height: auto;
+        padding: 0;
+        background: transparent;
+        color: var(--_tone);
+        text-decoration: underline;
+        text-decoration-color: color-mix(in oklab, var(--_tone) 40%, transparent);
+        text-underline-offset: 0.2em;
+    }
+
+    /* States */
+    [ui="button"]:focus-visible {
+        outline: var(--ui-focus-ring-width) solid var(--ui-focus-ring);
+        outline-offset: var(--ui-focus-ring-offset);
+    }
+    [ui="button"]:active:not(:disabled, [aria-disabled="true"]) { transform: translateY(1px) scale(0.99); }
+    [ui="button"]:is(:disabled, [aria-disabled="true"]) {
+        opacity: 0.5;
+        cursor: not-allowed;
+        pointer-events: none;
+        box-shadow: none;
+    }
+    [ui="button"][aria-pressed="true"] {
+        background: color-mix(in oklab, var(--_tone) var(--ui-tint-strong), var(--ui-surface-raised));
+        color: var(--_tone);
+        border-color: color-mix(in oklab, var(--_tone) 40%, transparent);
+    }
+
+    /* Loading: keeps the width, hides the label, shows a ring. */
+    [ui="button"][ui-state="loading"] {
+        color: transparent !important;
+        pointer-events: none;
+    }
+    [ui="button"][ui-state="loading"]::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        margin: auto;
+        width: 1em;
+        height: 1em;
+        border-radius: 50%;
+        border: 2px solid var(--_on-tone);
+        border-right-color: transparent;
+        animation: ui-button-spin 0.7s linear infinite;
+    }
+    [ui="button"]:is([ui-variant="soft"], [ui-variant="outline"], [ui-variant="ghost"], [ui-variant="link"])[ui-state="loading"]::after {
+        border-color: var(--_tone);
+        border-right-color: transparent;
+    }
+
+    /* Icons inside buttons size with the text. */
+    [ui="button"] > .sx-icon { width: 1.15em; height: 1.15em; flex: none; }
+    [ui="button"][ui-shape="square"] { padding: 0; width: var(--_height); }
+
+    @keyframes ui-button-spin { to { transform: rotate(1turn); } }
+
+    @media (prefers-reduced-motion: reduce) {
+        [ui="button"] { transition: none; }
+        [ui="button"][ui-state="loading"]::after { animation-duration: 1.6s; }
+    }
 }
 
 
@@ -339,19 +674,19 @@
         display: block;
     }
 
-    [ui="field-shell"][ui-size="sm"] [ui="label"] { font-size: 0.75rem; }
-    [ui="field-shell"][ui-size="lg"] [ui="label"] { font-size: 0.9375rem; }
-    [ui="field-shell"][ui-size="sm"] [ui="input"] { padding: 0.375rem 0.625rem; font-size: 0.875rem; }
-    [ui="field-shell"][ui-size="lg"] [ui="input"] { padding: 0.625rem 0.875rem; font-size: 1rem; }
+    [ui="field-shell"][ui-size="sm"] [ui="label"] { font-size: var(--ui-text-xs); }
+    [ui="field-shell"][ui-size="lg"] [ui="label"] { font-size: var(--ui-text-base); }
+    [ui="field-shell"][ui-size="sm"] [ui="input"] { --_height: var(--ui-control-height-sm); font-size: var(--ui-text-xs); }
+    [ui="field-shell"][ui-size="lg"] [ui="input"] { --_height: var(--ui-control-height-lg); font-size: var(--ui-text-base); }
 
     [ui="field-shell"][ui-state="invalid"] [ui="label"] { color: var(--ui-state-danger); }
     [ui="field-shell"][ui-state="invalid"] [ui="input"] { border-color: var(--ui-state-danger); }
 
     [ui="field-shell"] [ui="error-text"] {
         display: block;
-        font-size: 0.75rem;
+        font-size: var(--ui-text-xs);
         color: var(--ui-state-danger);
-        margin-top: 0.25rem;
+        margin-top: var(--ui-space-1-5);
         line-height: 1.4;
     }
 
@@ -361,53 +696,72 @@
 
 @layer platform-ui.primitives {
     [ui="input"] {
+        --_height: var(--ui-control-height-md);
+
         display: block;
         width: 100%;
+        min-height: var(--_height);
         font: inherit;
+        font-size: var(--ui-text-sm);
+        line-height: var(--ui-text-sm-leading);
         color: var(--ui-text-primary);
         background: var(--ui-surface-raised);
         border: 1px solid var(--ui-border-subtle);
         border-radius: var(--ui-radius-md, 0.5rem);
-        padding: 0.5rem 0.75rem;
-        transition: border-color var(--ui-motion-duration-fast, 120ms), box-shadow var(--ui-motion-duration-fast, 120ms);
+        padding: var(--ui-space-1-5) var(--ui-space-3);
+        box-shadow: var(--ui-shadow-xs);
+        transition:
+            border-color var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease),
+            box-shadow   var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease);
     }
+    textarea[ui="input"] { min-height: calc(var(--_height) * 2.5); resize: vertical; }
 
-    [ui="input"][ui-size="sm"] { padding: 0.375rem 0.625rem; font-size: 0.875rem; }
-    [ui="input"][ui-size="lg"] { padding: 0.625rem 0.875rem; font-size: 1rem; }
+    [ui="input"][ui-size="sm"] { --_height: var(--ui-control-height-sm); padding: var(--ui-space-1) var(--ui-space-2-5); font-size: var(--ui-text-xs); }
+    [ui="input"][ui-size="lg"] { --_height: var(--ui-control-height-lg); padding: var(--ui-space-2) var(--ui-space-3-5); font-size: var(--ui-text-base); }
 
-    [ui="input"]::placeholder { color: var(--ui-text-muted); }
+    [ui="input"]::placeholder { color: var(--ui-text-muted); opacity: 0.8; }
 
-    [ui="input"]:focus {
+    [ui="input"]:hover:not(:disabled, :focus) { border-color: var(--ui-border-strong); }
+
+    [ui="input"]:focus,
+    [ui="input"]:focus-visible {
         outline: none;
-        border-color: var(--ui-accent-brand);
-        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-accent-brand) 20%, transparent);
+        border-color: var(--ui-focus-ring);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-focus-ring) 22%, transparent);
     }
 
-    [ui="input"][ui-state="invalid"] { border-color: var(--ui-state-danger); }
-    [ui="input"][ui-state="invalid"]:focus {
-        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-state-danger) 20%, transparent);
+    [ui="input"][ui-state="invalid"],
+    [ui="input"][aria-invalid="true"] { border-color: var(--ui-state-danger); }
+    [ui="input"][ui-state="invalid"]:focus,
+    [ui="input"][aria-invalid="true"]:focus {
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-state-danger) 22%, transparent);
     }
 
     [ui="input"]:disabled {
         background: var(--ui-surface-sunken);
         color: var(--ui-text-muted);
+        box-shadow: none;
         cursor: not-allowed;
     }
+    [ui="input"]:read-only:not(:disabled) { background: var(--ui-surface-panel); }
 }
 
 
 @layer platform-ui.primitives {
     [ui="label"] {
         display: block;
-        font-size: 0.8125rem;
-        font-weight: 500;
+        font-size: var(--ui-text-sm);
+        font-weight: var(--ui-font-weight-medium);
         color: var(--ui-text-primary);
-        margin-bottom: 0.25rem;
-        line-height: 1.4;
+        margin-bottom: var(--ui-space-1-5);
+        line-height: var(--ui-text-sm-leading);
     }
 
-    [ui="label"][ui-size="sm"] { font-size: 0.75rem; }
-    [ui="label"][ui-size="lg"] { font-size: 0.9375rem; }
+    [ui="label"][ui-size="sm"] { font-size: var(--ui-text-xs); margin-bottom: var(--ui-space-1); }
+    [ui="label"][ui-size="lg"] { font-size: var(--ui-text-base); }
+
+    /* <label ui="label" ui-required> appends a quiet marker. */
+    [ui="label"][ui-required]::after { content: " *"; color: var(--ui-state-danger); }
 }
 
 
@@ -445,7 +799,7 @@
         background: var(--ui-surface-panel);
         color: var(--ui-text-primary);
         border: 1px solid var(--ui-border-subtle);
-        border-radius: var(--ui-radius-md, 0.5rem);
-        padding: 1rem;
+        border-radius: var(--ui-radius-lg, 0.75rem);
+        padding: var(--ui-space-4);
     }
 }

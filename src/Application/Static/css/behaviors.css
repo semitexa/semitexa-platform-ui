@@ -1,124 +1,329 @@
 /*
  * Semitexa Platform UI — behavior interaction styles.
  *
- * Presentation for the client-only behavior tier (toggle, dropdown). Structure
- * and positioning come from the ESM runtime; this file owns only the visual
- * open/closed states and the floating-panel surface. Token-first: every value
- * is a `var(--ui-*)` (elevation/motion tokens land in tk-ui-tokens; fallbacks
- * keep it correct until then). Lives in @layer platform-ui.primitives so skin
- * tokens (loaded later) still win.
+ * Presentation for the client-only behavior tier. Structure, ARIA and
+ * positioning come from the ESM runtime; this file owns the visual open/closed
+ * states and the surfaces. Every colour is a skin token and every size a
+ * foundation token — no literals, so a skin restyles every overlay.
+ * Lives in @layer platform-ui.primitives so app CSS outside the layer wins.
  */
 @layer platform-ui.primitives {
-  /* The floating panel of a dropdown. `hidden` is the closed state (UA display:none);
-     the runtime removes it, then toggles `sx-open` for the animated reveal. */
+  /* ---- shared floating surface (dropdown panel, popover-like content) ---- */
   [ui-behavior~="dropdown"] > [ui-behavior-content] {
     position: fixed;
     z-index: var(--ui-z-dropdown);
-    min-width: 10rem;
-    padding: var(--ui-space-1, 0.25rem);
-    background: var(--ui-surface-panel, #fff);
-    color: var(--ui-text-primary, #16222e);
-    border: 1px solid var(--ui-border-subtle, rgba(0, 0, 0, 0.1));
-    border-radius: var(--ui-radius-md, 0.5rem);
-    box-shadow: var(--ui-elevation-2, 0 8px 24px rgba(0, 0, 0, 0.12));
+    min-width: 12rem;
+    max-width: min(22rem, calc(100vw - 2 * var(--ui-space-4)));
+    padding: var(--ui-space-1);
+    background: var(--ui-surface-raised);
+    color: var(--ui-text-primary);
+    border-radius: var(--ui-radius-lg, 0.75rem);
+    box-shadow: var(--ui-hairline), var(--ui-elevation-2);
+    font-size: var(--ui-text-sm);
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-4px) scale(0.98);
+    transform-origin: top;
     transition:
-      opacity var(--ui-motion-duration-fast, 120ms) ease,
-      transform var(--ui-motion-duration-fast, 120ms) ease;
+      opacity var(--ui-motion-duration-fast) var(--ui-motion-easing-standard),
+      transform var(--ui-motion-duration-fast) var(--ui-motion-easing-standard);
   }
-
   [ui-behavior~="dropdown"] > [ui-behavior-content].sx-open {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 
-  /* Menu items inside a dropdown panel. */
+  /* Menu items. */
   [ui-behavior~="dropdown"] [ui-behavior-item] {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: var(--ui-space-2);
     width: 100%;
-    padding: var(--ui-space-2, 0.5rem) var(--ui-space-3, 0.75rem);
-    border-radius: var(--ui-radius-sm, 0.375rem);
+    min-height: var(--ui-control-height-sm);
+    padding: 0 var(--ui-space-2-5);
+    border: 0;
+    border-radius: var(--ui-radius-md, 0.5rem);
+    background: none;
     color: inherit;
+    font: inherit;
     text-align: start;
     text-decoration: none;
-    background: none;
-    border: 0;
     cursor: pointer;
-  }
-
-  [ui-behavior~="dropdown"] [ui-behavior-item]:hover,
-  [ui-behavior~="dropdown"] [ui-behavior-item]:focus-visible {
-    background: color-mix(in oklab, var(--ui-accent-brand, #1e7fb8) 12%, transparent);
     outline: none;
   }
-
-  /* Generic toggle target: animate the open state when it is a fade/collapse. */
-  [ui-behavior~="toggle"] + [hidden] {
-    display: none;
+  [ui-behavior~="dropdown"] [ui-behavior-item] > .sx-icon { width: 1rem; height: 1rem; color: var(--ui-text-muted); }
+  [ui-behavior~="dropdown"] [ui-behavior-item]:is(:hover, :focus-visible, :focus) {
+    background: var(--ui-surface-panel);
+  }
+  [ui-behavior~="dropdown"] [ui-behavior-item][ui-tone="danger"] { color: var(--ui-state-danger); }
+  [ui-behavior~="dropdown"] [ui-behavior-item][ui-tone="danger"]:is(:hover, :focus) {
+    background: color-mix(in oklab, var(--ui-state-danger) 10%, var(--ui-surface-raised));
+  }
+  [ui-behavior~="dropdown"] [ui-behavior-item]:is([disabled], [aria-disabled="true"]) { opacity: 0.45; pointer-events: none; }
+  /* Grouping inside a menu: <hr> separator and a quiet group label. */
+  [ui-behavior~="dropdown"] [ui-behavior-content] hr {
+    height: 1px;
+    margin: var(--ui-space-1) calc(var(--ui-space-1) * -1);
+    border: 0;
+    background: var(--ui-border-subtle);
+  }
+  [ui-behavior~="dropdown"] [ui-menu="label"] {
+    padding: var(--ui-space-1-5) var(--ui-space-2-5) var(--ui-space-1);
+    font-size: var(--ui-text-xs);
+    font-weight: var(--ui-font-weight-medium);
+    color: var(--ui-text-muted);
+  }
+  [ui-behavior~="dropdown"] [ui-menu="shortcut"] {
+    margin-inline-start: auto;
+    font-size: var(--ui-text-xs);
+    color: var(--ui-text-muted);
+    letter-spacing: var(--ui-tracking-wide);
   }
 
-  /* Tooltip — floating label. */
+  /* Generic toggle target. */
+  [ui-behavior~="toggle"] + [hidden] { display: none; }
+
+  /* ---- tooltip ------------------------------------------------------- */
   [role="tooltip"] {
     position: fixed;
     z-index: var(--ui-z-tooltip);
     max-width: 18rem;
-    padding: var(--ui-space-1, 0.25rem) var(--ui-space-2, 0.5rem);
-    font-size: 0.8125rem;
-    background: var(--ui-surface-inverse, #1f2933);
-    color: var(--ui-text-on-inverse, #fff);
+    padding: var(--ui-space-1) var(--ui-space-2);
+    font-size: var(--ui-text-xs);
+    line-height: var(--ui-text-xs-leading);
+    font-weight: var(--ui-font-weight-medium);
+    background: var(--ui-surface-inverse);
+    color: var(--ui-text-on-inverse);
     border-radius: var(--ui-radius-sm, 0.375rem);
-    box-shadow: var(--ui-elevation-1, 0 2px 8px rgba(0, 0, 0, 0.18));
+    box-shadow: var(--ui-elevation-1);
     opacity: 0;
-    transition: opacity var(--ui-motion-duration-fast, 120ms) ease;
+    transform: scale(0.96);
+    transition:
+      opacity var(--ui-motion-duration-fast) var(--ui-motion-easing-standard),
+      transform var(--ui-motion-duration-fast) var(--ui-motion-easing-standard);
     pointer-events: none;
   }
-  [role="tooltip"].sx-open { opacity: 1; }
+  [role="tooltip"].sx-open { opacity: 1; transform: none; }
 
-  /* Accordion — collapse the section body. */
+  /* ---- tabs ---------------------------------------------------------- */
+  [ui-behavior~="tabs"] [role="tablist"] {
+    display: flex;
+    gap: var(--ui-space-1);
+    border-bottom: 1px solid var(--ui-border-subtle);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  [ui-behavior~="tabs"] [ui-behavior-tab] {
+    position: relative;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--ui-space-2);
+    height: var(--ui-control-height-md);
+    padding: 0 var(--ui-space-3);
+    border: 0;
+    background: none;
+    color: var(--ui-text-muted);
+    font: inherit;
+    font-size: var(--ui-text-sm);
+    font-weight: var(--ui-font-weight-medium);
+    cursor: pointer;
+    transition: color var(--ui-motion-duration-fast) var(--ui-motion-easing-standard);
+  }
+  [ui-behavior~="tabs"] [ui-behavior-tab]:hover { color: var(--ui-text-primary); }
+  [ui-behavior~="tabs"] [ui-behavior-tab]::after {
+    content: "";
+    position: absolute;
+    inset-inline: var(--ui-space-2);
+    bottom: -1px;
+    height: 2px;
+    border-radius: 2px 2px 0 0;
+    background: var(--ui-accent-brand);
+    transform: scaleX(0);
+    transition: transform var(--ui-motion-duration-normal) var(--ui-motion-easing-emphasized);
+  }
+  [ui-behavior~="tabs"] [ui-behavior-tab][aria-selected="true"] { color: var(--ui-text-primary); }
+  [ui-behavior~="tabs"] [ui-behavior-tab][aria-selected="true"]::after { transform: scaleX(1); }
+  [ui-behavior~="tabs"] [ui-behavior-tab]:focus-visible {
+    outline: var(--ui-focus-ring-width) solid var(--ui-focus-ring);
+    outline-offset: calc(var(--ui-focus-ring-width) * -1);
+    border-radius: var(--ui-radius-md, 0.5rem);
+  }
+  [ui-behavior~="tabs"] [ui-behavior-panel] { padding-block: var(--ui-space-4); }
+  [ui-behavior~="tabs"] [ui-behavior-panel]:focus-visible {
+    outline: var(--ui-focus-ring-width) solid var(--ui-focus-ring);
+    outline-offset: var(--ui-focus-ring-offset);
+    border-radius: var(--ui-radius-sm, 0.25rem);
+  }
+  /* Segmented look: ui-tabs-variant="segmented" on the behavior root. */
+  [ui-behavior~="tabs"][ui-tabs-variant="segmented"] [role="tablist"] {
+    display: inline-flex;
+    padding: var(--ui-space-1);
+    border: 0;
+    border-radius: var(--ui-radius-lg, 0.75rem);
+    background: var(--ui-surface-panel);
+    box-shadow: inset 0 0 0 1px var(--ui-border-subtle);
+  }
+  [ui-behavior~="tabs"][ui-tabs-variant="segmented"] [ui-behavior-tab] {
+    height: var(--ui-control-height-sm);
+    border-radius: var(--ui-radius-md, 0.5rem);
+  }
+  [ui-behavior~="tabs"][ui-tabs-variant="segmented"] [ui-behavior-tab]::after { display: none; }
+  [ui-behavior~="tabs"][ui-tabs-variant="segmented"] [ui-behavior-tab][aria-selected="true"] {
+    background: var(--ui-surface-raised);
+    box-shadow: var(--ui-hairline), var(--ui-shadow-xs);
+  }
+
+  /* ---- accordion ----------------------------------------------------- */
+  [ui-behavior~="accordion"] {
+    border-radius: var(--ui-radius-lg, 0.75rem);
+    box-shadow: var(--ui-hairline);
+    background: var(--ui-surface-raised);
+    overflow: hidden;
+  }
+  [ui-behavior~="accordion"] [ui-behavior-item] + [ui-behavior-item] { border-top: 1px solid var(--ui-border-subtle); }
+  [ui-behavior~="accordion"] [ui-behavior-toggle] {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ui-space-3);
+    width: 100%;
+    min-height: var(--ui-control-height-lg);
+    padding: var(--ui-space-3) var(--ui-space-4);
+    border: 0;
+    background: none;
+    color: var(--ui-text-primary);
+    font: inherit;
+    font-size: var(--ui-text-sm);
+    font-weight: var(--ui-font-weight-medium);
+    text-align: start;
+    cursor: pointer;
+  }
+  [ui-behavior~="accordion"] [ui-behavior-toggle]:hover { background: var(--ui-surface-panel); }
+  [ui-behavior~="accordion"] [ui-behavior-toggle]:focus-visible {
+    outline: var(--ui-focus-ring-width) solid var(--ui-focus-ring);
+    outline-offset: calc(var(--ui-focus-ring-width) * -1);
+  }
+  /* Chevron, drawn in CSS so it is never in the accessibility tree. */
+  [ui-behavior~="accordion"] [ui-behavior-toggle]::after {
+    content: "";
+    flex: none;
+    width: 0.5rem;
+    height: 0.5rem;
+    margin-inline-end: var(--ui-space-1);
+    border-right: 1.5px solid var(--ui-text-muted);
+    border-bottom: 1.5px solid var(--ui-text-muted);
+    transform: translateY(-25%) rotate(45deg);
+    transition: transform var(--ui-motion-duration-normal) var(--ui-motion-easing-emphasized);
+  }
+  [ui-behavior~="accordion"] [ui-behavior-toggle][aria-expanded="true"]::after { transform: translateY(25%) rotate(-135deg); }
   [ui-behavior~="accordion"] [ui-behavior-content] {
+    padding: 0 var(--ui-space-4) var(--ui-space-4);
+    font-size: var(--ui-text-sm);
+    line-height: var(--ui-text-sm-leading);
+    color: color-mix(in oklab, var(--ui-text-primary) 85%, var(--ui-text-muted));
     overflow: hidden;
   }
 
-  /* Modal — native <dialog> surface + animated backdrop. */
+  /* ---- modal (native <dialog>) ---------------------------------------- */
   dialog[ui-behavior~="modal"] {
+    width: min(32rem, calc(100vw - 2 * var(--ui-space-4)));
+    max-height: calc(100dvh - 2 * var(--ui-space-8));
     padding: 0;
     border: 0;
     border-radius: var(--ui-radius-lg, 0.75rem);
-    background: var(--ui-surface-panel, #fff);
-    color: var(--ui-text-primary, #16222e);
-    box-shadow: var(--ui-elevation-3, 0 16px 48px rgba(0, 0, 0, 0.24));
+    background: var(--ui-surface-raised);
+    color: var(--ui-text-primary);
+    box-shadow: var(--ui-hairline), var(--ui-elevation-3);
     opacity: 0;
-    transform: scale(0.97);
+    transform: translateY(8px) scale(0.98);
     transition:
-      opacity var(--ui-motion-duration-fast, 120ms) ease,
-      transform var(--ui-motion-duration-fast, 120ms) ease;
+      opacity var(--ui-motion-duration-normal) var(--ui-motion-easing-emphasized),
+      transform var(--ui-motion-duration-normal) var(--ui-motion-easing-emphasized);
   }
-  dialog[ui-behavior~="modal"].sx-open { opacity: 1; transform: scale(1); }
-  dialog[ui-behavior~="modal"] > [ui-behavior-content] { padding: var(--ui-space-4, 1rem); }
+  dialog[ui-behavior~="modal"][ui-size="sm"] { width: min(24rem, calc(100vw - 2 * var(--ui-space-4))); }
+  dialog[ui-behavior~="modal"][ui-size="lg"] { width: min(48rem, calc(100vw - 2 * var(--ui-space-4))); }
+  dialog[ui-behavior~="modal"].sx-open { opacity: 1; transform: none; }
+  dialog[ui-behavior~="modal"] > [ui-behavior-content] { padding: var(--ui-space-6); }
   dialog[ui-behavior~="modal"]::backdrop {
-    background: var(--ui-overlay-scrim, rgba(0, 0, 0, 0.4));
+    background: var(--ui-overlay-scrim);
+    backdrop-filter: blur(2px);
+  }
+  /* Optional structure: header / body / footer. */
+  dialog[ui-behavior~="modal"] [ui-modal="header"] {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ui-space-3);
+    padding: var(--ui-space-5) var(--ui-space-6) 0;
+  }
+  dialog[ui-behavior~="modal"] [ui-modal="title"] {
+    margin: 0;
+    font-size: var(--ui-text-lg);
+    line-height: var(--ui-text-lg-leading);
+    font-weight: var(--ui-font-weight-semibold);
+    letter-spacing: var(--ui-tracking-tight);
+  }
+  dialog[ui-behavior~="modal"] [ui-modal="description"] {
+    margin-top: var(--ui-space-1);
+    font-size: var(--ui-text-sm);
+    color: var(--ui-text-muted);
+  }
+  dialog[ui-behavior~="modal"] [ui-modal="body"] {
+    padding: var(--ui-space-4) var(--ui-space-6);
+    overflow: auto;
+    font-size: var(--ui-text-sm);
+    line-height: var(--ui-text-sm-leading);
+  }
+  dialog[ui-behavior~="modal"] [ui-modal="footer"] {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--ui-space-2);
+    padding: var(--ui-space-4) var(--ui-space-6);
+    border-top: 1px solid var(--ui-border-subtle);
+    background: color-mix(in oklab, var(--ui-surface-panel) 60%, var(--ui-surface-raised));
+  }
+  dialog[ui-behavior~="modal"] [ui-modal="header"] [ui-behavior-dismiss] { margin-inline-start: auto; }
+
+  /* A bare dismiss control (×) inside any overlay. */
+  :is(dialog[ui-behavior~="modal"], [ui-behavior~="offcanvas"]) [ui-behavior-dismiss]:not([ui="button"]) {
+    display: inline-grid;
+    place-items: center;
+    width: var(--ui-control-height-sm);
+    height: var(--ui-control-height-sm);
+    margin-block-start: calc(var(--ui-space-1) * -1);
+    margin-inline-end: calc(var(--ui-space-2) * -1);
+    border: 0;
+    border-radius: var(--ui-radius-md, 0.5rem);
+    background: none;
+    color: var(--ui-text-muted);
+    cursor: pointer;
+  }
+  :is(dialog[ui-behavior~="modal"], [ui-behavior~="offcanvas"]) [ui-behavior-dismiss]:not([ui="button"]):hover {
+    background: var(--ui-surface-panel);
+    color: var(--ui-text-primary);
   }
 
   @media (prefers-reduced-motion: reduce) {
     [ui-behavior~="dropdown"] > [ui-behavior-content],
     [role="tooltip"],
-    dialog[ui-behavior~="modal"] {
+    dialog[ui-behavior~="modal"],
+    [ui-behavior~="tabs"] [ui-behavior-tab]::after,
+    [ui-behavior~="accordion"] [ui-behavior-toggle]::after {
       transition: none;
     }
   }
 }
 
-/* --- F2 batch B: offcanvas, toast, sticky, scrollspy --- */
+/* --- offcanvas, toast, sticky, scrollspy --- */
 @layer platform-ui.primitives {
   /* Shared overlay backdrop (offcanvas; modal uses ::backdrop). */
   .sx-backdrop {
     position: fixed;
     inset: 0;
     z-index: var(--ui-z-backdrop);
-    background: var(--ui-overlay-scrim, rgba(0, 0, 0, 0.4));
+    background: var(--ui-overlay-scrim);
     opacity: 0;
-    transition: opacity var(--ui-motion-duration-fast, 120ms) ease;
+    transition: opacity var(--ui-motion-duration-normal) var(--ui-motion-easing-standard);
   }
   .sx-backdrop.sx-open { opacity: 1; }
 
@@ -128,12 +333,12 @@
     top: 0;
     bottom: 0;
     z-index: var(--ui-z-offcanvas);
-    width: min(20rem, 80vw);
-    padding: var(--ui-space-4, 1rem);
-    background: var(--ui-surface-panel, #fff);
-    color: var(--ui-text-primary, #16222e);
-    box-shadow: var(--ui-elevation-3, 0 16px 48px rgba(0, 0, 0, 0.24));
-    transition: transform var(--ui-motion-duration-base, 220ms) ease;
+    width: min(22rem, 85vw);
+    padding: var(--ui-space-6);
+    background: var(--ui-surface-raised);
+    color: var(--ui-text-primary);
+    box-shadow: var(--ui-hairline), var(--ui-elevation-3);
+    transition: transform var(--ui-motion-duration-base) var(--ui-motion-easing-emphasized);
     overflow: auto;
   }
   [ui-behavior~="offcanvas"][data-side="start"] { inset-inline-start: 0; transform: translateX(-100%); }
@@ -143,13 +348,22 @@
   [ui-behavior~="offcanvas"].sx-open { transform: translateX(0); }
 
   /* Toast region + toasts. */
+  /* The region is a manual popover so it lives in the top layer: a toast
+     raised while a modal <dialog> is open must sit above the dialog and its
+     ::backdrop, which no z-index can reach. Reset the UA popover box. */
   .sx-toast-region {
     position: fixed;
+    inset: auto;
+    margin: 0;
+    border: 0;
+    background: transparent;
+    overflow: visible;
+    color: inherit;
     z-index: var(--ui-z-toast);
     display: flex;
     flex-direction: column;
-    gap: var(--ui-space-2, 0.5rem);
-    padding: var(--ui-space-3, 0.75rem);
+    gap: var(--ui-space-2);
+    padding: var(--ui-space-4);
     pointer-events: none;
   }
   .sx-toast-top-end    { top: 0; inset-inline-end: 0; }
@@ -157,32 +371,74 @@
   .sx-toast-bottom-end   { bottom: 0; inset-inline-end: 0; flex-direction: column-reverse; }
   .sx-toast-bottom-start { bottom: 0; inset-inline-start: 0; flex-direction: column-reverse; }
   .sx-toast {
+    --_tone: var(--ui-state-info);
+
     pointer-events: auto;
-    min-width: 12rem;
-    max-width: 22rem;
-    padding: var(--ui-space-2, 0.5rem) var(--ui-space-3, 0.75rem);
-    border-radius: var(--ui-radius-md, 0.5rem);
-    background: var(--ui-surface-panel, #fff);
-    color: var(--ui-text-primary, #16222e);
-    border-inline-start: 4px solid var(--ui-border-subtle, rgba(0, 0, 0, 0.1));
-    box-shadow: var(--ui-elevation-2, 0 8px 24px rgba(0, 0, 0, 0.12));
+    display: flex;
+    align-items: flex-start;
+    gap: var(--ui-space-3);
+    width: min(24rem, calc(100vw - 2 * var(--ui-space-4)));
+    padding: var(--ui-space-3) var(--ui-space-3) var(--ui-space-3) var(--ui-space-4);
+    border-radius: var(--ui-radius-lg, 0.75rem);
+    background: var(--ui-surface-raised);
+    color: var(--ui-text-primary);
+    box-shadow: var(--ui-hairline), var(--ui-elevation-2);
+    font-size: var(--ui-text-sm);
+    line-height: var(--ui-text-sm-leading);
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translateY(-8px) scale(0.98);
     transition:
-      opacity var(--ui-motion-duration-fast, 120ms) ease,
-      transform var(--ui-motion-duration-fast, 120ms) ease;
+      opacity var(--ui-motion-duration-normal) var(--ui-motion-easing-emphasized),
+      transform var(--ui-motion-duration-normal) var(--ui-motion-easing-emphasized);
+  }
+  .sx-toast-bottom-end .sx-toast,
+  .sx-toast-bottom-start .sx-toast { transform: translateY(8px) scale(0.98); }
+  .sx-toast.sx-open { opacity: 1; transform: none; }
+  .sx-toast-status-success { --_tone: var(--ui-state-success); }
+  .sx-toast-status-warning { --_tone: var(--ui-state-warning); }
+  .sx-toast-status-danger  { --_tone: var(--ui-state-danger); }
+  .sx-toast-status-info    { --_tone: var(--ui-state-info); }
+  .sx-toast .sx-toast-icon {
+    flex: none;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin-top: 0.0625rem;
+    fill: none;
+    stroke: var(--_tone);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .sx-toast .sx-toast-body { flex: 1; min-width: 0; }
+  .sx-toast .sx-toast-title { font-weight: var(--ui-font-weight-semibold); }
+  .sx-toast .sx-toast-title + .sx-toast-message { color: var(--ui-text-muted); }
+  .sx-toast .sx-toast-close {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    margin: calc(var(--ui-space-0-5) * -1) 0;
+    border: 0;
+    border-radius: var(--ui-radius-sm, 0.25rem);
+    background: none;
+    color: var(--ui-text-muted);
     cursor: pointer;
   }
-  .sx-toast.sx-open { opacity: 1; transform: translateY(0); }
-  .sx-toast-status-success { border-inline-start-color: var(--ui-state-success, #2e9e4f); }
-  .sx-toast-status-warning { border-inline-start-color: var(--ui-state-warning, #d9a520); }
-  .sx-toast-status-danger  { border-inline-start-color: var(--ui-state-danger,  #c0392b); }
-  .sx-toast-status-info    { border-inline-start-color: var(--ui-accent-brand,  #1e7fb8); }
+  .sx-toast .sx-toast-close:hover { background: var(--ui-surface-panel); color: var(--ui-text-primary); }
+  .sx-toast .sx-toast-close svg {
+    width: 0.875rem;
+    height: 0.875rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
 
   /* Sticky — style the stuck state. */
   [ui-behavior~="sticky"].sx-stuck {
-    box-shadow: var(--ui-elevation-1, 0 2px 8px rgba(0, 0, 0, 0.12));
-    background: var(--ui-surface-panel, #fff);
+    box-shadow: var(--ui-elevation-1);
+    background: var(--ui-surface-raised);
   }
 
   /* Scrollspy — default reveal-on-enter. */
@@ -190,8 +446,8 @@
     opacity: 0;
     transform: translateY(12px);
     transition:
-      opacity var(--ui-motion-duration-base, 220ms) ease,
-      transform var(--ui-motion-duration-base, 220ms) ease;
+      opacity var(--ui-motion-duration-base) var(--ui-motion-easing-emphasized),
+      transform var(--ui-motion-duration-base) var(--ui-motion-easing-emphasized);
   }
   [ui-behavior~="scrollspy"].sx-inview { opacity: 1; transform: translateY(0); }
 

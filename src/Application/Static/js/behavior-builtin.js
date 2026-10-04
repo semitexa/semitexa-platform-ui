@@ -19,6 +19,18 @@ import {
     useScrollLock,
 } from 'platform-ui/behaviors';
 
+// ARIA wiring: the server markup names the parts (ui-behavior-tab, -panel, …);
+// the runtime fills in the roles and id references the author would otherwise
+// have to write by hand. An attribute the author already set is never replaced.
+let sxUid = 0;
+function ensureId(node, prefix) {
+    if (!node.id) node.id = prefix + '-' + (++sxUid).toString(36) + Math.random().toString(36).slice(2, 6);
+    return node.id;
+}
+function setIfMissing(node, name, value) {
+    if (!node.hasAttribute(name)) node.setAttribute(name, value);
+}
+
 // -----------------------------------------------------------------------------
 // toggle — generic show/hide from a trigger.
 // -----------------------------------------------------------------------------
@@ -69,51 +81,89 @@ registerBehavior({
 
         const togglable = useTogglable(content, { trigger, openClass: 'sx-open' });
         let floating = null;
-        // Always return focus to the trigger on close (robust regardless of what
-        // was focused when the panel opened — e.g. a programmatic open).
-        const focus = useFocusTrap(content, { returnTo: trigger });
-        const dismiss = useDismiss(el, { onDismiss: () => close(), esc: true, outside: true });
+        const dismiss = useDismiss(el, { onDismiss: () => close(true), esc: true, outside: true });
 
-        function open() {
+        // A panel of [ui-behavior-item]s is a menu (WAI-ARIA menu button). Any
+        // other panel (a form, a picker) keeps its own semantics.
+        const isMenu = ctx.roles('item').length > 0;
+        ensureId(content, 'sx-dd');
+        setIfMissing(trigger, 'aria-controls', content.id);
+        setIfMissing(trigger, 'aria-expanded', 'false');
+        if (isMenu) {
+            setIfMissing(trigger, 'aria-haspopup', 'menu');
+            setIfMissing(content, 'role', 'menu');
+            for (const item of ctx.roles('item')) {
+                setIfMissing(item, 'role', 'menuitem');
+                setIfMissing(item, 'tabindex', '-1');
+            }
+        }
+        const visibleItems = () => ctx.roles('item').filter((i) => i.offsetParent !== null && !i.hasAttribute('disabled') && i.getAttribute('aria-disabled') !== 'true');
+
+        function open(focusLast) {
             if (togglable.isOpen()) return;
-            // Reveal, position, and wire interaction SYNCHRONOUSLY — dismissal,
-            // focus trap and positioning must be live the instant the panel
-            // appears, never gated behind the reveal transition.
+            // Reveal, position, and wire interaction SYNCHRONOUSLY — dismissal
+            // and positioning must be live the instant the panel appears, never
+            // gated behind the reveal transition.
             content.hidden = false;
             floating = useFloating(trigger, content, { pos: opts.pos, offset: opts.offset, flip: opts.flip });
             dismiss.activate();
-            focus.activate();
             ctx.emit('open', {});
             togglable.show(); // aria-expanded + open flag + reveal transition (fire-and-forget)
+            const items = visibleItems();
+            if (items.length) (focusLast ? items[items.length - 1] : items[0]).focus();
         }
-        function close() {
+        // restoreFocus: Esc, outside click and choosing an item return focus to
+        // the trigger; Tab lets focus move on naturally (a menu is not a trap).
+        function close(restoreFocus) {
             if (!togglable.isOpen()) return;
             dismiss.release();
-            focus.release();
             if (floating) { floating.destroy(); floating = null; }
             ctx.emit('close', {});
             togglable.hide(); // reverse transition, then hidden (fire-and-forget)
+            if (restoreFocus && content.contains(document.activeElement)) trigger.focus();
+            else if (restoreFocus === true && document.activeElement === document.body) trigger.focus();
         }
 
         if (opts.mode === 'hover') {
-            ctx.on(el, 'mouseenter', open);
-            ctx.on(el, 'mouseleave', close);
+            ctx.on(el, 'mouseenter', () => open(false));
+            ctx.on(el, 'mouseleave', () => close(false));
         } else {
-            ctx.on(trigger, 'click', (e) => { e.preventDefault(); togglable.isOpen() ? close() : open(); });
+            ctx.on(trigger, 'click', (e) => { e.preventDefault(); togglable.isOpen() ? close(true) : open(false); });
         }
-
-        // arrow-nav: move focus among menu items inside the open panel.
-        ctx.on(content, 'keydown', (e) => {
-            if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-            const items = ctx.roles('item').filter((i) => i.offsetParent !== null);
-            if (items.length === 0) return;
-            e.preventDefault();
-            const i = items.indexOf(document.activeElement);
-            const next = e.key === 'ArrowDown' ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
-            items[next].focus();
+        ctx.on(trigger, 'keydown', (e) => {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); open(e.key === 'ArrowUp'); }
         });
 
-        return { destroy() { dismiss.release(); focus.release(); if (floating) floating.destroy(); } };
+        ctx.on(content, 'keydown', (e) => {
+            if (e.key === 'Tab') { close(false); return; }
+            const items = visibleItems();
+            if (items.length === 0) return;
+            const i = items.indexOf(document.activeElement);
+            let n = null;
+            if (e.key === 'ArrowDown') n = (i + 1) % items.length;
+            else if (e.key === 'ArrowUp') n = (i - 1 + items.length) % items.length;
+            else if (e.key === 'Home') n = 0;
+            else if (e.key === 'End') n = items.length - 1;
+            else if (e.key.length === 1 && /\S/.test(e.key)) {
+                // Typeahead: jump to the next item starting with the typed letter.
+                const k = e.key.toLowerCase();
+                for (let step = 1; step <= items.length; step++) {
+                    const j = (i + step) % items.length;
+                    if ((items[j].textContent || '').trim().toLowerCase().startsWith(k)) { n = j; break; }
+                }
+            }
+            if (n === null) return;
+            e.preventDefault();
+            items[n].focus();
+        });
+        if (isMenu) {
+            ctx.on(content, 'click', (e) => {
+                const item = e.target.closest('[ui-behavior-item]');
+                if (item && content.contains(item)) close(true);
+            });
+        }
+
+        return { destroy() { dismiss.release(); if (floating) floating.destroy(); } };
     },
 });
 
@@ -130,6 +180,12 @@ registerBehavior({
             const trigger = item.querySelector('[ui-behavior-toggle]');
             const content = item.querySelector('[ui-behavior-content]');
             if (!trigger || !content) continue;
+            ensureId(trigger, 'sx-acc-t');
+            ensureId(content, 'sx-acc-p');
+            setIfMissing(trigger, 'aria-controls', content.id);
+            setIfMissing(trigger, 'aria-expanded', content.hidden ? 'false' : 'true');
+            setIfMissing(content, 'role', 'region');
+            setIfMissing(content, 'aria-labelledby', trigger.id);
             cells.push({ trigger, t: useTogglable(content, { trigger, openClass: 'sx-open' }) });
         }
         for (const cell of cells) {
@@ -142,12 +198,17 @@ registerBehavior({
             });
         }
         ctx.on(el, 'keydown', (e) => {
-            if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
             const trigs = cells.map((c) => c.trigger);
             const i = trigs.indexOf(document.activeElement);
             if (i === -1) return;
+            let n = null;
+            if (e.key === 'ArrowDown') n = (i + 1) % trigs.length;
+            else if (e.key === 'ArrowUp') n = (i - 1 + trigs.length) % trigs.length;
+            else if (e.key === 'Home') n = 0;
+            else if (e.key === 'End') n = trigs.length - 1;
+            if (n === null) return;
             e.preventDefault();
-            trigs[e.key === 'ArrowDown' ? (i + 1) % trigs.length : (i - 1 + trigs.length) % trigs.length].focus();
+            trigs[n].focus();
         });
         return {};
     },
@@ -164,6 +225,22 @@ registerBehavior({
         const tabs = ctx.roles('tab');
         const panels = ctx.roles('panel');
         if (tabs.length === 0) return {};
+        const list = tabs[0].parentElement;
+        if (list && list !== el) setIfMissing(list, 'role', 'tablist');
+        tabs.forEach((tab, i) => {
+            setIfMissing(tab, 'role', 'tab');
+            ensureId(tab, 'sx-tab');
+            const panel = tab.getAttribute('aria-controls') ? null : panels[i];
+            if (panel) {
+                ensureId(panel, 'sx-tabpanel');
+                tab.setAttribute('aria-controls', panel.id);
+            }
+        });
+        panels.forEach((panel, i) => {
+            setIfMissing(panel, 'role', 'tabpanel');
+            setIfMissing(panel, 'tabindex', '0');
+            if (tabs[i]) setIfMissing(panel, 'aria-labelledby', tabs[i].id);
+        });
         function panelFor(i) {
             const controls = tabs[i].getAttribute('aria-controls');
             return (controls && el.querySelector('#' + controls)) || panels[i] || null;
@@ -352,22 +429,78 @@ function ensureToastRegion(pos) {
         region.className = 'sx-toast-region sx-toast-' + pos;
         region.setAttribute('aria-live', 'polite');
         region.setAttribute('role', 'status');
+        region.setAttribute('popover', 'manual');
         document.body.appendChild(region);
+    }
+    // Top layer, and topmost: re-showing moves it above a dialog opened since.
+    if (typeof region.showPopover === 'function') {
+        try {
+            if (region.matches(':popover-open')) region.hidePopover();
+            region.showPopover();
+        } catch (e) { /* not connected yet, or popover unsupported: stays a fixed layer */ }
     }
     return region;
 }
+// Lucide-shaped status glyphs (static markup, never user input).
+const TOAST_ICONS = {
+    info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
+    success: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+    warning: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4M12 17h.01"/>',
+    danger: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>',
+};
 function showToast(message, o) {
     o = o || {};
+    const status = TOAST_ICONS[o.status] ? o.status : 'info';
     const region = ensureToastRegion(o.pos || 'top-end');
     const t = document.createElement('div');
-    t.className = 'sx-toast sx-toast-status-' + (o.status || 'info');
-    t.textContent = message;
+    t.className = 'sx-toast sx-toast-status-' + status;
+    t.setAttribute('ui-tone', status);
+    // Errors interrupt; everything else waits its turn in the polite region.
+    if (status === 'danger') t.setAttribute('role', 'alert');
+
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('class', 'sx-toast-icon');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = TOAST_ICONS[status];
+
+    const body = document.createElement('div');
+    body.className = 'sx-toast-body';
+    if (o.title) {
+        const title = document.createElement('div');
+        title.className = 'sx-toast-title';
+        title.textContent = String(o.title);
+        body.appendChild(title);
+    }
+    const text = document.createElement('div');
+    text.className = 'sx-toast-message';
+    text.textContent = String(message);
+    body.appendChild(text);
+
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'sx-toast-close';
+    close.setAttribute('aria-label', o.closeLabel || 'Dismiss');
+    close.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+
+    t.append(icon, body, close);
     region.appendChild(t);
     requestAnimationFrame(() => t.classList.add('sx-open'));
-    const remove = () => { t.classList.remove('sx-open'); setTimeout(() => { if (t.parentNode) t.remove(); }, 200); };
+
+    let timer = null;
+    const remove = () => {
+        clearTimeout(timer);
+        t.classList.remove('sx-open');
+        setTimeout(() => { if (t.parentNode) t.remove(); }, 200);
+    };
     const timeout = (o.timeout == null) ? 4000 : o.timeout;
-    if (timeout > 0) setTimeout(remove, timeout);
-    t.addEventListener('click', remove);
+    const arm = () => { if (timeout > 0) timer = setTimeout(remove, timeout); };
+    arm();
+    // Reading a toast must not race its timer.
+    t.addEventListener('mouseenter', () => clearTimeout(timer));
+    t.addEventListener('mouseleave', arm);
+    t.addEventListener('focusin', () => clearTimeout(timer));
+    close.addEventListener('click', remove);
     return remove;
 }
 if (typeof window !== 'undefined') { window.SemitexaUi = window.SemitexaUi || {}; window.SemitexaUi.toast = showToast; }
@@ -376,12 +509,13 @@ registerBehavior({
     ui: 'toast',
     options: [
         { name: 'message', type: 'string' },
+        { name: 'title', type: 'string' },
         { name: 'status', type: 'enum', default: 'info', values: ['info', 'success', 'warning', 'danger'] },
         { name: 'pos', type: 'enum', default: 'top-end', values: ['top-end', 'top-start', 'bottom-end', 'bottom-start'] },
         { name: 'timeout', type: 'number', default: 4000 },
     ],
     connect(el, opts, ctx) {
-        ctx.on(el, 'click', () => showToast(opts.message || (el.textContent || '').trim(), { status: opts.status, pos: opts.pos, timeout: opts.timeout }));
+        ctx.on(el, 'click', () => showToast(opts.message || (el.textContent || '').trim(), { title: opts.title, status: opts.status, pos: opts.pos, timeout: opts.timeout }));
         return {};
     },
 });

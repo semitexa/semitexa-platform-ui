@@ -2,7 +2,7 @@
 {% macro render(text, options = {}) %}
     {%- set tone = options.tone|default('info') -%}
     {%- set title = options.title|default(null) -%}
-<div ui="alert"{% if options.tone|default(null) %} ui-tone="{{ tone }}"{% endif %} role="{{ (tone == 'danger' or tone == 'warning') ? 'alert' : 'status' }}">
+<div ui="alert"{% if options.tone|default(null) %} ui-tone="{{ tone }}"{% endif %}{% if options.variant|default(null) %} ui-variant="{{ options.variant }}"{% endif %} role="{{ (tone == 'danger' or tone == 'warning') ? 'alert' : 'status' }}">
     <div data-alert-body>
         {%- if title %}<div data-alert-title>{{ title }}</div>{% endif -%}
         {{ text }}
