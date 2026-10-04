@@ -41,6 +41,7 @@ use Semitexa\Ssr\Domain\Model\FormDocumentScope;
  */
 #[AsPublicPayload(
     path: '/__ui/form-doc',
+    name: 'platform-ui.form-doc',
     methods: ['GET', 'POST'],
     responseWith: JsonResourceResponse::class,
     renderProfile: RenderProfile::Json,
