@@ -35,6 +35,7 @@
     "extra": {
         "semitexa": {
             "floors": {
+                "semitexa/core": "next",
                 "semitexa/ssr": "next"
             }
         },

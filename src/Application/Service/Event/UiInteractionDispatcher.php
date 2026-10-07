@@ -416,9 +416,9 @@ final class UiInteractionDispatcher
         // #[UiState]: the properties hold the state as last saved; a change
         // the handler leaves behind is drawn — the component re-rendered with
         // it, which also saves it.
-        $before = UiComponentStates::hydrate($instance, $event->props());
-
         try {
+            $before = UiComponentStates::hydrate($instance, $event->props());
+
             return UiComponentStates::withChanges($instance->{$binding->methodName}($event), $event->instanceId, $before, UiComponentStates::snapshot($instance));
         } catch (UiInteractionException $e) {
             throw $e;

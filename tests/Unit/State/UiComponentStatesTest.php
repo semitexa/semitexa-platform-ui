@@ -79,6 +79,16 @@ final class UiComponentStatesTest extends TestCase
         self::assertSame(['count' => 8, 'open' => true], UiComponentStates::snapshot($component));
         self::assertSame(['count', 'open'], UiComponentStates::propertiesOf(StatefulFixture::class), 'only #[UiState], public');
     }
+
+    #[Test]
+    public function a_saved_value_the_declared_type_cannot_hold_is_skipped_not_thrown(): void
+    {
+        $component = new StatefulFixture();
+
+        self::assertSame(['count' => 0, 'open' => true], UiComponentStates::hydrate($component, ['count' => null, 'open' => true]));
+        self::assertSame(['count' => 0, 'open' => true], UiComponentStates::hydrate($component, ['count' => 'abc']));
+        self::assertSame(['count' => 0, 'open' => true], UiComponentStates::hydrate($component, ['count' => ['nested']]));
+    }
 }
 
 final class StatefulFixture

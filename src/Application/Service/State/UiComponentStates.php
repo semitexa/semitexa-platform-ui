@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\State;
 
+use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\ContainerInterface;
 use Semitexa\Core\Container\RequestScopedContainer;
+use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\PlatformUi\Attribute\UiState;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionUnprocessableException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult;
@@ -55,7 +57,17 @@ final class UiComponentStates
         self::$store = static function () use ($container): ?UiComponentStateStoreInterface {
             try {
                 $store = RequestScopedContainer::forCurrentExecution($container)->get(UiComponentStateStoreInterface::class);
-            } catch (\Throwable) {
+            } catch (ContainerExceptionInterface) {
+                // No store bound: props ride the context inline.
+                return null;
+            } catch (\Throwable $e) {
+                // Anything else is a defect, not "no store": say so, then
+                // fall back to inline props rather than fail the render.
+                StaticLoggerBridge::error('platform_ui', 'UI component state store could not be resolved', [
+                    'exception' => $e::class,
+                    'message' => $e->getMessage(),
+                ]);
+
                 return null;
             }
 
@@ -211,8 +223,16 @@ final class UiComponentStates
     public static function hydrate(object $component, array $props): array
     {
         foreach (self::propertiesOf($component::class) as $name) {
-            if (array_key_exists($name, $props)) {
+            if (!array_key_exists($name, $props)) {
+                continue;
+            }
+            // A value the declared type cannot hold (a null saved from an
+            // uninitialised property, 'abc' for an int) is skipped: the
+            // property keeps its default instead of failing every later event.
+            try {
                 $component->{$name} = self::coerce(new \ReflectionProperty($component, $name), $props[$name]);
+            } catch (\TypeError) {
+                continue;
             }
         }
 
