@@ -82,7 +82,7 @@ final class BuildCommand extends Command
                 'artifact' => 'semitexa.platform-ui.css-build/v1',
                 'skin_neutral' => true,
                 'bundles' => $bundles,
-            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), OutputInterface::OUTPUT_RAW);
             return Command::SUCCESS;
         }
 
