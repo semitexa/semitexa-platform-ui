@@ -74,6 +74,12 @@ final class UiPatchValidator
      */
     private function validateOne(UiResponsePatch $patch, array $allowedInstances, int $index): void
     {
+        if ($patch->op === UiResponsePatch::OP_RERENDER) {
+            throw new UiInteractionUnprocessableException(
+                'unresolved_rerender',
+                sprintf('Patch %d is a rerender the dispatcher could not turn into a morph.', $index),
+            );
+        }
         if (!in_array($patch->op, UiResponsePatch::ALLOWED_OPS, true)) {
             throw new UiInteractionUnprocessableException(
                 'invalid_patch_op',
@@ -130,7 +136,71 @@ final class UiPatchValidator
                 }
                 $this->assertScalarOrNull($patch->value, $patch->op, $index);
                 break;
+            case UiResponsePatch::OP_MORPH:
+            case UiResponsePatch::OP_REPLACE:
+            case UiResponsePatch::OP_APPEND:
+            case UiResponsePatch::OP_PREPEND:
+                if (!is_string($patch->value) || strlen($patch->value) > self::MAX_HTML_BYTES) {
+                    $this->fail('invalid_patch_html', sprintf('Patch %d %s requires server-rendered HTML (a string up to %d bytes).', $index, $patch->op, self::MAX_HTML_BYTES));
+                }
+                if ($patch->op === UiResponsePatch::OP_MORPH && ($patch->targetPart !== null || $patch->targetName !== null)) {
+                    $this->fail('invalid_patch_target', sprintf('Patch %d morph targets a whole component instance, not a part.', $index));
+                }
+                break;
+            case UiResponsePatch::OP_REMOVE:
+            case UiResponsePatch::OP_FOCUS:
+            case UiResponsePatch::OP_RESET:
+            case UiResponsePatch::OP_OPEN:
+            case UiResponsePatch::OP_CLOSE:
+                break;
+            case UiResponsePatch::OP_REDIRECT:
+                // Same-origin paths only: an absolute or protocol-relative URL
+                // would let a handler bounce the user off-site.
+                if (!is_string($patch->value) || preg_match('#\A/(?!/)[^\s\\\\]*\z#', $patch->value) !== 1) {
+                    $this->fail('invalid_redirect', sprintf('Patch %d redirect must be a same-origin path starting with a single "/".', $index));
+                }
+                break;
+            case UiResponsePatch::OP_TOAST:
+                if (!is_string($patch->value) || trim($patch->value) === '') {
+                    $this->fail('invalid_toast', sprintf('Patch %d toast needs a message.', $index));
+                }
+                if (!in_array($patch->args['level'] ?? 'info', UiResponsePatch::TOAST_LEVELS, true)) {
+                    $this->fail('invalid_toast', sprintf('Patch %d toast level must be one of: %s.', $index, implode(', ', UiResponsePatch::TOAST_LEVELS)));
+                }
+                break;
+            case UiResponsePatch::OP_DISPATCH:
+                if (!is_string($patch->value) || preg_match('/\A[a-z][a-z0-9]*(?:[:.-][a-z0-9]+)*\z/', $patch->value) !== 1) {
+                    $this->fail('invalid_dispatch', sprintf('Patch %d dispatch needs an event name like "cart:updated".', $index));
+                }
+                foreach ((array) ($patch->args['detail'] ?? []) as $key => $value) {
+                    if (!is_string($key) || ($value !== null && !is_scalar($value))) {
+                        $this->fail('invalid_dispatch', sprintf('Patch %d dispatch detail must be a flat map of scalars.', $index));
+                    }
+                }
+                break;
+            case UiResponsePatch::OP_URL:
+                // Query parameters of the page's own address — never a path or
+                // another origin; values are strings (set) or null (drop).
+                $params = $patch->args['params'] ?? null;
+                if (!is_array($params) || $params === [] || count($params) > 20
+                    || !in_array($patch->args['history'] ?? null, ['push', 'replace'], true)) {
+                    $this->fail('invalid_url', sprintf('Patch %d url needs 1..20 params and history push|replace.', $index));
+                }
+                foreach ($params as $key => $value) {
+                    if (!is_string($key) || preg_match('/\A[A-Za-z_][A-Za-z0-9_-]{0,63}\z/', $key) !== 1
+                        || ($value !== null && (!is_string($value) || strlen($value) > 512))) {
+                        $this->fail('invalid_url', sprintf('Patch %d url params are identifier keys with strings up to 512 bytes or null.', $index));
+                    }
+                }
+                break;
         }
+    }
+
+    private const MAX_HTML_BYTES = 262144;
+
+    private function fail(string $code, string $message): never
+    {
+        throw new UiInteractionUnprocessableException($code, $message);
     }
 
     private function assertScalarOrNull(mixed $value, string $op, int $index): void

@@ -27,6 +27,13 @@
  *                          see the function docblock below
  *   .onReady(fn)           run fn at DOMContentLoaded, or immediately when
  *                          the document is already parsed
+ *   .mount(selector, def)  the ONE element lifecycle: def.connect(el, ctx)
+ *                          for every matching element now and later, and
+ *                          teardown (ctx.signal aborts, api.destroy()) when
+ *                          it leaves the page — one MutationObserver for all
+ *   .mintId(prefix, bytes) prefix + random hex (event / correlation ids)
+ *   .envelope(o)           the canonical HUG UI event envelope
+ *   .hug(body, opts)       POST a body to HUG (CSRF, JSON); { ok, status, data }
  *
  * Load order: assets.json pins this file at body priority 50 — before every
  * other platform-ui runtime (60+). Pages that include runtimes by hand (e.g.
@@ -124,6 +131,9 @@
      *   dataEvent            (string) typed SSE event name for data frames
      *   errorEvent           (string) typed SSE event name for error frames
      *   onData(envelope)     parsed data-frame envelope
+     *   patchEvent           (string) optional typed event name for patch
+     *                        frames (a keyed change to the last data frame)
+     *   onPatch(frame)       optional; parsed patch frame
      *   onError(envelope)    parsed error-frame envelope
      *   onStreamId(id)       optional; the client-minted subscription id
      *   onStatus(s)          optional; 'live' once attached
@@ -149,6 +159,8 @@
             if (closed || !frame || typeof frame._type !== 'string') return;
             if (frame._type === opts.dataEvent) {
                 opts.onData(frame);
+            } else if (opts.patchEvent && frame._type === opts.patchEvent && opts.onPatch) {
+                opts.onPatch(frame);
             } else if (frame._type === opts.errorEvent) {
                 opts.onError(frame);
             }
@@ -156,7 +168,7 @@
 
         var mgr = window.SemitexaUi && window.SemitexaUi.sse;
         if (mgr && typeof mgr.subscribe === 'function' && typeof opts.feed === 'string' && opts.feed !== '') {
-            var handle = mgr.subscribe({ feed: opts.feed }, params(), onSharedFrame, function () {
+            var handle = mgr.subscribe({ feed: opts.feed, patches: !!(opts.patchEvent && opts.onPatch) }, params(), onSharedFrame, function () {
                 // The page's KISS stream never connected: pull instead.
                 sub = null;
                 if (closed) return;
@@ -217,6 +229,15 @@
             ev.preventDefault();
             return;
         }
+        var tooLarge = oversizedFileInput(form);
+        if (tooLarge) {
+            // A novalidate form, or one a script submits, skips the browser's
+            // own check: the request would still be refused by the server.
+            ev.preventDefault();
+            ev.stopImmediatePropagation();
+            tooLarge.reportValidity();
+            return;
+        }
         if (form.matches('form[data-ui-confirm]')) {
             var message = form.getAttribute('data-ui-confirm') || 'Are you sure?';
             if (!window.confirm(message)) {
@@ -226,14 +247,221 @@
         }
     }, true);
 
+    // Files the server cannot take. Swoole refuses a request over its limit
+    // before any handler runs, and the browser reports only a dropped
+    // connection, so a photo from a phone would simply never arrive. The page
+    // carries the limit (<meta name="semitexa-request-max">, written by the
+    // SSR head); choosing files that would not fit, or submitting them, makes
+    // the file input invalid with a message saying so. Upload fields
+    // ([data-ui-upload]) send each file on its own and check their own limit.
+    var REQUEST_FRAMING_BYTES = 16384;
+
+    function requestFileCeiling() {
+        var meta = document.querySelector('meta[name="semitexa-request-max"]');
+        var limit = meta ? parseInt(meta.getAttribute('content') || '', 10) : 0;
+        return limit > REQUEST_FRAMING_BYTES ? limit - REQUEST_FRAMING_BYTES : 0;
+    }
+
+    function humanBytes(bytes) {
+        return bytes >= 1048576 ? (Math.round((bytes / 1048576) * 10) / 10) + ' MB' : Math.ceil(bytes / 1024) + ' KB';
+    }
+
+    function sentFileInputs(scope) {
+        return Array.prototype.filter.call(
+            scope.querySelectorAll ? scope.querySelectorAll('input[type="file"]') : [],
+            function (input) { return !input.disabled && !input.hasAttribute('data-ui-upload'); }
+        );
+    }
+
+    /** The file input to blame when the scope's files would not fit; null when they fit. */
+    function checkFileSizes(inputs) {
+        var ceiling = requestFileCeiling();
+        var total = 0;
+        inputs.forEach(function (input) {
+            Array.prototype.forEach.call(input.files || [], function (file) { total += file.size; });
+        });
+        var blamed = null;
+        inputs.forEach(function (input) {
+            var chosen = input.files && input.files.length > 0;
+            var over = ceiling > 0 && total > ceiling && chosen;
+            if (over) {
+                input.setCustomValidity('Too large to send: ' + humanBytes(total) + ' chosen, and this site takes at most ' + humanBytes(ceiling) + ' at once.');
+                input.__sxTooLarge = true;
+                if (!blamed) blamed = input;
+            } else if (input.__sxTooLarge) {
+                // Only the message this check set: an app's own stays.
+                input.setCustomValidity('');
+                input.__sxTooLarge = false;
+            }
+        });
+        return blamed;
+    }
+
+    function oversizedFileInput(form) {
+        return checkFileSizes(sentFileInputs(form));
+    }
+
+    document.addEventListener('change', function (ev) {
+        var input = ev.target;
+        if (!input || !input.matches || !input.matches('input[type="file"]') || input.hasAttribute('data-ui-upload')) return;
+        var blamed = checkFileSizes(input.form ? sentFileInputs(input.form) : [input]);
+        if (blamed) blamed.reportValidity();
+    }, true);
+
+    // ---- One element lifecycle --------------------------------------------
+    //
+    // Every runtime used to carry its own boot: a readyState check, its own
+    // MutationObserver, its own list of "re-scan now" events (which differed
+    // per runtime, so a deferred block booted a grid but not a calendar), and
+    // its own idea of teardown (or none). mount() is the one place for all of
+    // it. An element a morph merely MOVED is still in the document when the
+    // observer runs, so it is neither torn down nor connected twice.
+    var MOUNTS = [];          // [{ selector, def }]
+    var MOUNT_KEY = '__sxMounts';
+    var observing = false;
+
+    function connectOne(el, entry) {
+        var store = el[MOUNT_KEY] || (el[MOUNT_KEY] = {});
+        if (store[entry.selector]) return;
+        var controller = new AbortController();
+        var ctx = {
+            root: el,
+            signal: controller.signal,
+            on: function (target, type, handler, o) {
+                var opts = { signal: controller.signal };
+                if (o) for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) opts[k] = o[k];
+                target.addEventListener(type, handler, opts);
+            }
+        };
+        var slot = { controller: controller, api: null };
+        store[entry.selector] = slot;
+        try {
+            slot.api = entry.def.connect(el, ctx) || null;
+        } catch (e) {
+            delete store[entry.selector];
+            controller.abort();
+            if (typeof console !== 'undefined' && console.error) console.error('[semitexa-ui] mount "' + entry.selector + '" failed', e);
+        }
+    }
+
+    function disconnectOne(el, selector) {
+        var store = el[MOUNT_KEY];
+        var slot = store && store[selector];
+        if (!slot) return;
+        delete store[selector];
+        try { if (slot.api && typeof slot.api.destroy === 'function') slot.api.destroy(); } catch (e) { /* ignore */ }
+        try { slot.controller.abort(); } catch (e) { /* ignore */ }
+    }
+
+    function eachMatch(node, selector, fn) {
+        if (!node || node.nodeType !== 1) return;
+        if (node.matches && node.matches(selector)) fn(node);
+        if (node.querySelectorAll) {
+            var found = node.querySelectorAll(selector);
+            for (var i = 0; i < found.length; i++) fn(found[i]);
+        }
+    }
+
+    function observe() {
+        if (observing || typeof MutationObserver === 'undefined' || !document.documentElement) return;
+        observing = true;
+        new MutationObserver(function (mutations) {
+            for (var i = 0; i < mutations.length; i++) {
+                var m = mutations[i];
+                for (var r = 0; r < m.removedNodes.length; r++) {
+                    var gone = m.removedNodes[r];
+                    if (gone.nodeType !== 1 || gone.isConnected) continue; // moved, not removed
+                    for (var a = 0; a < MOUNTS.length; a++) {
+                        var sel = MOUNTS[a].selector;
+                        eachMatch(gone, sel, function (el) { disconnectOne(el, sel); });
+                    }
+                }
+                for (var n = 0; n < m.addedNodes.length; n++) {
+                    var added = m.addedNodes[n];
+                    if (added.nodeType !== 1 || !added.isConnected) continue;
+                    for (var b = 0; b < MOUNTS.length; b++) {
+                        var entry = MOUNTS[b];
+                        eachMatch(added, entry.selector, function (el) { connectOne(el, entry); });
+                    }
+                }
+            }
+        }).observe(document.documentElement, { childList: true, subtree: true });
+    }
+
+    function mount(selector, def) {
+        if (typeof selector !== 'string' || !def || typeof def.connect !== 'function') {
+            throw new TypeError('mount(selector, { connect(el, ctx) }) expected');
+        }
+        var entry = { selector: selector, def: def };
+        MOUNTS.push(entry);
+        onReady(function () {
+            observe();
+            eachMatch(document.documentElement, selector, function (el) { connectOne(el, entry); });
+        });
+        return {
+            /** Connect whatever matches inside root now (an explicit re-scan). */
+            scan: function (root) { eachMatch(root || document.documentElement, selector, function (el) { connectOne(el, entry); }); }
+        };
+    }
+
+    // ---- One HUG client -----------------------------------------------------
+
+    var HUG_PATH = '/__semitexa_hug';
+
+    function mintId(prefix, bytes) {
+        var buf = new Uint8Array(bytes || 16);
+        (window.crypto || window.msCrypto).getRandomValues(buf);
+        var hex = '';
+        for (var i = 0; i < buf.length; i++) hex += (buf[i] < 16 ? '0' : '') + buf[i].toString(16);
+        return (prefix || '') + hex;
+    }
+
+    /** The canonical UI event envelope HUG decodes (UiEventEnvelope). */
+    function envelope(o) {
+        return {
+            schemaVersion: 1,
+            eventId: o.eventId || mintId('ui_evt_', 16),
+            correlationId: o.correlationId || mintId('ui_cor_', 16),
+            semanticEvent: o.semanticEvent,
+            signedContext: o.signedContext,
+            timestamp: new Date().toISOString(),
+            payload: o.payload || {}
+        };
+    }
+
+    /** POST one body to HUG. opts.keepalive for fire-and-forget on unload. */
+    function hug(body, opts) {
+        opts = opts || {};
+        return fetch(HUG_PATH, {
+            method: 'POST',
+            credentials: 'same-origin',
+            keepalive: opts.keepalive === true,
+            headers: withCsrf('POST', { 'Content-Type': 'application/json', 'Accept': 'application/json' }),
+            body: typeof body === 'string' ? body : JSON.stringify(body)
+        }).then(function (resp) {
+            return resp.text().then(function (text) {
+                var data = null;
+                if (text) {
+                    try { data = JSON.parse(text); } catch (parseErr) { data = null; }
+                }
+                return { ok: resp.ok, status: resp.status, data: data };
+            });
+        });
+    }
+
     ns.core = {
-        version: 1,
+        version: 2,
         esc: esc,
         readCsrfToken: readCsrfToken,
         withCsrf: withCsrf,
         fetchJson: fetchJson,
         openFeedChannel: openFeedChannel,
-        onReady: onReady
+        onReady: onReady,
+        mount: mount,
+        mintId: mintId,
+        envelope: envelope,
+        hug: hug,
+        HUG_PATH: HUG_PATH
     };
 })();
 
@@ -250,3 +478,8 @@ export const withCsrf = __core.withCsrf;
 export const fetchJson = __core.fetchJson;
 export const openFeedChannel = __core.openFeedChannel;
 export const onReady = __core.onReady;
+export const mount = __core.mount;
+export const mintId = __core.mintId;
+export const envelope = __core.envelope;
+export const hug = __core.hug;
+export const HUG_PATH = __core.HUG_PATH;

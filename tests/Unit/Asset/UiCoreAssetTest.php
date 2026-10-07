@@ -200,7 +200,29 @@ final class UiCoreAssetTest extends TestCase
                 "{$file} must take live feeds from SemitexaUi.core.openFeedChannel, which rides KISS.",
             );
         }
-        self::assertStringContainsString('mgr.subscribe({ feed: opts.feed }', self::coreSource());
+        self::assertStringContainsString('mgr.subscribe({ feed: opts.feed, patches:', self::coreSource());
+    }
+
+    #[Test]
+    public function every_feature_runtime_boots_through_the_one_element_lifecycle(): void
+    {
+        // tk-cm-client-core: one MutationObserver, one boot, one teardown rule.
+        // Each runtime used to carry its own (five observers, three different
+        // re-scan events), so a deferred block booted a grid but not a calendar.
+        self::assertSame(1, substr_count(self::coreSource(), 'new MutationObserver('));
+        $jsDir = \dirname(self::CORE_PATH);
+        foreach ([
+            'grid-runtime-v2.js' => "mount('[data-ui-grid-v2]'",
+            'form-collab-runtime.js' => 'mount(MANIFEST_SELECTOR',
+            'calendar-runtime.js' => "mount('[data-ui-calendar]'",
+            'date-field-runtime.js' => "mount('[data-ui-date-field]'",
+            'event-runtime.js' => "mount('script[type=\"application/json\"][data-ui-event-manifest]'",
+        ] as $file => $mountCall) {
+            $source = (string) file_get_contents($jsDir . '/' . $file);
+            self::assertStringContainsString($mountCall, $source, "{$file} must boot through core.mount");
+            self::assertStringNotContainsString('new MutationObserver(', $source, "{$file} must not observe the DOM itself");
+            self::assertStringNotContainsString('semitexa:navigation:committed', $source, "{$file} must not re-scan on its own events");
+        }
     }
 
     #[Test]

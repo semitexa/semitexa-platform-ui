@@ -407,6 +407,30 @@ final class PlatformUiResponseDispatcherTest extends TestCase
     }
 
     #[Test]
+    public function domain_events_a_handler_returns_reach_the_event_dispatcher(): void
+    {
+        // One component model: a component's domain event is an effect of its
+        // #[UiOn] handler (UiInteractionResult::dispatching), not a separate
+        // event path with its own manifest and door.
+        UiComponentRegistry::register(
+            (new UiComponentMetadataFactory())->fromClass(PrdDomainEventComponent::class),
+        );
+        $events = new PrdRecordingEventDispatcher();
+        $adapter = $this->newAdapter()->withContainer(new PrdServiceHandlerStubContainer([
+            \Semitexa\Core\Event\EventDispatcherInterface::class => $events,
+        ]));
+        $ctx = SignedContext::sign(['c' => 'prd.domain-event', 'i' => 'uci_prd_domain_0001', 'p' => 'go', 'e' => 'click']);
+        $envelope = $this->envelope($ctx, []);
+
+        $result = $adapter->dispatch($envelope, $this->verifyClaims($envelope));
+
+        self::assertSame('accepted', $result->status);
+        self::assertCount(1, $events->dispatched);
+        self::assertInstanceOf(PrdSomethingHappened::class, $events->dispatched[0]);
+        self::assertSame('uci_prd_domain_0001', $events->dispatched[0]->instanceId);
+    }
+
+    #[Test]
     public function state_response_with_sub_and_instance_publishes_component_state_and_strips_http_state(): void
     {
         // Phase 6: when a handler returns a whole-state snapshot (the grid
@@ -732,5 +756,41 @@ final class PrdServiceHandlerStubContainer implements ContainerInterface
     public function has(string $id): bool
     {
         return isset($this->services[$id]);
+    }
+}
+
+#[\Semitexa\Ssr\Attribute\AsComponent(name: 'prd.domain-event', template: '@platform-ui/components/runtime/field.html.twig')]
+#[\Semitexa\PlatformUi\Attribute\UiPart(name: 'go', uses: \Semitexa\PlatformUi\Application\Service\Primitive\Builtin\ButtonPrimitive::class)]
+final class PrdDomainEventComponent
+{
+    #[\Semitexa\PlatformUi\Attribute\UiOn(part: 'go', event: 'click')]
+    public function onGo(\Semitexa\PlatformUi\Domain\Model\Event\UiInteractionEvent $event): \Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult
+    {
+        return \Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult::ack()->dispatching(new PrdSomethingHappened($event->instanceId));
+    }
+}
+
+final class PrdSomethingHappened
+{
+    public function __construct(public readonly string $instanceId) {}
+}
+
+final class PrdRecordingEventDispatcher implements \Semitexa\Core\Event\EventDispatcherInterface
+{
+    /** @var list<object> */
+    public array $dispatched = [];
+
+    public function create(string $eventClass, array $payload): object
+    {
+        return new $eventClass(...$payload);
+    }
+
+    public function dispatch(object $event): void
+    {
+        $this->dispatched[] = $event;
+    }
+
+    public function addPostDispatchHook(callable $hook): void
+    {
     }
 }

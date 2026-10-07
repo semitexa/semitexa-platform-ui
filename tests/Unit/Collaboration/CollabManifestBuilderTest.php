@@ -46,7 +46,8 @@ final class CollabManifestBuilderTest extends TestCase
         // The feed is addressed by route name; HUG subscribes it onto KISS.
         self::assertSame('platform-ui.form-doc', $m['feed']);
         self::assertArrayNotHasKey('feedUrl', $m);
-        self::assertSame('/__semitexa_hug', $m['eventUrl']);
+        // Events always go to HUG; the manifest no longer names an endpoint.
+        self::assertArrayNotHasKey('eventUrl', $m);
         self::assertSame(['title', 'body'], $m['fields']);
         // self defaults to the instance id when no auth user is present.
         self::assertSame(self::INSTANCE, $m['self']);

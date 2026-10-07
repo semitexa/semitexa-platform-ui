@@ -141,12 +141,13 @@ final class EventRuntimeAssetTest extends TestCase
         self::assertMatchesRegularExpression('/attach:\s*attachTransport/', $code);
         // attachTransport must use fetch — that's the bridge.
         self::assertStringContainsString('fetch(', $code);
-        // Exactly two `fetch(` callsites, and no more: the attachTransport
-        // bridge plus the multiplex subscribe-control POST (postSseControl,
-        // added in Phase 3). Both are deliberate transport calls behind
-        // explicit opt-in / gated entry points; a third would signal a
-        // stray endpoint creeping in.
-        self::assertSame(2, substr_count($code, 'fetch('));
+        // verify:accept-test-change feed control now posts through the client core (core.hug), so one fetch remains here, still pinned exactly
+        // Exactly one `fetch(` callsite, and no more: the attachTransport
+        // bridge. Feed control goes through the client core's one HUG
+        // client (core.hug); a second fetch here would signal a stray
+        // endpoint creeping in.
+        self::assertSame(1, substr_count($code, 'fetch('));
+        self::assertMatchesRegularExpression('/hug\(\{\s*stream:\s*stream\s*\}/', $code);
     }
 
     #[Test]
@@ -173,24 +174,32 @@ final class EventRuntimeAssetTest extends TestCase
         // semanticEvent, signedContext, timestamp, payload. The shape
         // is the framework contract from
         // Semitexa\Ssr\Application\Service\UiEvent\UiEventEnvelope.
+        // verify:accept-test-change the envelope is built by the client core's one builder (core.envelope); its exact field set is pinned there
         self::assertMatchesRegularExpression(
-            '/JSON\.stringify\s*\(\s*\{\s*'
-                . 'schemaVersion:\s*ENVELOPE_SCHEMA_VERSION\s*,\s*'
+            '/JSON\.stringify\(\s*envelope\(\{\s*'
                 . 'eventId:\s*dispatchId\s*,\s*'
                 . 'correlationId:\s*correlationId\s*,\s*'
                 . 'semanticEvent:\s*semanticEvent\s*,\s*'
                 . 'signedContext:\s*captured\.ctx\s*,\s*'
-                . 'timestamp:\s*new\s+Date\(\)\.toISOString\(\)\s*,\s*'
                 . 'payload:\s*payloadObj\s*'
-                . '\}\s*\)/',
+                . '\}\)\)/',
             $code,
-            'The HUG body must serialise exactly the UiEventEnvelope fields.',
+            'The HUG body is the core envelope of exactly these values.',
         );
-        // Schema version must be 1 (matches UiEventEnvelope::SCHEMA_VERSION).
+        // The one builder serialises exactly the UiEventEnvelope fields, schema 1.
+        $core = (string) file_get_contents(\dirname($this->jsPath()) . '/ui-core.js');
         self::assertMatchesRegularExpression(
-            '/var\s+ENVELOPE_SCHEMA_VERSION\s*=\s*1\s*;/',
-            $code,
-            'Envelope schema version must be 1.',
+            '/function\s+envelope\(o\)\s*\{\s*return\s*\{\s*'
+                . 'schemaVersion:\s*1\s*,\s*'
+                . "eventId:\\s*o\\.eventId\\s*\\|\\|\\s*mintId\\('ui_evt_',\\s*16\\)\\s*,\\s*"
+                . "correlationId:\\s*o\\.correlationId\\s*\\|\\|\\s*mintId\\('ui_cor_',\\s*16\\)\\s*,\\s*"
+                . 'semanticEvent:\s*o\.semanticEvent\s*,\s*'
+                . 'signedContext:\s*o\.signedContext\s*,\s*'
+                . 'timestamp:\s*new\s+Date\(\)\.toISOString\(\)\s*,\s*'
+                . 'payload:\s*o\.payload\s*\|\|\s*\{\}\s*'
+                . '\};/',
+            $core,
+            'core.envelope must serialise exactly the UiEventEnvelope fields.',
         );
         // eventId must be the same value used as the legacy
         // dispatchId — the adapter maps eventId → dispatchId 1:1 for
@@ -317,10 +326,17 @@ final class EventRuntimeAssetTest extends TestCase
     public function patch_applier_uses_safe_dom_apis_only(): void
     {
         $code = $this->jsCode();
-        // Hard bans for the patch applier: never `innerHTML`, never `eval`,
-        // never `Function` constructor, never `document.write`, never script
-        // injection helpers.
-        self::assertStringNotContainsString('innerHTML', $code);
+        // verify:accept-test-change operator decision 2026-10-05: morph is the default effect, so server-rendered HTML enters — but ONLY through one inert <template> parse, pinned below
+        // Hard bans for the patch applier: never `eval`, never `Function`
+        // constructor, never `document.write`, never script injection
+        // helpers. Server-rendered HTML (morph/replace/append/prepend)
+        // enters through exactly ONE door: an inert <template> in parseHtml,
+        // where no script runs.
+        self::assertSame(1, substr_count($code, 'innerHTML'), 'innerHTML only in parseHtml');
+        self::assertMatchesRegularExpression(
+            "/function\s+parseHtml[^{]*\{[^}]*createElement\('template'\)[^}]*tpl\.innerHTML\s*=\s*html/s",
+            $code,
+        );
         self::assertStringNotContainsString('outerHTML', $code);
         self::assertStringNotContainsString('insertAdjacentHTML', $code);
         self::assertStringNotContainsString('document.write', $code);
@@ -347,8 +363,19 @@ final class EventRuntimeAssetTest extends TestCase
     public function patch_applier_allow_list_includes_only_safe_ops(): void
     {
         $code = $this->jsCode();
-        // Allowed: setText, setValue, setAttribute.
-        self::assertMatchesRegularExpression('/ALLOWED_PATCH_OPS\s*=\s*\{\s*setText:\s*true\s*,\s*setValue:\s*true\s*,\s*setAttribute:\s*true\s*\}/', $code);
+        // verify:accept-test-change the allow-list is now the whole effect vocabulary (UiResponsePatch::ALLOWED_OPS), still pinned exactly
+        // Allowed: exactly the effect vocabulary of UiResponsePatch.
+        self::assertMatchesRegularExpression(
+            '/ALLOWED_PATCH_OPS\s*=\s*\{\s*setText:\s*true,\s*setValue:\s*true,\s*setAttribute:\s*true,\s*morph:\s*true,\s*replace:\s*true,\s*append:\s*true,\s*prepend:\s*true,\s*remove:\s*true,\s*focus:\s*true,\s*redirect:\s*true,\s*toast:\s*true,\s*dispatch:\s*true,\s*reset:\s*true,\s*open:\s*true,\s*close:\s*true,\s*url:\s*true\s*\}/',
+            $code,
+        );
+        preg_match('/ALLOWED_PATCH_OPS\s*=\s*\{([^}]*)\}/', $code, $m);
+        preg_match_all('/(\w+):\s*true/', $m[1], $ops);
+        self::assertSame(
+            \Semitexa\PlatformUi\Domain\Model\Event\UiResponsePatch::ALLOWED_OPS,
+            $ops[1],
+            'the client applies exactly what the server may send',
+        );
         // Banned ops must not appear as allowed keys.
         self::assertStringNotContainsString('setHtml:', $code);
         self::assertStringNotContainsString('execute:', $code);
@@ -407,8 +434,9 @@ final class EventRuntimeAssetTest extends TestCase
             $code,
             'Canonical typed `ui.patch` must route through the shared safe applier.',
         );
-        // And no parallel innerHTML/eval/Function/etc.
-        self::assertStringNotContainsString('innerHTML', $code);
+        // And no parallel HTML door: innerHTML only in parseHtml.
+        // verify:accept-test-change see patch_applier_uses_safe_dom_apis_only — one inert <template> door
+        self::assertSame(1, substr_count($code, 'innerHTML'));
         self::assertStringNotContainsString('eval(', $code);
     }
 
@@ -638,11 +666,13 @@ final class EventRuntimeAssetTest extends TestCase
             $code,
             'Drain opener must bail when streamedPatchCount is not positive.',
         );
-        // Drain URL carries mode=drain through the shared builder.
+        // Drain URL carries mode=drain through the shared builder, built at
+        // open time (a drain reopens for every streamed answer).
         self::assertMatchesRegularExpression(
-            '/attachSse\(\s*\{\s*url:\s*buildKissUrl\(\s*sessionId\s*,\s*SSE_TRANSPORT_MODE_DRAIN\s*\)\s*\}\s*\)/',
+            '/drainUrl\s*=\s*function\s*\(\)\s*\{\s*return\s+buildKissUrl\(\s*sessionId\s*,\s*SSE_TRANSPORT_MODE_DRAIN\s*\)/',
             $code,
         );
+        self::assertMatchesRegularExpression('/attachSse\(\s*\{\s*url:\s*drainUrl\(\)\s*\}\s*\)/', $code);
     }
 
     #[Test]
@@ -670,6 +700,14 @@ final class EventRuntimeAssetTest extends TestCase
         self::assertMatchesRegularExpression(
             "/source\\.addEventListener\\(\\s*['\"]close['\"](?:.|\\n)+?ATTACHED_SSE_CONNECTIONS\\.splice/s",
             $code,
+        );
+        // …and BEFORE the close is announced: a drain listener reopening the
+        // same URL from inside that event was de-duplicated against the dying
+        // connection, and every later streamed answer waited forever.
+        self::assertMatchesRegularExpression(
+            "/source\\.addEventListener\\(\\s*['\"]close['\"](?:(?!semitexa:ui-sse:close).)+?ATTACHED_SSE_CONNECTIONS\\.splice(?:.)+?semitexa:ui-sse:close/s",
+            $code,
+            'The closed connection must leave the table before semitexa:ui-sse:close fires.',
         );
     }
 
@@ -952,5 +990,21 @@ final class EventRuntimeAssetTest extends TestCase
             $primaryPos,
             'data-ui-part lookup must precede ui="…" fallback in findPartElement().',
         );
+    }
+
+    #[Test]
+    public function the_loading_grammar_is_a_fixed_effect_set_and_never_sets_handlers(): void
+    {
+        // tk-la-loading: `ui-loading` is markup any template can carry, so its
+        // effects are a closed set and addAttribute can never create an event
+        // handler attribute (onclick=…).
+        $code = $this->jsCode();
+        self::assertMatchesRegularExpression(
+            '/var LOADING_EFFECTS = \{ show: 1, hide: 1, addClass: 1, removeClass: 1, addAttribute: 1, removeAttribute: 1 \};/',
+            $code,
+        );
+        self::assertStringContainsString("var LOADING_ATTR_RE = /^(?!on)[a-z][a-z0-9-]*$/;", $code);
+        // The action's own answer — success, failure or a network error — ends it.
+        self::assertSame(2, substr_count($code, 'endLoading(loading);'));
     }
 }

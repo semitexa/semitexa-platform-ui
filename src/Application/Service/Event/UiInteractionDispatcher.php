@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Event;
 
+use Semitexa\PlatformUi\Application\Service\State\UiComponentStates;
 use Closure;
 use ReflectionClass;
 use Semitexa\Core\Environment;
@@ -23,6 +24,9 @@ use Semitexa\PlatformUi\Domain\Model\Component\UiExternalHandlerMetadata;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventContext;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionEvent;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult;
+use Semitexa\PlatformUi\Application\Service\Url\UiUrlBindings;
+use Semitexa\PlatformUi\Domain\Model\Event\UiResponsePatch;
+use Semitexa\Ssr\Application\Service\UiEvent\UiSseSessionState;
 use Semitexa\Ssr\Application\Service\UiEvent\SignedContext;
 use Throwable;
 
@@ -127,6 +131,25 @@ final class UiInteractionDispatcher
 
     private readonly UiInteractionDispatchAdapter $responseAdapter;
 
+    /**
+     * Renders a component to HTML — how a `rerender` effect becomes a `morph`.
+     * Production binds ssr's ComponentHtmlRenderer; null leaves rerender
+     * unavailable (the validator then refuses it as unresolved).
+     *
+     * @var Closure(string, array<string, mixed>): string|null
+     */
+    private readonly ?Closure $componentRenderer;
+
+    /**
+     * Fills a component's #[InjectAsReadonly] properties before its #[UiOn]
+     * handler runs, so a handler reaches the services it needs the way any
+     * other edge object does. Production binds the container's property
+     * injector; null leaves components as plain reflected instances.
+     *
+     * @var Closure(object): void|null
+     */
+    private readonly ?Closure $componentInjector;
+
     public function __construct(
         private readonly UiPayloadFieldGuard $payloadGuard = new UiPayloadFieldGuard(),
         private readonly UiPatchValidator $patchValidator = new UiPatchValidator(),
@@ -136,7 +159,11 @@ final class UiInteractionDispatcher
         ?UiFieldRuleRegistryInterface $ruleRegistry = null,
         ?Closure $handlerResolver = null,
         ?UiInteractionDispatchAdapter $responseAdapter = null,
+        ?Closure $componentRenderer = null,
+        ?Closure $componentInjector = null,
     ) {
+        $this->componentRenderer = $componentRenderer;
+        $this->componentInjector = $componentInjector;
         $this->productionLike = $productionLike ?? self::detectProductionLikeFromEnv();
         $this->ruleRegistry = $ruleRegistry;
         $this->handlerResolver = $handlerResolver;
@@ -193,6 +220,9 @@ final class UiInteractionDispatcher
 
         $componentName = $this->stringClaim($claims, 'c');
         $instanceId    = $this->stringClaim($claims, 'i');
+
+        // State kept on the server (`st`) becomes this instance's props (`pr`).
+        $claims = UiComponentStates::intoClaims($claims, $instanceId);
         $partName      = $this->stringClaim($claims, 'p');
         $eventName     = $this->stringClaim($claims, 'e');
         $issuedAt      = $this->intClaim($claims, 'iat');
@@ -350,6 +380,8 @@ final class UiInteractionDispatcher
             $rawResult,
             $instanceId,
             $this->collectSignedAuxInstances($config, $instanceId),
+            $componentName,
+            $claims,
         );
     }
 
@@ -364,22 +396,30 @@ final class UiInteractionDispatcher
         UiInteractionEvent $event,
     ): mixed {
         $instance = $this->instantiate($binding->class);
+        if ($this->componentInjector !== null) {
+            ($this->componentInjector)($instance);
+        }
 
         // Components that opt into rule-registry-aware validation
         // (via UsesUiFieldRuleRegistry) receive the active registry
         // before their handler runs. This is the documented
         // transitional bridge for components that are instantiated
         // by reflection — once Semitexa lands DI-managed component
-        // instances, the bridge can drop and components can use
-        // #[InjectAsReadonly] directly.
+        // instances, the bridge can drop: components already receive
+        // #[InjectAsReadonly] properties through the component injector.
         if ($instance instanceof UsesUiFieldRuleRegistry) {
             $instance = $instance->withFieldRuleRegistry(
                 $this->ruleRegistry ?? UiFieldRuleRegistry::getActive(),
             );
         }
 
+        // #[UiState]: the properties hold the state as last saved; a change
+        // the handler leaves behind is drawn — the component re-rendered with
+        // it, which also saves it.
+        $before = UiComponentStates::hydrate($instance, $event->props());
+
         try {
-            return $instance->{$binding->methodName}($event);
+            return UiComponentStates::withChanges($instance->{$binding->methodName}($event), $event->instanceId, $before, UiComponentStates::snapshot($instance));
         } catch (UiInteractionException $e) {
             throw $e;
         } catch (Throwable $e) {
@@ -455,7 +495,7 @@ final class UiInteractionDispatcher
             );
         }
 
-        return $this->responseAdapter->toInteractionResult($response);
+        return $this->responseAdapter->toInteractionResult($response, $event->instanceId);
     }
 
     /**
@@ -548,8 +588,11 @@ final class UiInteractionDispatcher
         mixed $raw,
         string $signedInstance,
         array $additionalAllowedInstances = [],
+        string $componentName = '',
+        array $claims = [],
     ): UiInteractionResult {
         if ($raw instanceof UiInteractionResult) {
+            $raw = $this->resolveRerenders($raw, $signedInstance, $componentName, $claims);
             if ($raw->patches !== []) {
                 $this->patchValidator->validateAll(
                     $raw->patches,
@@ -569,5 +612,69 @@ final class UiInteractionDispatcher
             'invalid_handler_return',
             'Handler must return void, an array, or a UiInteractionResult.',
         );
+    }
+
+    /**
+     * Turn every `rerender` into a `morph`: render the signed component again
+     * with the props it was rendered with (the `pr` claim) and the handler's
+     * overrides, keeping its instance id so the browser morphs it in place.
+     * Only the signed instance can be re-rendered — its props are the only
+     * ones this request can vouch for.
+     *
+     * @param array<string, mixed> $claims
+     */
+    private function resolveRerenders(UiInteractionResult $result, string $signedInstance, string $componentName, array $claims): UiInteractionResult
+    {
+        $changed = false;
+        $resolved = [];
+        foreach ($result->patches as $patch) {
+            if (!$patch instanceof UiResponsePatch || $patch->op !== UiResponsePatch::OP_RERENDER) {
+                $resolved[] = $patch;
+                continue;
+            }
+            if ($patch->targetInstance !== $signedInstance || $this->componentRenderer === null || $componentName === '') {
+                $resolved[] = $patch; // the validator refuses it as unresolved_rerender
+                continue;
+            }
+            $signedProps = is_array($claims['pr'] ?? null) ? $claims['pr'] : [];
+            $overrides = is_array($patch->args['props'] ?? null) ? $patch->args['props'] : [];
+            $props = array_merge($signedProps, $overrides, ['instanceId' => $signedInstance]);
+            $resolved[] = UiResponsePatch::morph($signedInstance, $this->renderAsPage($componentName, $props, $claims));
+            // #[UiUrl] props that changed follow into the address bar.
+            $url = UiUrlBindings::effectFor($componentName, $signedInstance, $signedProps, $props);
+            if ($url !== null) {
+                $resolved[] = $url;
+            }
+            $changed = true;
+        }
+
+        return $changed ? UiInteractionResult::patch($resolved, $result->debug)->dispatching(...$result->domainEvents) : $result;
+    }
+
+    /**
+     * Render inside the page's own KISS session, as the deferred-render
+     * pipeline does: the re-rendered manifest must carry the page's `sub`
+     * claim, or every later event of this instance would lose its stream.
+     *
+     * @param array<string, mixed> $props
+     * @param array<string, mixed> $claims
+     */
+    private function renderAsPage(string $componentName, array $props, array $claims): string
+    {
+        assert($this->componentRenderer !== null);
+        $pageSession = is_string($claims['sub'] ?? null) ? $claims['sub'] : null;
+        $previous = UiSseSessionState::current();
+        if ($pageSession !== null) {
+            UiSseSessionState::restore($pageSession);
+        }
+        try {
+            return ($this->componentRenderer)($componentName, $props);
+        } finally {
+            if ($previous !== null) {
+                UiSseSessionState::restore($previous);
+            } else {
+                UiSseSessionState::reset();
+            }
+        }
     }
 }

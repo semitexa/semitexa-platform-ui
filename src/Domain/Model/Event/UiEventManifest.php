@@ -44,4 +44,23 @@ final readonly class UiEventManifest
             ),
         ];
     }
+
+    /**
+     * The manifest as the page carries it: an inert JSON <script> the event
+     * runtime scans. `data-ui-patch-target="event-manifest"` lets a server
+     * effect swap it for a re-signed one (a form re-armed after a submit).
+     */
+    public function toScriptHtml(): string
+    {
+        $json = json_encode($this->toJsonShape(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        // `</script>` inside JSON would break the parser; encode the closing-tag sequence defensively.
+        $json = str_replace('</', '<\\/', $json);
+
+        return sprintf(
+            '<script type="application/json" data-ui-event-manifest="%s" data-ui-component="%s" data-ui-patch-target="event-manifest">%s</script>',
+            htmlspecialchars($this->instanceId, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+            htmlspecialchars($this->componentName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+            $json,
+        );
+    }
 }

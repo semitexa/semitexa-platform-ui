@@ -22,14 +22,11 @@ The accepted component lifecycle is:
 
 `semitexa/ssr` already provides an important prototype:
 
-- `#[AsComponent]` with `name`, `template`, `layout`, `cacheable`, `event`, `triggers`, and `script`;
+- `#[AsComponent]` with `name`, `template`, `layout`, `cacheable`, and `script` (the `event`/`triggers` pair was retired 2026-10-05 for `#[UiOn]`);
 - `ComponentRegistry`;
 - `ComponentRenderer`;
 - `component()` Twig function;
 - `slot()` Twig function;
-- `component_event_attrs()` Twig function;
-- signed event manifests through `ComponentEventBridge`;
-- delegated browser events through `component-events.js`;
 - frontend behavior mounting through `component-runtime.js`;
 - asset-key loading through `AssetCollector`.
 

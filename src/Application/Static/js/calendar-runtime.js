@@ -1,16 +1,17 @@
 /*
  * platform.calendar runtime.
  *
- * Discovers `[data-ui-calendar]` shells, opens a held-open EventSource on the
- * events feed for the visible month range (first frame = initial events, later
- * frames = live re-runs the ORM auto-publishes on any create/update/delete),
+ * Mounts every `[data-ui-calendar]` shell (core.mount), subscribes the events
+ * feed for the visible month on the page's KISS stream (first frame = initial
+ * events, later frames = live re-runs the ORM auto-publishes on any
+ * create/update/delete),
  * and renders a month grid + selected-day agenda + a create/edit editor.
  * Mutations POST to the save/delete routes. Month-start = Monday.
  */
 // ES module: shared helpers arrive through the import map ('platform-ui/*'
 // -> fingerprinted URLs) — import order guarantees both are initialized
 // before this executes; no manual load-order contract to uphold.
-import { esc, fetchJson, openFeedChannel } from 'platform-ui/core';
+import { esc, fetchJson, openFeedChannel, mount } from 'platform-ui/core';
 import {
   WEEKDAYS, MONTHS, ymd, hm, startOfDay, addDays, startOfMonth,
   mondayIndex, gridDays, localDatetimeValue
@@ -22,34 +23,9 @@ import {
   if (window.SemitexaUi.calendar) return;
   window.SemitexaUi.calendar = { version: 1 };
 
-  // Every calendar this module has booted, so the ones a navigation removed
-  // can be let go of. See onNavigationCommitted() below.
-  var booted = [];
-
-  function boot() {
-    var nodes = document.querySelectorAll('[data-ui-calendar]');
-    for (var i = 0; i < nodes.length; i++) initCalendar(nodes[i]);
-  }
-
-  /**
-   * A shell navigation replaces a region's markup, and this module has already
-   * run: its module script will not execute again, and boot() only ever fired
-   * on DOMContentLoaded. So a calendar that ARRIVES by swap was never
-   * initialised — an inert grid with no events in it — while the calendar that
-   * LEFT kept its feed channel open against a node no longer in the document.
-   *
-   * boot() is idempotent (the per-element flag), so the whole lifecycle is:
-   * release what has detached, then boot what is here.
-   */
-  function onNavigationCommitted() {
-    booted = booted.filter(function (entry) {
-      if (document.contains(entry.root)) return true;
-      try { entry.release(); } catch (e) { /* a teardown must not block the next one */ }
-      return false;
-    });
-
-    boot();
-  }
+  // Teardown per root; the one element lifecycle (core.mount) calls it when
+  // the root leaves the page — a navigation swap, a morph, a removal.
+  var releaseOf = new WeakMap();
 
   function initCalendar(root) {
     if (root.__uicalBooted) return;
@@ -72,17 +48,14 @@ import {
     root.classList.add('uical');
     root.addEventListener('click', onClick);
     root.addEventListener('submit', onSubmit);
-    booted.push({
-      root: root,
-      release: function () {
-        // The FLAG, not just the close. An in-flight fetchJson can resolve
-        // after this calendar has been detached and released, and its
-        // continuation calls load() — which opens a NEW channel on a root
-        // nobody holds a registry entry for any more, so no later navigation
-        // can ever close it.
-        S.released = true;
-        if (S.channel) { S.channel.close(); S.channel = null; }
-      }
+    releaseOf.set(root, function () {
+      // The FLAG, not just the close. An in-flight fetchJson can resolve
+      // after this calendar has been detached and released, and its
+      // continuation calls load() — which opens a NEW channel on a root
+      // nobody holds a registry entry for any more, so no later navigation
+      // can ever close it.
+      S.released = true;
+      if (S.channel) { S.channel.close(); S.channel = null; }
     });
     render();
     load();
@@ -351,8 +324,16 @@ import {
     }
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-  else boot();
-
-  document.addEventListener('semitexa:navigation:committed', onNavigationCommitted);
+  mount('[data-ui-calendar]', {
+    connect: function (root) {
+      initCalendar(root);
+      var release = releaseOf.get(root);
+      return {
+        destroy: function () {
+          root.__uicalBooted = false;
+          if (release) { try { release(); } catch (e) { /* a teardown must not block the next one */ } }
+        }
+      };
+    }
+  });
 })();

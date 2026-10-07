@@ -38,7 +38,6 @@ final class CollabManifestBuilder
     public const SCHEMA_VERSION = 1;
     /** The form-document feed's route name; HUG subscribes it onto KISS. */
     public const FEED = 'platform-ui.form-doc';
-    public const EVENT_URL = '/__semitexa_hug';
     public const HEARTBEAT_MS = 15000;
 
     /**
@@ -93,7 +92,6 @@ final class CollabManifestBuilder
             'self'        => self::resolveSelf($instanceId),
             'feed'        => self::FEED,
             'feedCtx'     => $feedCtx,
-            'eventUrl'    => self::EVENT_URL,
             'events'      => $events,
             'fields'      => array_values(array_map(static fn ($f): string => (string) $f, $fields)),
             'heartbeatMs' => self::HEARTBEAT_MS,
