@@ -16,7 +16,7 @@
 {%- set _summary = _points is empty ? 'No data.' : (_points|first).label ~ ' to ' ~ (_points|last).label ~ ': from ' ~ (_points|first).value ~ ' to ' ~ (_points|last).value ~ ', highest ' ~ max(_values) ~ '.' -%}
 <figure data-ui-component="platform.chart" ui-component="chart" ui-chart-kind="{{ _kind }}">
     {%- if showTitle|default(false) %}<figcaption ui-chart="title">{{ title }}</figcaption>{% endif -%}
-    <svg ui-chart="svg" viewBox="0 0 {{ _w }} {{ _h }}" preserveAspectRatio="none" role="img" aria-label="{{ title }}. {{ _summary }}" style="height:{{ _h }}px;" focusable="false">
+    <svg ui-chart="svg" viewBox="0 0 {{ _w }} {{ _h }}" preserveAspectRatio="none" role="img" aria-label="{{ title }}. {{ _summary }}" height="{{ _h }}" focusable="false">
         {%- if _kind == 'bars' -%}
             {%- for bar in _shape -%}
                 <rect ui-chart="bar" x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.width }}" height="{{ bar.height }}" rx="1"><title>{{ _points[loop.index0].label }}: {{ _points[loop.index0].value }}</title></rect>
