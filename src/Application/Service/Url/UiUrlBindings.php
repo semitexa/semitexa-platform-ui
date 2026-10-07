@@ -17,6 +17,9 @@ final class UiUrlBindings
 {
     private const IDENTIFIER = '/\A[A-Za-z_][A-Za-z0-9_-]{0,63}\z/';
 
+    /** What UiPatchValidator accepts for one url param, in bytes. */
+    public const MAX_VALUE_BYTES = 512;
+
     /** @var array<string, list<UiUrl>> class → bindings (worker-lifetime cache of reflection) */
     private static array $byClass = [];
 
@@ -135,7 +138,9 @@ final class UiUrlBindings
         }
         $string = is_bool($value) ? ($value ? '1' : '0') : (string) $value;
 
-        return $string === '' ? null : mb_substr($string, 0, $binding->maxLength);
+        // maxLength counts characters, the url patch is limited in bytes:
+        // cap both, cutting on a UTF-8 boundary.
+        return $string === '' ? null : mb_strcut(mb_substr($string, 0, $binding->maxLength), 0, self::MAX_VALUE_BYTES);
     }
 
     private static function assertDeclaration(string $class, UiUrl $binding): void

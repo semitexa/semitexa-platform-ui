@@ -85,6 +85,21 @@ final class UiUrlBindingsTest extends TestCase
         $this->expectExceptionMessageMatches('/history must be/');
         UiUrlBindings::forClass(UrlBadFixture::class);
     }
+
+    #[Test]
+    public function a_multibyte_value_is_capped_in_bytes_on_a_character_boundary(): void
+    {
+        UiComponentRegistry::register((new UiComponentMetadataFactory())->fromClass(UrlWideFixture::class));
+        $emoji = str_repeat("\u{1F600}", 200); // 200 characters, 800 bytes
+
+        $effect = UiUrlBindings::effectFor('url.wide', 'uci_url_test_00000002', ['query' => ''], ['query' => $emoji]);
+
+        self::assertNotNull($effect);
+        $value = $effect->args['params']['q'];
+        self::assertLessThanOrEqual(UiUrlBindings::MAX_VALUE_BYTES, strlen($value), 'UiPatchValidator refuses a value over 512 bytes');
+        self::assertSame(1, preg_match('//u', $value), 'still valid UTF-8');
+        self::assertSame(str_repeat("\u{1F600}", 128), $value);
+    }
 }
 
 #[AsComponent(name: 'url.search', template: '@platform-ui/components/runtime/field.html.twig')]
@@ -92,6 +107,12 @@ final class UiUrlBindingsTest extends TestCase
 #[UiUrl(prop: 'page', type: 'int', min: 1, except: 1, history: 'push')]
 #[UiUrl(prop: 'sort', values: ['top', 'new'])]
 final class UrlSearchFixture
+{
+}
+
+#[AsComponent(name: 'url.wide', template: '@platform-ui/components/runtime/field.html.twig')]
+#[UiUrl(prop: 'query', as: 'q', maxLength: 512)]
+final class UrlWideFixture
 {
 }
 
