@@ -1,0 +1,33 @@
+{#
+ # platform.command-palette — Ctrl+K / ⌘K. Props: id, placeholder, trigger, hotkey.
+ # The <dialog> opens natively from any <button commandfor="{id}" command="show-modal">.
+ #}
+{{ asset_require('platform-ui:js:command-palette') }}{{ asset_require('platform-ui:css:command-palette') }}
+{%- set _ui_instance = ui_component_instance() -%}
+{%- set _id = id|default('command-palette') -%}
+<div data-ui-component="platform.command-palette" data-ui-component-instance-id="{{ _ui_instance }}" data-ui-command-palette{% if hotkey ?? true %} data-ui-command-hotkey{% endif %}>
+    {%- if trigger ?? true %}
+    <button type="button" ui-command-trigger commandfor="{{ _id }}" command="show-modal" aria-haspopup="dialog">
+        {{ icon('search', {size: 16}) }}<span>Search…</span>{{ primitive('kbd', {keys: ['Ctrl', 'K']}) }}
+    </button>
+    {%- endif %}
+    <dialog id="{{ _id }}" ui-command-dialog aria-label="Command palette">
+        <div ui-command-search>
+            {{ icon('search', {size: 18}) }}
+            <input data-ui-part="query" type="text" role="combobox" aria-expanded="true" aria-controls="{{ _id }}-list" aria-autocomplete="list" autocomplete="off" spellcheck="false" placeholder="{{ placeholder|default('Search or jump to…') }}" aria-label="{{ placeholder|default('Search or jump to…') }}">
+            {{ primitive('kbd', {keys: ['Esc']}) }}
+        </div>
+        <div id="{{ _id }}-list" role="listbox" aria-label="Commands" ui-command-list>
+            <div role="group" aria-label="Recent" ui-command-section="recent"></div>
+            <div role="group" aria-label="On this page" ui-command-section="page"></div>
+            <div data-ui-patch-target="server-results" data-query=""></div>
+            <p ui-command-empty hidden>Nothing matches.</p>
+        </div>
+        <footer ui-command-footer ui-text="muted">
+            <span>{{ primitive('kbd', {keys: ['↑']}) }} {{ primitive('kbd', {keys: ['↓']}) }} move</span>
+            <span>{{ primitive('kbd', {keys: ['Enter']}) }} open</span>
+            <span>{{ primitive('kbd', {keys: ['Esc']}) }} close</span>
+        </footer>
+    </dialog>
+    {{ ui_event_manifest(_ui_instance) }}
+</div>

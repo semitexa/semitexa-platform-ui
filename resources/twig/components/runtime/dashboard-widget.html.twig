@@ -1,0 +1,31 @@
+{#
+ # platform.dashboard-widget — one widget of a dashboard, computed when drawn.
+ # Props: dashboard, widget (the id platform.dashboard laid out).
+ #}
+{%- set w = ui_dashboard_widget(dashboard, widget) -%}
+<div ui-dashboard="body">
+    {%- if w is null -%}
+        <p ui-text="muted" ui-dashboard="unavailable">This widget is unavailable right now.</p>
+    {%- elseif w.kind == 'stat' -%}
+        {%- set _visual -%}
+            {%- if w.props.points is not empty %}{{ component('platform.chart', {title: w.title ~ ' trend', points: w.props.points, kind: 'line', height: 32}) }}{% endif -%}
+        {%- endset -%}
+        {{ component('platform.stat', {label: w.props.label, value: w.props.value, delta: w.props.delta, trend: w.props.trend, caption: w.props.caption}) }}
+        {{ _visual|raw }}
+    {%- elseif w.kind == 'list' -%}
+        <h2 ui-dashboard="title">{{ w.title }}</h2>
+        {% set _empty %}<p ui-text="muted" style="margin:0;">{{ w.props.empty }}</p>{% endset %}
+        {{ component('platform.list', {items: w.props.items}, {empty: _empty}) }}
+    {%- else -%}
+        <h2 ui-dashboard="title">{{ w.title }}</h2>
+        {{ component('platform.chart', {title: w.title, points: w.props.points, kind: w.props.kind, height: 72}) }}
+        {%- if w.props.kind == 'bars' and w.props.points is not empty -%}
+            <ul ui-dashboard="legend">
+                {%- for p in w.props.points %}<li><span>{{ p.label }}</span> <strong>{{ p.value }}</strong></li>{% endfor -%}
+            </ul>
+        {%- endif -%}
+    {%- endif -%}
+    {%- if w is not null and w.href -%}
+        <a ui-dashboard="more" href="{{ ui_href(w.href) }}">{{ w.linkText ?? ('Open ' ~ w.title|lower) }} →</a>
+    {%- endif -%}
+</div>

@@ -1,0 +1,30 @@
+{#- platform.sign-in — props: submitAction, identifier (email|username), title, forgotHref, signUpHref, remember. -#}
+{%- set _by_email = identifier|default('email') == 'email' -%}
+{% set _fields %}
+    {{ component('platform.field', {
+        label: _by_email ? 'Email' : 'Username', name: _by_email ? 'email' : 'username',
+        required: true, showValidationTarget: true, rules: ['required'],
+        inputProps: {type: _by_email ? 'email' : 'text', autocomplete: _by_email ? 'email' : 'username', autofocus: true},
+    }) }}
+    {{ component('platform.field', {
+        label: 'Password', name: 'password',
+        required: true, showValidationTarget: true, rules: ['required'],
+        inputProps: {type: 'password', autocomplete: 'current-password'},
+    }) }}
+    {% if remember ?? true %}
+        {{ component('platform.field', {checkboxLabel: 'Keep me signed in', name: 'remember', control: 'switch'}) }}
+    {% endif %}
+{% endset %}
+<div data-ui-component="platform.sign-in" ui-auth-form sx-layout="stack" sx-gap="4">
+    <h1 ui-text="title" style="font-size:1.375rem;margin:0;">{{ title|default('Sign in') }}</h1>
+    {{ component('platform.form', {
+        showStatus: true, statusInitialMessage: '', showSubmit: true, submitText: 'Sign in',
+        autoFields: true, submitAction: submitAction, ariaLabel: title|default('Sign in'),
+    }, {content: _fields}) }}
+    {% if forgotHref|default('') or signUpHref|default('') %}
+        <div ui-auth-links>
+            {% if forgotHref|default('') %}<a href="{{ forgotHref }}">Forgot your password?</a>{% endif %}
+            {% if signUpHref|default('') %}<a href="{{ signUpHref }}">Create an account</a>{% endif %}
+        </div>
+    {% endif %}
+</div>

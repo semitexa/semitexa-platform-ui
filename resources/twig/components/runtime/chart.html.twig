@@ -1,0 +1,35 @@
+{#
+ # platform.chart — a small SVG chart, drawn on the server. No events, no script.
+ #
+ # Props: title (accessible name), points [{label, value}], kind (line|bars),
+ # height (px, default 48), showTitle (default false).
+ #
+ # The SVG is an image with a name and a one-line summary; the numbers are a
+ # visually hidden table, so a screen reader can read them one by one.
+ #}
+{%- set _points = points|default([]) -%}
+{%- set _kind = kind|default('line') == 'bars' ? 'bars' : 'line' -%}
+{%- set _h = height|default(48) -%}
+{%- set _w = 120 -%}
+{%- set _values = _points|map(p => p.value|default(0)) -%}
+{%- set _shape = ui_chart(_values, _kind, _w, _h) -%}
+{%- set _summary = _points is empty ? 'No data.' : (_points|first).label ~ ' to ' ~ (_points|last).label ~ ': from ' ~ (_points|first).value ~ ' to ' ~ (_points|last).value ~ ', highest ' ~ max(_values) ~ '.' -%}
+<figure data-ui-component="platform.chart" ui-component="chart" ui-chart-kind="{{ _kind }}">
+    {%- if showTitle|default(false) %}<figcaption ui-chart="title">{{ title }}</figcaption>{% endif -%}
+    <svg ui-chart="svg" viewBox="0 0 {{ _w }} {{ _h }}" preserveAspectRatio="none" role="img" aria-label="{{ title }}. {{ _summary }}" style="height:{{ _h }}px;" focusable="false">
+        {%- if _kind == 'bars' -%}
+            {%- for bar in _shape -%}
+                <rect ui-chart="bar" x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.width }}" height="{{ bar.height }}" rx="1"><title>{{ _points[loop.index0].label }}: {{ _points[loop.index0].value }}</title></rect>
+            {%- endfor -%}
+        {%- elseif _shape.path != '' -%}
+            <path ui-chart="area" d="{{ _shape.area }}"/>
+            <path ui-chart="line" d="{{ _shape.path }}" vector-effect="non-scaling-stroke"/>
+        {%- endif -%}
+    </svg>
+    <table ui-chart="data">
+        <caption>{{ title }}</caption>
+        <tbody>
+        {%- for point in _points %}<tr><th scope="row">{{ point.label }}</th><td>{{ point.value }}</td></tr>{% endfor -%}
+        </tbody>
+    </table>
+</figure>

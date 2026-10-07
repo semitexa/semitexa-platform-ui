@@ -1,5 +1,6 @@
 {#
- # platform.calendar — the endpoint-pointer calendar shell.
+ # platform.calendar (CalendarComponent) — the endpoint-pointer calendar shell.
+ # Render it with {{ component('platform.calendar', { endpoint: … }) }}.
  #
  # calendar-runtime.js discovers this root via `[data-ui-calendar]`, subscribes
  # the feed named `data-ui-calendar-feed` on the page's KISS stream for the
@@ -29,6 +30,7 @@
 {{ asset_require('platform-ui:js:calendar-runtime') }}{{ asset_require('platform-ui:css:calendar') }}
 <div
     data-ui-component="platform.calendar"
+    {% if _component_id is defined %}data-ui-component-instance-id="{{ _component_id }}"{% endif %}
     data-ui-calendar="1"
     data-ui-calendar-endpoint="{{ _cal_endpoint }}"
     data-ui-calendar-feed="{{ _cal_feed }}"

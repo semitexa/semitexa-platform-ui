@@ -1,5 +1,6 @@
 {#
- # platform.grid-v2 — One Way Phase 3: the endpoint-pointer grid shell.
+ # platform.grid (GridComponent) — the endpoint-pointer grid shell. Render it
+ # with {{ component('platform.grid', { endpoint: … }) }}.
  #
  # The metadata-driven runtime (grid-runtime-v2.js) discovers this root via
  # `[data-ui-grid-v2]`, calls `OPTIONS` on `data-ui-grid-endpoint`, and builds
@@ -14,26 +15,50 @@
  #                  overlay, used only until the contract serves `ui.actions`;
  #                  the runtime prefers the contract block when present)
  #   emptyMessage  (optional string)
+ #   rowActions    (optional list — a column of per-row actions:
+ #                  {label, href} links, or {label, route, method?, confirm?}
+ #                  buttons; `{field}` placeholders take the row's values, a
+ #                  `confirm` text asks in a native modal dialog first)
+ #   serverActions (optional list<{id, label, scopes: [row|bulk|header],
+ #                  confirm?, tone?}> — actions run on the server through HUG
+ #                  by the #[AsGridAction] named in `actionHandler`; both are
+ #                  signed into this grid's event context. A `bulk` action
+ #                  adds row selection and a bulk bar; `{count}` in a bulk
+ #                  confirm text is the number selected)
+ #   actionHandler (the #[AsGridAction] name; required with serverActions)
+ #   urlState      (optional namespace, e.g. 'leads' — keep the view in the
+ #                  address bar as leads-q / -sort / -filter / -perPage / -page:
+ #                  restored and validated on load, rewritten after each render)
  #}
 {%- set _grid_v2_id       = gridId|default('grid') -%}
 {%- set _grid_v2_endpoint = endpoint|default('') -%}
 {%- set _grid_v2_actions  = actions|default([]) -%}
 {%- set _grid_v2_empty    = emptyMessage|default('No rows.') -%}
+{%- set _grid_v2_row_actions = rowActions|default([]) -%}
+{%- set _grid_v2_server_actions = serverActions|default([]) -%}
+{%- set _grid_v2_instance = _grid_v2_server_actions|length > 0 ? ui_component_instance() : null -%}
+{%- set _grid_v2_url      = urlState|default('') matches '/^[A-Za-z][A-Za-z0-9_]{0,23}$/' ? urlState : '' -%}
 {# The runtime this markup needs, required by the markup itself. It used to be
    scope=global, so every page in the application downloaded and parsed 54 KB
    of grid runtime whether or not it had a grid. #}
 {{ asset_require('platform-ui:js:grid-runtime-v2') }}
-{# A live grid rides the page's one KISS stream, so the grid brings the page's
-   KISS session with it (idempotent: one id per page however many grids). #}
-{{ ui_page_sse_session_meta() }}
+{# A live grid rides the page's one KISS stream, so the grid asks for the
+   page's KISS session — announced, not printed: it lands in <head> once
+   however many grids (or islands) the page holds. #}
+{{- ui_page_live_channel() -}}
 <div
-    data-ui-component="platform.grid-v2"
+    data-ui-component="platform.grid"
+    {% if _grid_v2_instance %}data-ui-component-instance-id="{{ _grid_v2_instance }}"{% elseif _component_id is defined %}data-ui-component-instance-id="{{ _component_id }}"{% endif %}
     data-ui-grid-v2="{{ _grid_v2_id }}"
     data-ui-grid-endpoint="{{ _grid_v2_endpoint }}"
     data-ui-grid-empty="{{ _grid_v2_empty }}"
+    {% if _grid_v2_url != '' %}data-ui-grid-url="{{ _grid_v2_url }}"{% endif %}
     {% if _grid_v2_actions|length > 0 %}data-ui-grid-actions="{{ _grid_v2_actions|json_encode }}"{% endif %}
+    {% if _grid_v2_row_actions|length > 0 %}data-ui-grid-row-actions="{{ _grid_v2_row_actions|json_encode }}"{% endif %}
+    {% if _grid_v2_instance %}data-ui-grid-server-actions="{{ _grid_v2_server_actions|json_encode }}"{% endif %}
     sx-layout="stack" sx-gap="2"
 >
+    {% if _grid_v2_instance %}{{ ui_event_manifest(_grid_v2_instance) }}{% endif %}
     <noscript>
         <p ui-text="muted">This grid needs JavaScript. The raw feed is at
             <a href="{{ _grid_v2_endpoint }}">{{ _grid_v2_endpoint }}</a>.</p>

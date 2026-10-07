@@ -1,0 +1,29 @@
+{#
+ # @platform-ui/pages/settings.html.twig — a settings page inside the app shell:
+ # section links beside the current section's content.
+ #
+ #   {% embed '@platform-ui/pages/settings.html.twig' with {
+ #       sections: [{key: 'profile', label: 'Profile', href: '/settings/profile', icon: 'user'}, …],
+ #       current: 'profile', title: 'Settings',
+ #   } %}
+ #       {% block section %} … the forms of this section … {% endblock %}
+ #   {% endembed %}
+ #}
+<div ui-settings sx-layout="stack" sx-gap="5">
+    <header sx-layout="stack" sx-gap="1">
+        <h1 ui-text="title" style="font-size:1.75rem;margin:0;">{{ title|default('Settings') }}</h1>
+        {% if description|default('') %}<p ui-text="muted" style="margin:0;">{{ description }}</p>{% endif %}
+    </header>
+    <div ui-settings-body>
+        <nav ui-settings-nav aria-label="{{ title|default('Settings') }}">
+            {% for section in sections|default([]) %}
+                <a href="{{ section.href }}"{% if section.key == current|default('') %} aria-current="page"{% endif %}>
+                    {{- icon(section.icon|default('circle'), {size: 16}) -}}<span>{{ section.label }}</span>
+                </a>
+            {% endfor %}
+        </nav>
+        <div ui-settings-content sx-layout="stack" sx-gap="5">
+            {% block section %}{% endblock %}
+        </div>
+    </div>
+</div>

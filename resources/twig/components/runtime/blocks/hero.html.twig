@@ -1,0 +1,15 @@
+{#- platform.block-hero — props: title, eyebrow, lead, align (start|center), headingLevel (1|2), actions. Slot: media. -#}
+{{- asset_require('platform-ui:css:blocks') -}}
+{%- set _media = slot('media')|trim -%}
+{%- set _h = (headingLevel ?? 1) == 2 ? 'h2' : 'h1' -%}
+<section data-ui-component="platform.block-hero" ui-block="hero" ui-align="{{ (align ?? 'start') == 'center' ? 'center' : 'start' }}"{% if _media %} ui-has-media{% endif %}>
+    <div ui-block-inner>
+        <div ui-hero-text>
+            {%- if (eyebrow ?? '') != '' %}<p ui-hero-eyebrow>{{ eyebrow }}</p>{% endif %}
+            <{{ _h }} ui-hero-title>{{ title }}</{{ _h }}>
+            {%- if (lead ?? '') != '' %}<p ui-hero-lead>{{ lead }}</p>{% endif %}
+            {{ include('@platform-ui/components/runtime/blocks/_actions.html.twig', {actions: actions ?? []}, with_context = false) }}
+        </div>
+        {%- if _media %}<div ui-hero-media>{{ _media|raw }}</div>{% endif %}
+    </div>
+</section>

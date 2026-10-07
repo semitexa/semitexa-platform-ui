@@ -1,0 +1,34 @@
+/* @platform-ui/layouts/auth — one centred card. */
+@layer platform-ui.primitives {
+    @scope ([ui-auth-shell]) {
+        :scope {
+            margin: 0;
+            min-height: 100dvh;
+            display: grid;
+            place-items: center;
+            padding: var(--ui-space-6) var(--ui-space-4);
+            background:
+                radial-gradient(60rem 30rem at 50% -10%, color-mix(in oklab, var(--ui-accent-brand) 10%, transparent), transparent),
+                var(--ui-surface-page);
+            color: var(--ui-text-primary);
+        }
+        [ui-auth-main] { width: min(26rem, 100%); display: grid; gap: var(--ui-space-4); }
+        [ui-auth-brand] { text-align: center; font-weight: 600; font-size: var(--ui-text-lg, 1.125rem); }
+        [ui-auth-brand] a { color: var(--ui-text-primary); text-decoration: none; }
+        [ui-auth-card] {
+            padding: var(--ui-space-6);
+            background: var(--ui-surface-raised);
+            border-radius: var(--ui-radius-lg, 0.75rem);
+            box-shadow: var(--ui-hairline), var(--ui-elevation-2);
+        }
+        [ui-auth-aside], [ui-auth-footer] { text-align: center; color: var(--ui-text-muted); font-size: var(--ui-text-sm); }
+        [ui-auth-aside]:empty, [ui-auth-footer]:empty { display: none; }
+    }
+}
+
+/* Auth forms: links between them and the "or" row. */
+@layer platform-ui.primitives {
+    [ui-auth-links] { display: flex; justify-content: space-between; gap: var(--ui-space-3); font-size: var(--ui-text-sm); }
+    [ui-auth-links] a { color: var(--ui-accent-brand); text-decoration: none; }
+    [ui-auth-links] a:hover { text-decoration: underline; }
+}

@@ -40,7 +40,7 @@
 // ES module: CSRF plumbing + the live-feed transport arrive through the
 // import map ('platform-ui/core' -> fingerprinted URL); the import graph
 // guarantees the core is initialized before this executes.
-import { withCsrf, openFeedChannel } from 'platform-ui/core';
+import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
 
 (function () {
     'use strict';
@@ -85,7 +85,10 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
             headers: headers,
             credentials: 'same-origin',
         }).then(function (res) {
-            if (res.status === 304 && cached) return cached.contract;
+            // Read the (empty) 304 body before answering from the cache: a
+            // response left unread is torn down as an aborted request, which
+            // every reload of a grid page then reported as a failed OPTIONS.
+            if (res.status === 304 && cached) return res.text().then(function () { return cached.contract; });
             if (!res.ok) throw new Error('contract fetch failed (' + res.status + ')');
             return res.json().then(function (contract) {
                 writeCachedContract(endpoint, res.headers.get('ETag'), contract);
@@ -119,6 +122,7 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
                     label: typeof col.label === 'string' ? col.label : humanizeFieldName(col.field || ''),
                     format: typeof col.format === 'string' ? col.format : 'text',
                     variants: col.variants && typeof col.variants === 'object' ? col.variants : null,
+                    labels: col.labels && typeof col.labels === 'object' ? col.labels : null,
                     href: typeof col.href === 'string' ? col.href : '',
                 };
             });
@@ -151,23 +155,38 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
     }
 
     // ------------------------------------------------------------------
-    // Safe styling primitives — byte-equivalent to the server-side grid
-    // shell so v1 and v2 grids look identical while they coexist.
+    // Safe styling primitives. Skin tokens only: an earlier set leaned on
+    // --ui-action-primary and --ui-state-*-surface, which no skin defines, so
+    // their light hex fallbacks always won — and controls without a background
+    // took the browser's grey in dark mode.
     // ------------------------------------------------------------------
     var TH_STYLE = 'text-align:left;padding:0.5rem 0.75rem;font-size:0.75rem;letter-spacing:0.04em;text-transform:uppercase;';
     var TD_STYLE = 'padding:0.5rem 0.75rem;font-size:0.8125rem;';
     var BUTTON_STYLE = 'padding:0.25rem 0.625rem;border:1px solid var(--ui-border-subtle);background:var(--ui-surface-raised);border-radius:var(--ui-radius-sm);font-size:0.8125rem;cursor:pointer;color:inherit;';
-    var INPUT_STYLE = 'padding:0.5rem 0.75rem;border:1px solid var(--ui-border-subtle);border-radius:var(--ui-radius-sm);font-size:0.875rem;';
+    var INPUT_STYLE = 'padding:0.5rem 0.75rem;border:1px solid var(--ui-border-subtle);border-radius:var(--ui-radius-sm);font-size:0.875rem;background:var(--ui-surface-raised);color:var(--ui-text-primary);';
     var BADGE_BASE = 'display:inline-block;padding:0.125rem 0.5rem;border-radius:999px;font-size:0.75rem;font-weight:600;line-height:1.4;';
+    function toneBadge(tone) {
+        return BADGE_BASE + 'background:color-mix(in oklab, var(' + tone + ') 13%, var(--ui-surface-raised));color:color-mix(in oklab, var(' + tone + ') 62%, var(--ui-text-primary));';
+    }
+    // Badge variants by tone (a field type's option tone); ok / warn / mute are
+    // the older names, kept so existing contracts render as before.
     var BADGE_VARIANTS = {
-        ok: BADGE_BASE + 'background:var(--ui-state-success-surface,#e6f4ea);color:var(--ui-state-success,#1a7f37);',
-        warn: BADGE_BASE + 'background:var(--ui-state-warning-surface,#fff4e5);color:var(--ui-state-warning,#9a6700);',
-        mute: BADGE_BASE + 'background:var(--ui-surface-sunken,#eceff1);color:var(--ui-text-muted,#5f6b76);',
+        success: toneBadge('--ui-state-success'),
+        warning: toneBadge('--ui-state-warning'),
+        danger: toneBadge('--ui-state-danger'),
+        info: toneBadge('--ui-state-info'),
+        brand: toneBadge('--ui-accent-brand'),
+        neutral: BADGE_BASE + 'background:var(--ui-surface-sunken);color:var(--ui-text-muted);',
     };
-    var LINK_CELL_STYLE = 'color:var(--ui-action-primary,#0b66c3);text-decoration:underline;';
+    BADGE_VARIANTS.ok = BADGE_VARIANTS.success;
+    BADGE_VARIANTS.warn = BADGE_VARIANTS.warning;
+    BADGE_VARIANTS.mute = BADGE_VARIANTS.neutral;
+    var LINK_CELL_STYLE = 'color:var(--ui-accent-brand);text-decoration:underline;';
     var FORMAT_CELL_STYLES = {
         datetime: 'white-space:nowrap;',
         date: 'white-space:nowrap;',
+        number: 'text-align:end;font-variant-numeric:tabular-nums;',
+        boolean: 'text-align:center;',
         mono: 'font-family:var(--ui-font-mono);font-size:0.75rem;',
     };
 
@@ -182,6 +201,24 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
         }
         if (typeof text === 'string') node.textContent = text;
         return node;
+    }
+
+    // A stored moment (UTC ISO) or date, formatted for the visitor's locale but
+    // in UTC — the zone it was entered and stored in — with the zone shown and
+    // the machine value kept in <time datetime>. Unparseable values stay as written.
+    function timeCell(value, format) {
+        var dateOnly = format === 'date' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+        // Without a zone ("2026-05-31 06:39") a browser reads LOCAL time; stored
+        // values are UTC, so say so before parsing.
+        var zoneless = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(value);
+        var parsed = new Date(dateOnly ? value + 'T00:00:00Z' : (zoneless ? value.replace(' ', 'T') + 'Z' : value));
+        if (isNaN(parsed.getTime())) return document.createTextNode(value);
+        var options = dateOnly
+            ? { dateStyle: 'medium', timeZone: 'UTC' }
+            : { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' };
+        var text;
+        try { text = new Intl.DateTimeFormat(undefined, options).format(parsed); } catch (e) { text = value; }
+        return el('time', { datetime: value, title: value }, text);
     }
 
     function interpolateHref(template, row) {
@@ -228,10 +265,41 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
             } catch (e) { /* malformed page-local overlay — ignore */ }
         }
 
+        // Page-local row actions: [{label, href?} | {label, route, method?, confirm?}],
+        // `{field}` placeholders filled from the row.
+        var rowActions = [];
+        var rowActionsRaw = root.getAttribute('data-ui-grid-row-actions');
+        if (rowActionsRaw) {
+            try {
+                var parsedRow = JSON.parse(rowActionsRaw);
+                if (Array.isArray(parsedRow)) {
+                    rowActions = parsedRow.filter(function (a) {
+                        return a && typeof a.label === 'string' && (typeof a.href === 'string' || typeof a.route === 'string');
+                    });
+                }
+            } catch (e) { /* malformed page-local overlay — ignore */ }
+        }
+
+        // Server actions (row / bulk / header), run through HUG by the grid's
+        // #[AsGridAction]; the list is also signed into the grid's event
+        // context, so this copy only decides what to draw.
+        var serverActions = [];
+        var serverRaw = root.getAttribute('data-ui-grid-server-actions');
+        if (serverRaw && root.getAttribute('data-ui-component-instance-id')) {
+            try {
+                var parsedServer = JSON.parse(serverRaw);
+                if (Array.isArray(parsedServer)) {
+                    serverActions = parsedServer.filter(function (a) {
+                        return a && typeof a.id === 'string' && typeof a.label === 'string' && Array.isArray(a.scopes);
+                    });
+                }
+            } catch (e) { /* malformed — no server actions */ }
+        }
+
         root.setAttribute('data-ui-grid-v2-state', 'loading');
 
         loadContract(endpoint).then(function (contract) {
-            var instance = createInstance(root, gridId, endpoint, contract, shellActions, emptyMessage);
+            var instance = createInstance(root, gridId, endpoint, contract, shellActions, emptyMessage, rowActions, serverActions);
             instance.start();
         }).catch(function (err) {
             root.setAttribute('data-ui-grid-v2-state', 'error');
@@ -245,7 +313,7 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
         });
     }
 
-    function createInstance(root, gridId, endpoint, contract, shellActions, emptyMessage) {
+    function createInstance(root, gridId, endpoint, contract, shellActions, emptyMessage, rowActions, serverActions) {
         var collection = contract.collection || {};
         var paginationPolicy = collection.pagination || {};
         var sortFields = (collection.sort && Array.isArray(collection.sort.fields)) ? collection.sort.fields : [];
@@ -256,6 +324,19 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
         var uiActions = Array.isArray(ui.actions) ? ui.actions : [];
         var actions = uiActions.length > 0 ? uiActions : shellActions;
         var columns = deriveColumns(contract);
+        serverActions = serverActions || [];
+        var inScope = function (scope) {
+            return serverActions.filter(function (a) { return a.scopes.indexOf(scope) >= 0; });
+        };
+        var serverRow = inScope('row');
+        var serverBulk = inScope('bulk');
+        var serverHeader = inScope('header');
+        var gridIdField = (contract.output && typeof contract.output.idField === 'string') ? contract.output.idField
+            : ((contract.ui && typeof contract.ui.idField === 'string') ? contract.ui.idField : null);
+        // Row selection exists only for a bulk action, over rows that have an id.
+        var selectable = serverBulk.length > 0 && gridIdField !== null;
+        var selected = {};          // id → true, only ids on the current page
+        var pendingAction = null;   // {scope, timer} while an action runs
         var pageWindow = (ui.client && typeof ui.client.pageWindowSize === 'number')
             ? Math.max(1, Math.min(25, ui.client.pageWindowSize)) : DEFAULT_PAGE_WINDOW;
 
@@ -273,6 +354,7 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
             cursorTrail: [''],
             cursorIndex: 0,
             nextCursor: '',
+            restorePage: null,    // ?<ns>-page from the URL, applied once the mode is known
             pulling: false,
             pullAgain: false,     // a refresh landed while a pull was in flight
             recovered: false,     // one-shot guard for invalid_pagination auto-recovery
@@ -283,12 +365,51 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
         var channel = null;         // openFeedChannel handle
         var sseAdvertised = Array.isArray(contract.modes) && contract.modes.indexOf('sse') >= 0
             && typeof contract.name === 'string' && contract.name !== '';
+        // A field offering both gte and lte is a range ("from" / "to");
+        // every other filter is one control with its default operator.
+        state.ranges = {};
+        var isRange = function (operators) {
+            return Array.isArray(operators) && operators.indexOf('gte') >= 0 && operators.indexOf('lte') >= 0;
+        };
         Object.keys(filterFields).forEach(function (field) {
-            state.filters[field] = { op: defaultOperatorFor(filterFields[field]), value: '' };
+            if (isRange(filterFields[field])) state.ranges[field] = { gte: '', lte: '' };
+            else state.filters[field] = { op: defaultOperatorFor(filterFields[field]), value: '' };
         });
+
+        /** Every filter term of the current view, as the wire syntax wants them. */
+        function filterTerms() {
+            var terms = [];
+            Object.keys(state.filters).forEach(function (field) {
+                var f = state.filters[field];
+                if (f.value !== '') terms.push(field + ':' + f.op + ':' + f.value);
+            });
+            Object.keys(state.ranges).forEach(function (field) {
+                ['gte', 'lte'].forEach(function (op) {
+                    if (state.ranges[field][op] !== '') terms.push(field + ':' + op + ':' + state.ranges[field][op]);
+                });
+            });
+            return terms;
+        }
+
+        // ---- URL state (opt-in: data-ui-grid-url="<namespace>") ----------
+        // The view lives in the address bar as `<ns>-q`, `<ns>-sort`,
+        // `<ns>-filter`, `<ns>-perPage`, `<ns>-page`: restored on load — a
+        // link is attacker input, so each value must fit THIS grid's contract
+        // (the feed validates again) — and rewritten after every render.
+        var urlNs = root.getAttribute('data-ui-grid-url') || '';
+        if (!/^[A-Za-z][A-Za-z0-9_]{0,23}$/.test(urlNs)) urlNs = '';
+        restoreFromUrl();
 
         // ---- skeleton -------------------------------------------------
         var refs = buildSkeleton();
+        if (refs.search) refs.search.value = state.q;
+        Object.keys(refs.filterInputs || {}).forEach(function (field) {
+            refs.filterInputs[field].value = state.filters[field].value;
+        });
+        Object.keys(refs.rangeInputs || {}).forEach(function (field) {
+            refs.rangeInputs[field].gte.value = state.ranges[field].gte;
+            refs.rangeInputs[field].lte.value = state.ranges[field].lte;
+        });
 
         function buildSkeleton() {
             var r = {};
@@ -307,6 +428,7 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
             // contract; the form exists only when something is declared.
             var hasControls = search !== null
                 || Object.keys(state.filters).length > 0
+                || Object.keys(state.ranges).length > 0
                 || (Array.isArray(paginationPolicy.perPageOptions) && paginationPolicy.perPageOptions.length > 0);
             if (hasControls) {
                 r.form = el('form', {
@@ -352,6 +474,32 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
                     r.filterInputs[field] = input;
                 });
 
+                r.rangeInputs = {};
+                Object.keys(state.ranges).forEach(function (field) {
+                    var overlay = (ui.filters && ui.filters[field]) || {};
+                    var label = typeof overlay.label === 'string' ? overlay.label : humanizeFieldName(field);
+                    var kind = overlay.input === 'date' ? 'date' : (overlay.input === 'number' ? 'number' : 'text');
+                    var group = el('fieldset', { 'data-ui-grid-filter-range': field, 'sx-layout': 'stack', 'sx-gap': '1', style: 'border:0;margin:0;padding:0;min-width:12rem;' });
+                    group.appendChild(el('legend', { 'ui-text': 'label', style: 'font-size:0.75rem;letter-spacing:0.04em;text-transform:uppercase;padding:0;' }, label));
+                    var row = el('div', { 'sx-layout': 'cluster', 'sx-gap': '1', style: 'flex-wrap:nowrap;' });
+                    var pair = {};
+                    [['gte', 'from'], ['lte', 'to']].forEach(function (end) {
+                        var input = el('input', {
+                            type: kind,
+                            'data-ui-grid-range': end[0],
+                            'aria-label': label + ' ' + end[1],
+                            placeholder: end[1],
+                            style: INPUT_STYLE + 'width:8.5rem;',
+                        });
+                        if (kind === 'number') input.setAttribute('step', 'any');
+                        row.appendChild(input);
+                        pair[end[0]] = input;
+                    });
+                    group.appendChild(row);
+                    r.form.appendChild(group);
+                    r.rangeInputs[field] = pair;
+                });
+
                 if (Array.isArray(paginationPolicy.perPageOptions) && paginationPolicy.perPageOptions.length > 0) {
                     var sizeLabel = el('label', { 'sx-layout': 'stack', 'sx-gap': '1', style: 'min-width:7rem;' });
                     sizeLabel.appendChild(el('span', { 'ui-text': 'label', style: 'font-size:0.75rem;letter-spacing:0.04em;text-transform:uppercase;' }, 'Page size'));
@@ -370,15 +518,16 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
                     });
                 }
 
-                if (search !== null || Object.keys(state.filters).length > 0) {
+                if (search !== null || Object.keys(state.filters).length > 0 || Object.keys(state.ranges).length > 0) {
                     r.form.appendChild(el('button', {
                         type: 'submit',
-                        style: 'padding:0.5rem 1rem;border:0;border-radius:var(--ui-radius-sm);background:var(--ui-action-primary);color:var(--ui-action-on-primary);font-size:0.875rem;cursor:pointer;',
+                        style: 'padding:0.5rem 1rem;border:0;border-radius:var(--ui-radius-sm);background:var(--ui-accent-brand);color:var(--ui-text-on-accent);font-size:0.875rem;cursor:pointer;',
                     }, 'Apply'));
                     var clear = el('button', { type: 'button', 'data-ui-grid-clear': '', 'ui-text': 'muted', style: 'font-size:0.875rem;border:0;background:none;cursor:pointer;' }, 'Clear');
                     clear.addEventListener('click', function () {
                         if (r.search) r.search.value = '';
                         Object.keys(r.filterInputs || {}).forEach(function (f) { r.filterInputs[f].value = ''; });
+                        Object.keys(r.rangeInputs || {}).forEach(function (f) { r.rangeInputs[f].gte.value = ''; r.rangeInputs[f].lte.value = ''; });
                         readControls();
                         resetView();
                         refresh();
@@ -395,8 +544,13 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
                 root.appendChild(r.form);
             }
 
-            if (actions.length > 0) {
+            if (actions.length > 0 || serverHeader.length > 0) {
                 var toolbar = el('div', { 'data-ui-grid-toolbar': '', 'sx-layout': 'cluster', 'sx-gap': '3', 'sx-align': 'center', style: 'flex-wrap:wrap;' });
+                serverHeader.forEach(function (action) {
+                    var hbtn = serverButton(action, { style: 'font-size:0.8125rem;' });
+                    hbtn.addEventListener('click', function () { runServerAction(action, 'header', [], null); });
+                    toolbar.appendChild(hbtn);
+                });
                 actions.forEach(function (action) {
                     if (!action || typeof action.label !== 'string' || typeof action.route !== 'string') return;
                     var btn = el('button', {
@@ -411,6 +565,25 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
                     toolbar.appendChild(btn);
                 });
                 root.appendChild(toolbar);
+            }
+
+            if (selectable) {
+                r.bulkBar = el('div', {
+                    'data-ui-grid-bulk': '', hidden: '', role: 'region', 'aria-label': 'Selected rows',
+                    'sx-surface': 'panel', 'sx-padding': '2', 'sx-radius': 'md', 'sx-layout': 'cluster', 'sx-gap': '2', 'sx-align': 'center',
+                    style: 'flex-wrap:wrap;border-left:4px solid var(--ui-accent-brand);',
+                });
+                r.bulkCount = el('span', { 'data-ui-grid-bulk-count': '', 'ui-text': 'label', 'aria-live': 'polite' });
+                r.bulkBar.appendChild(r.bulkCount);
+                serverBulk.forEach(function (action) {
+                    var bbtn = serverButton(action, {});
+                    bbtn.addEventListener('click', function () { runServerAction(action, 'bulk', selectedIds(), null); });
+                    r.bulkBar.appendChild(bbtn);
+                });
+                var clearSel = el('button', { type: 'button', 'data-ui-grid-bulk-clear': '', style: BUTTON_STYLE + 'margin-left:auto;' }, 'Clear selection');
+                clearSel.addEventListener('click', function () { selected = {}; syncSelection(); });
+                r.bulkBar.appendChild(clearSel);
+                root.appendChild(r.bulkBar);
             }
 
             r.empty = el('section', {
@@ -429,6 +602,18 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
             var table = el('table', { style: 'width:100%;border-collapse:collapse;' });
             var thead = el('thead', null);
             var headRow = el('tr', { style: 'background:var(--ui-surface-sunken);' });
+            if (selectable) {
+                var selTh = el('th', { style: TH_STYLE + 'width:2.5rem;' });
+                r.selectAll = el('input', { type: 'checkbox', 'data-ui-grid-select-all': '', 'aria-label': 'Select every row on this page' });
+                r.selectAll.addEventListener('change', function () {
+                    var on = r.selectAll.checked;
+                    selected = {};
+                    if (on) currentIds().forEach(function (id) { selected[id] = true; });
+                    syncSelection();
+                });
+                selTh.appendChild(r.selectAll);
+                headRow.appendChild(selTh);
+            }
             r.sortHeaders = {};
             columns.forEach(function (col) {
                 var sortable = sortFields.indexOf(col.field) >= 0;
@@ -455,6 +640,9 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
                 }
                 headRow.appendChild(th);
             });
+            if (rowActions.length > 0 || serverRow.length > 0) {
+                headRow.appendChild(el('th', { 'ui-text': 'label', style: TH_STYLE }, 'Actions'));
+            }
             thead.appendChild(headRow);
             table.appendChild(thead);
             r.tbody = el('tbody', { 'data-ui-grid-tbody': '' });
@@ -474,11 +662,60 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
             return r;
         }
 
+        function restoreFromUrl() {
+            if (urlNs === '') return;
+            var params = new URLSearchParams(window.location.search);
+            var read = function (name) { return params.get(urlNs + '-' + name); };
+            var q = read('q');
+            if (q !== null && q.length <= 100) state.q = q.trim();
+            var sort = read('sort');
+            if (sort !== null && sortFields.indexOf(sort.replace(/^-/, '')) >= 0) state.sort = sort;
+            var filter = read('filter');
+            if (filter !== null && filter.length <= 1000) {
+                filter.split(';').forEach(function (term) {
+                    var m = /^([A-Za-z_][A-Za-z0-9_]*):([a-z]+):(.{1,100})$/.exec(term);
+                    if (m && state.filters[m[1]]) state.filters[m[1]] = { op: m[2], value: m[3] };
+                    else if (m && state.ranges[m[1]] && (m[2] === 'gte' || m[2] === 'lte')) state.ranges[m[1]][m[2]] = m[3];
+                });
+            }
+            var perPage = parseInt(read('perPage') || '', 10);
+            var options = paginationPolicy.perPageOptions;
+            if (perPage > 0 && (!Array.isArray(options) || options.indexOf(perPage) >= 0)) state.perPage = perPage;
+            var page = read('page');
+            // The pagination mode is known only from the first answer: the page
+            // is asked for once the feed says it pages by number.
+            if (page !== null && /^[1-9]\d{0,5}$/.test(page)) state.restorePage = parseInt(page, 10);
+        }
+
+        function writeToUrl() {
+            if (urlNs === '') return;
+            var url = new URL(window.location.href);
+            var set = function (name, value) {
+                if (value === null || value === '') url.searchParams.delete(urlNs + '-' + name);
+                else url.searchParams.set(urlNs + '-' + name, value);
+            };
+            var terms = filterTerms();
+            set('q', state.q);
+            set('sort', state.sort === defaultSort ? null : state.sort);
+            set('filter', terms.join(';'));
+            set('perPage', state.perPage === paginationPolicy.defaultPerPage || state.perPage === null ? null : String(state.perPage));
+            set('page', state.mode === 'page' && state.page > 1 ? String(state.page) : null);
+            var target = url.pathname + url.search + url.hash;
+            if (target === window.location.pathname + window.location.search + window.location.hash) return;
+            var nav = window.SemitexaNavigation;
+            if (nav && typeof nav.recordUrl === 'function' && nav.isShellPage()) nav.recordUrl(target, { replace: true });
+            else window.history.replaceState(window.history.state, '', target);
+        }
+
         // ---- state helpers --------------------------------------------
         function readControls() {
             if (refs.search) state.q = refs.search.value.trim();
             Object.keys(refs.filterInputs || {}).forEach(function (field) {
                 state.filters[field].value = refs.filterInputs[field].value.trim();
+            });
+            Object.keys(refs.rangeInputs || {}).forEach(function (field) {
+                state.ranges[field].gte = refs.rangeInputs[field].gte.value.trim();
+                state.ranges[field].lte = refs.rangeInputs[field].lte.value.trim();
             });
         }
 
@@ -511,11 +748,7 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
                 params.set(searchParam, state.q);
             }
             if (state.sort !== '') params.set('sort', state.sort);
-            var terms = [];
-            Object.keys(state.filters).forEach(function (field) {
-                var f = state.filters[field];
-                if (f.value !== '') terms.push(field + ':' + f.op + ':' + f.value);
-            });
+            var terms = filterTerms();
             if (terms.length > 0) params.set('filter', terms.join(';'));
             if (state.perPage !== null) params.set('perPage', String(state.perPage));
             // Pagination params follow the SERVER-declared mode only: an
@@ -543,7 +776,9 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
             // No explicit Accept header: the route's content negotiation maps
             // `Accept: application/json` to the page-JSON projection; the
             // default `*/*` yields the canonical `{data, meta}` envelope.
-            fetch(url, { method: 'GET', credentials: 'same-origin' })
+            // Say JSON: a feed route may also serve its page as text/html (one
+            // route per screen), and `*/*` would then get the page.
+            fetch(url, { method: 'GET', credentials: 'same-origin', headers: { Accept: 'application/json' } })
                 .then(function (res) {
                     return res.json().then(function (body) { return { ok: res.ok, body: body }; });
                 })
@@ -589,7 +824,9 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
                 params: currentViewParams,
                 dataEvent: 'ui.collection.data',
                 errorEvent: 'ui.collection.error',
+                patchEvent: 'ui.collection.patch',
                 onData: onDataEnvelope,
+                onPatch: onPatchFrame,
                 onError: function (envelope) {
                     if (!envelope) { showError('The grid stream reported an error.'); return; }
                     handleErrorEnvelope(envelope);
@@ -612,7 +849,30 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
             if (!envelope || !Array.isArray(envelope.data)) { handleErrorEnvelope(envelope); return; }
             state.recovered = false;
             refs.error.setAttribute('hidden', '');
+            state.envelope = { data: envelope.data, meta: envelope.meta || {} };
             render(envelope);
+        }
+
+        // A keyed patch — what a live re-run changed in the page this grid was
+        // last sent: rows upserted and removed by key, the new order, the meta
+        // when it changed. Applied to that page; a patch that does not fit it
+        // (a row it orders is not there) means the two drifted, and the grid
+        // asks for its view again.
+        function onPatchFrame(frame) {
+            var patch = frame && frame.patch;
+            var base = state.envelope;
+            if (!patch || !base || typeof patch.key !== 'string' || !Array.isArray(patch.order)) { refresh(); return; }
+            var byKey = {};
+            base.data.forEach(function (row) { if (row && row[patch.key] != null) byKey[String(row[patch.key])] = row; });
+            (patch.remove || []).forEach(function (id) { delete byKey[String(id)]; });
+            (patch.upsert || []).forEach(function (row) { if (row && row[patch.key] != null) byKey[String(row[patch.key])] = row; });
+            var rows = [];
+            for (var i = 0; i < patch.order.length; i++) {
+                var row = byKey[String(patch.order[i])];
+                if (!row) { refresh(); return; }
+                rows.push(row);
+            }
+            onDataEnvelope({ data: rows, meta: frame.meta || base.meta });
         }
 
         // The current view as a plain params object (q/sort/filter/perPage/page/
@@ -660,8 +920,218 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
         }
 
         function invokeAction(btn) {
-            var route = btn.getAttribute('data-ui-grid-action-route') || '';
-            var method = (btn.getAttribute('data-ui-grid-action-method') || 'POST').toUpperCase();
+            sendAction(btn, btn.getAttribute('data-ui-grid-action-route') || '', btn.getAttribute('data-ui-grid-action-method') || 'POST');
+        }
+
+        function rowActionsCell(row) {
+            var td = el('td', { style: TD_STYLE + 'white-space:nowrap;' });
+            rowActions.forEach(function (action, index) {
+                if (index > 0) td.appendChild(document.createTextNode(' '));
+                if (typeof action.href === 'string') {
+                    var href = interpolateHref(action.href, row);
+                    if (href !== '') td.appendChild(el('a', { 'data-ui-grid-row-action': action.label, href: href, style: LINK_CELL_STYLE }, action.label));
+                    return;
+                }
+                var route = interpolateHref(action.route, row);
+                if (route === '') return;
+                var btn = el('button', { type: 'button', 'data-ui-grid-row-action': action.label, style: BUTTON_STYLE }, action.label);
+                btn.addEventListener('click', function () {
+                    var question = typeof action.confirm === 'string' ? fillText(action.confirm, row) : null;
+                    (question === null ? Promise.resolve(true) : confirmAction(question, action.label)).then(function (ok) {
+                        if (ok) sendAction(btn, route, typeof action.method === 'string' ? action.method : 'POST');
+                    });
+                });
+                td.appendChild(btn);
+            });
+            var rowServerId = gridIdField && row && row[gridIdField] != null ? String(row[gridIdField]) : '';
+            if (rowServerId !== '') {
+                serverRow.forEach(function (action) {
+                    if (td.firstChild) td.appendChild(document.createTextNode(' '));
+                    var sbtn = serverButton(action, { 'data-ui-grid-row-action': action.label });
+                    sbtn.addEventListener('click', function () { runServerAction(action, 'row', [rowServerId], row); });
+                    td.appendChild(sbtn);
+                });
+            }
+            return td;
+        }
+
+        // ---- server actions (HUG) -----------------------------------------
+        function serverButton(action, attrs) {
+            var danger = action.tone === 'danger';
+            return el('button', Object.assign({
+                type: 'button',
+                'data-ui-grid-server-action': action.id,
+                style: BUTTON_STYLE + (danger ? 'color:var(--ui-state-danger);border-color:currentColor;' : ''),
+            }, attrs), action.label);
+        }
+
+        function currentIds() {
+            var ids = [];
+            refs.tbody.querySelectorAll('[data-ui-grid-select]').forEach(function (box) {
+                ids.push(box.getAttribute('data-ui-grid-select'));
+            });
+            return ids;
+        }
+
+        function selectedIds() {
+            return Object.keys(selected);
+        }
+
+        function syncSelection() {
+            if (!selectable) return;
+            var count = selectedIds().length;
+            var onPage = currentIds();
+            refs.tbody.querySelectorAll('[data-ui-grid-select]').forEach(function (box) {
+                box.checked = selected[box.getAttribute('data-ui-grid-select')] === true;
+            });
+            refs.selectAll.checked = onPage.length > 0 && count === onPage.length;
+            refs.selectAll.indeterminate = count > 0 && count < onPage.length;
+            refs.bulkCount.textContent = count === 1 ? '1 row selected' : count + ' rows selected';
+            if (count > 0) refs.bulkBar.removeAttribute('hidden'); else refs.bulkBar.setAttribute('hidden', '');
+        }
+
+        function setBusy(busy) {
+            if (busy) root.setAttribute('aria-busy', 'true'); else root.removeAttribute('aria-busy');
+            root.querySelectorAll('[data-ui-grid-server-action]').forEach(function (b) { b.disabled = busy; });
+        }
+
+        function runServerAction(action, scope, ids, row) {
+            if (pendingAction !== null) return;
+            if (scope === 'bulk' && ids.length === 0) return;
+            var text = scope === 'bulk' && typeof action.confirmBulk === 'string' ? action.confirmBulk : action.confirm;
+            var question = null;
+            if (typeof text === 'string' && text !== '') {
+                text = text.replace(/\{count\}/g, String(ids.length));
+                question = row ? fillText(text, row) : text;
+            }
+            (question === null ? Promise.resolve(true) : confirmAction(question, action.label)).then(function (ok) {
+                if (!ok) return;
+                var api = window.SemitexaUi;
+                var instanceId = root.getAttribute('data-ui-component-instance-id') || '';
+                setBusy(true);
+                // Optimistic: an action that takes its rows away hides them now.
+                var gone = [];
+                if (action.optimistic === 'remove' && scope !== 'header') {
+                    var wanted = {};
+                    ids.forEach(function (id) { wanted[String(id)] = true; });
+                    Array.prototype.forEach.call(refs.tbody.children, function (tr) {
+                        if (wanted[tr.getAttribute('data-ui-grid-row-id')] === true && !tr.hidden) {
+                            tr.hidden = true;
+                            tr.setAttribute('data-ui-optimistic-gone', '');
+                            gone.push(tr);
+                        }
+                    });
+                }
+                pendingAction = {
+                    scope: scope,
+                    gone: gone,
+                    // A refused request (tampered, expired) answers no patch;
+                    // do not leave the grid busy forever.
+                    timer: setTimeout(function () {
+                        restoreGone(pendingAction ? pendingAction.gone : []);
+                        pendingAction = null;
+                        setBusy(false);
+                        showError('The action did not answer. Reload the page and try again.');
+                    }, 30000),
+                };
+                var sent = api && typeof api.dispatch === 'function' && api.dispatch({
+                    instanceId: instanceId, part: 'action', event: 'invoke',
+                    value: { op: action.id, scope: scope, ids: ids },
+                });
+                if (!sent) {
+                    clearTimeout(pendingAction.timer);
+                    restoreGone(pendingAction.gone);
+                    pendingAction = null;
+                    setBusy(false);
+                    showError('This action is not available on this page.');
+                }
+            });
+        }
+
+        // The server answers with a toast and this event (UiResponsePatch::dispatch).
+        root.addEventListener('ui-grid:action', function (event) {
+            if (pendingAction === null) return;
+            clearTimeout(pendingAction.timer);
+            var scope = pendingAction.scope;
+            var gone = pendingAction.gone || [];
+            pendingAction = null;
+            setBusy(false);
+            var detail = event.detail || {};
+            // Refused: the rows come back. Done: they stay hidden until the next
+            // frame, which removes them — or shows any that are still there.
+            if (!detail.ok) restoreGone(gone);
+            if (detail.ok && scope === 'bulk') {
+                selected = {};
+                syncSelection();
+            }
+            // Live: the writes' invalidation re-runs the feed. Pull: re-pull once.
+            if (detail.ok && !isLive()) pull();
+        });
+
+        function restoreGone(rows) {
+            (rows || []).forEach(function (tr) {
+                tr.hidden = false;
+                tr.removeAttribute('data-ui-optimistic-gone');
+            });
+        }
+
+        // Refused outright (an error answer, no network): no ui-grid:action
+        // arrives, so the action ends here — the rows come back at once
+        // instead of after the 30-second guard.
+        var onActionFailed = function (event) {
+            var captured = event.detail && event.detail.captured;
+            if (pendingAction === null || !captured || captured.part !== 'action'
+                || captured.instanceId !== (root.getAttribute('data-ui-component-instance-id') || '')) return;
+            clearTimeout(pendingAction.timer);
+            restoreGone(pendingAction.gone);
+            pendingAction = null;
+            setBusy(false);
+            showError('The action did not go through. Nothing was changed.');
+        };
+        document.addEventListener('semitexa:ui-event:failed', onActionFailed);
+
+        /** `{field}` → the row's value, as text (the dialog sets textContent). */
+        function fillText(template, row) {
+            return template.replace(/\{([A-Za-z0-9_]+)\}/g, function (_m, field) {
+                return row && row[field] != null ? String(row[field]) : '';
+            });
+        }
+
+        // One native <dialog> per grid asks before a destructive row action:
+        // showModal() gives the focus trap, Escape and the inert page.
+        var confirmDialog = null;
+        function confirmAction(question, label) {
+            if (!confirmDialog) {
+                confirmDialog = el('dialog', { 'data-ui-grid-confirm': '', style: 'padding:1.25rem;border:1px solid var(--ui-border-subtle);border-radius:var(--ui-radius-md);max-width:28rem;' });
+                confirmDialog.appendChild(el('p', { 'data-ui-grid-confirm-text': '', style: 'margin:0 0 1rem;' }));
+                var bar = el('div', { style: 'display:flex;gap:0.5rem;justify-content:flex-end;' });
+                bar.appendChild(el('button', { type: 'button', value: 'cancel', 'data-ui-grid-confirm-cancel': '', style: BUTTON_STYLE }, 'Cancel'));
+                bar.appendChild(el('button', { type: 'button', value: 'ok', 'data-ui-grid-confirm-ok': '', style: BUTTON_STYLE }));
+                confirmDialog.appendChild(bar);
+                root.appendChild(confirmDialog);
+            }
+            confirmDialog.querySelector('[data-ui-grid-confirm-text]').textContent = question;
+            confirmDialog.querySelector('[data-ui-grid-confirm-ok]').textContent = label;
+            return new Promise(function (resolve) {
+                var answer = false;
+                var onClick = function (event) {
+                    var value = event.target && event.target.value;
+                    if (value === 'ok' || value === 'cancel') {
+                        answer = value === 'ok';
+                        confirmDialog.close();
+                    }
+                };
+                confirmDialog.addEventListener('click', onClick);
+                confirmDialog.addEventListener('close', function () {
+                    confirmDialog.removeEventListener('click', onClick);
+                    resolve(answer);
+                }, { once: true });
+                confirmDialog.showModal();
+            });
+        }
+
+        function sendAction(btn, route, methodName) {
+            var method = String(methodName).toUpperCase();
             // Same-origin guard: action routes come from the contract (which
             // may be served from the sessionStorage cache) or the page-local
             // overlay — only a root-relative, non-protocol-relative route may
@@ -716,6 +1186,18 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
                 refs.tableWrap.removeAttribute('hidden');
             }
             root.setAttribute('data-ui-grid-v2-state', 'ready');
+
+            if (state.restorePage && state.mode === 'page') {
+                var restorePage = state.restorePage;
+                state.restorePage = null;
+                if (restorePage > 1 && restorePage !== state.page) {
+                    state.page = restorePage;
+                    refresh();
+                    return;
+                }
+            }
+            state.restorePage = null;
+            writeToUrl();
         }
 
         // One Way Phase 5: server-fed select options. When the envelope's
@@ -756,21 +1238,100 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
             });
         }
 
+        // Keyed: a row whose content did not change keeps its <tr> (focus, a
+        // checked box, an open menu stay as they are); a changed or new one is
+        // built afresh and, on a live update, marked `data-ui-row-updated` for a
+        // moment; a row no longer on the page goes. A row without an id is
+        // always built afresh.
         function renderRows(rows) {
-            while (refs.tbody.firstChild) refs.tbody.removeChild(refs.tbody.firstChild);
-            var idField = (contract.output && typeof contract.output.idField === 'string') ? contract.output.idField : null;
-            rows.forEach(function (row) {
+            // A typed resource names its id in `output`; a field-driven feed (no
+            // Resource DTO) names it in its `ui` block.
+            var idField = (contract.output && typeof contract.output.idField === 'string') ? contract.output.idField
+                : ((contract.ui && typeof contract.ui.idField === 'string') ? contract.ui.idField : null);
+            var before = {};
+            var hadRows = refs.tbody.children.length > 0;
+            Array.prototype.forEach.call(refs.tbody.children, function (tr) {
+                var id = tr.getAttribute('data-ui-grid-row-id');
+                if (id !== null && typeof tr.__uiRowSig === 'string') before[id] = tr;
+            });
+            // A view change (sort, page, filter) is a new page, not an update.
+            var live = hadRows && root.getAttribute('data-ui-grid-v2-state') !== 'loading';
+            rows.forEach(function (row, index) {
+                var id = idField && row && row[idField] != null ? String(row[idField]) : null;
+                var sig = JSON.stringify(row);
+                var kept = id !== null ? before[id] : null;
+                var tr;
+                if (kept && kept.__uiRowSig === sig) {
+                    tr = kept;
+                    tr.removeAttribute('data-ui-row-updated');
+                    // Still here after an optimistic removal: the server kept it.
+                    if (tr.hasAttribute('data-ui-optimistic-gone')) {
+                        tr.hidden = false;
+                        tr.removeAttribute('data-ui-optimistic-gone');
+                    }
+                } else {
+                    tr = buildRow(row, idField);
+                    tr.__uiRowSig = sig;
+                    if (live) {
+                        tr.setAttribute('data-ui-row-updated', '');
+                        flash(tr);
+                    }
+                }
+                if (id !== null) delete before[id];
+                if (refs.tbody.children[index] !== tr) refs.tbody.insertBefore(tr, refs.tbody.children[index] || null);
+            });
+            while (refs.tbody.children.length > rows.length) refs.tbody.removeChild(refs.tbody.lastChild);
+            if (selectable) {
+                // Only rows on screen stay selected: a bulk action never
+                // reaches a row the visitor can no longer see.
+                var onPage = {};
+                currentIds().forEach(function (id) { onPage[id] = true; });
+                Object.keys(selected).forEach(function (id) { if (!onPage[id]) delete selected[id]; });
+                syncSelection();
+            }
+        }
+
+        // A brief accent bar at the start of a row a live update changed; none
+        // for who asked for less motion. A bar, not a tint behind the text: a
+        // tint lowered the row's text contrast below WCAG AA while it faded.
+        // Web Animations, so no style element is needed under CSP.
+        function flash(tr) {
+            var cell = tr.firstElementChild;
+            if (!cell || typeof cell.animate !== 'function') return;
+            if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+            cell.animate([
+                { boxShadow: 'inset 3px 0 0 var(--ui-accent-brand)' },
+                { boxShadow: 'inset 3px 0 0 transparent' }
+            ], { duration: 1600, easing: 'ease-out' });
+        }
+
+        function buildRow(row, idField) {
                 var tr = el('tr', { style: 'border-top:1px solid var(--ui-border-subtle);' });
                 if (idField && row && row[idField] != null) {
                     tr.setAttribute('data-ui-grid-row-id', String(row[idField]));
+                }
+                if (selectable) {
+                    var rowId = row && row[gridIdField] != null ? String(row[gridIdField]) : '';
+                    var selTd = el('td', { style: TD_STYLE + 'width:2.5rem;' });
+                    if (rowId !== '') {
+                        var box = el('input', { type: 'checkbox', 'data-ui-grid-select': rowId, 'aria-label': 'Select row ' + rowId });
+                        box.checked = selected[rowId] === true;
+                        box.addEventListener('change', function () {
+                            if (box.checked) selected[rowId] = true; else delete selected[rowId];
+                            syncSelection();
+                        });
+                        selTd.appendChild(box);
+                    }
+                    tr.appendChild(selTd);
                 }
                 columns.forEach(function (col) {
                     var td = el('td', { 'ui-text': 'body', style: TD_STYLE + (FORMAT_CELL_STYLES[col.format] || '') });
                     var value = row && row[col.field] != null ? String(row[col.field]) : '';
                     if (col.format === 'badge') {
-                        var variant = (col.variants && col.variants[value]) || 'mute';
-                        if (!BADGE_VARIANTS[variant]) variant = 'mute';
-                        td.appendChild(el('span', { 'data-ui-grid-badge': variant, style: BADGE_VARIANTS[variant] }, value));
+                        var variant = (col.variants && col.variants[value]) || 'neutral';
+                        if (!BADGE_VARIANTS[variant]) variant = 'neutral';
+                        var badgeText = col.labels && typeof col.labels[value] === 'string' ? col.labels[value] : value;
+                        td.appendChild(el('span', { 'data-ui-grid-badge': variant, 'data-ui-grid-value': value, style: BADGE_VARIANTS[variant] }, badgeText));
                     } else if (col.format === 'link' && col.href !== '') {
                         var href = interpolateHref(col.href, row);
                         if (href !== '') {
@@ -778,13 +1339,20 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
                         } else {
                             td.textContent = value;
                         }
+                    } else if ((col.format === 'datetime' || col.format === 'date') && value !== '') {
+                        td.appendChild(timeCell(value, col.format));
+                    } else if (col.format === 'boolean') {
+                        var yes = row[col.field] === true || value === '1' || value === 'true';
+                        td.appendChild(el('span', { 'data-ui-grid-boolean': yes ? 'yes' : 'no', 'aria-label': yes ? 'Yes' : 'No', title: yes ? 'Yes' : 'No' }, yes ? '✓' : '–'));
+                    } else if (col.format === 'url' && /^https?:\/\//i.test(value)) {
+                        td.appendChild(el('a', { 'data-ui-grid-link': '', href: value, rel: 'noopener noreferrer', target: '_blank', style: LINK_CELL_STYLE }, value));
                     } else {
                         td.textContent = value;
                     }
                     tr.appendChild(td);
                 });
-                refs.tbody.appendChild(tr);
-            });
+                if (rowActions.length > 0 || serverRow.length > 0) tr.appendChild(rowActionsCell(row));
+                return tr;
         }
 
         function renderSortIndicators() {
@@ -901,6 +1469,7 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
         // the server reaps this grid's record) and/or closes the dedicated
         // stream + pending reconnect timer.
         function destroy() {
+            document.removeEventListener('semitexa:ui-event:failed', onActionFailed);
             if (channel) {
                 channel.close();
                 channel = null;
@@ -913,72 +1482,24 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
     }
 
     // ------------------------------------------------------------------
-    // Boot — initial scan + late-arriving shells (deferred SSR blocks).
+    // Boot — the one element lifecycle (core.mount): every grid shell now
+    // and later (deferred blocks, navigation swaps, morphs), and teardown —
+    // a grid removed from the page unsubscribes so the server reaps its
+    // subscription while the shared KISS stream survives.
     // ------------------------------------------------------------------
-    function bootAll(scope) {
-        var rootNode = (scope && typeof scope.querySelectorAll === 'function') ? scope : document;
-        if (rootNode.matches && rootNode.matches('[data-ui-grid-v2]')) bootGrid(rootNode);
-        var roots = rootNode.querySelectorAll('[data-ui-grid-v2]');
-        for (var i = 0; i < roots.length; i++) bootGrid(roots[i]);
-    }
-
-    window.SemitexaUi.gridV2 = { bootAll: bootAll };
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () { bootAll(); }, { once: true });
-    } else {
-        bootAll();
-    }
-
-    document.addEventListener('semitexa:component:rendered', function (event) {
-        var element = event && event.detail && event.detail.element instanceof Element ? event.detail.element : document;
-        bootAll(element);
-    });
-    document.addEventListener('semitexa:block:rendered', function (event) {
-        var block = event && event.detail && event.detail.block instanceof Element ? event.detail.block : document;
-        bootAll(block);
-    });
-
-    if (typeof MutationObserver !== 'undefined' && document.body) {
-        function teardownGrid(gridRoot) {
-            if (gridRoot.__uiGridV2 && typeof gridRoot.__uiGridV2.destroy === 'function') {
-                try { gridRoot.__uiGridV2.destroy(); } catch (e) { /* noop */ }
-            }
-            gridRoot.__uiGridV2Booted = false;
+    var grids = mount('[data-ui-grid-v2]', {
+        connect: function (root) {
+            bootGrid(root);
+            return {
+                destroy: function () {
+                    if (root.__uiGridV2 && typeof root.__uiGridV2.destroy === 'function') {
+                        try { root.__uiGridV2.destroy(); } catch (e) { /* noop */ }
+                    }
+                    root.__uiGridV2Booted = false;
+                }
+            };
         }
+    });
 
-        var observer = new MutationObserver(function (mutations) {
-            for (var i = 0; i < mutations.length; i++) {
-                var added = mutations[i].addedNodes;
-                if (added && added.length) {
-                    for (var j = 0; j < added.length; j++) {
-                        var node = added[j];
-                        if (!node || node.nodeType !== 1) continue;
-                        if (node.matches && node.matches('[data-ui-grid-v2]')) {
-                            bootGrid(node);
-                        } else if (node.querySelectorAll) {
-                            var gridRoots = node.querySelectorAll('[data-ui-grid-v2]');
-                            for (var k = 0; k < gridRoots.length; k++) bootGrid(gridRoots[k]);
-                        }
-                    }
-                }
-                // A grid removed from the DOM must unsubscribe so its server-side
-                // record is reaped (the shared connection survives).
-                var removed = mutations[i].removedNodes;
-                if (removed && removed.length) {
-                    for (var r = 0; r < removed.length; r++) {
-                        var rnode = removed[r];
-                        if (!rnode || rnode.nodeType !== 1) continue;
-                        if (rnode.matches && rnode.matches('[data-ui-grid-v2]')) {
-                            teardownGrid(rnode);
-                        } else if (rnode.querySelectorAll) {
-                            var goneRoots = rnode.querySelectorAll('[data-ui-grid-v2]');
-                            for (var g = 0; g < goneRoots.length; g++) teardownGrid(goneRoots[g]);
-                        }
-                    }
-                }
-            }
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
-    }
+    window.SemitexaUi.gridV2 = { bootAll: function (scope) { grids.scan(scope); } };
 })();
