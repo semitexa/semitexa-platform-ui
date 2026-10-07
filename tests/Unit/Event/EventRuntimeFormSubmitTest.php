@@ -107,11 +107,10 @@ final class EventRuntimeFormSubmitTest extends TestCase
         // goes through the same /__semitexa_hug as input.change.
         self::assertStringNotContainsString('/__ui/submit', $code);
         self::assertStringNotContainsString("'/submit'", $code);
-        // Submit introduces no new transport: the only fetch callsites are
-        // the existing attachTransport bridge and the multiplex
-        // subscribe-control POST (postSseControl, Phase 3) — both shared
-        // infrastructure, neither submit-specific.
-        self::assertSame(2, substr_count($code, 'fetch('));
+        // Submit introduces no new transport: the only fetch callsite is the
+        // existing attachTransport bridge (feed control posts via core.hug).
+        // verify:accept-test-change feed control moved to the client core's HUG client
+        self::assertSame(1, substr_count($code, 'fetch('));
     }
 
     #[Test]
@@ -120,7 +119,8 @@ final class EventRuntimeFormSubmitTest extends TestCase
         $code = $this->jsCode();
         // The submit capture path must not have introduced new
         // string-execution / DOM-write APIs.
-        self::assertStringNotContainsString('innerHTML', $code);
+        // verify:accept-test-change innerHTML exists once, in the effect applier's inert <template> parse (EventRuntimeAssetTest pins it)
+        self::assertSame(1, substr_count($code, 'innerHTML'));
         self::assertStringNotContainsString('outerHTML', $code);
         self::assertStringNotContainsString('insertAdjacentHTML', $code);
         self::assertStringNotContainsString('document.write', $code);

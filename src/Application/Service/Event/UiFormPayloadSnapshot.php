@@ -52,7 +52,10 @@ use Semitexa\PlatformUi\Domain\Exception\UiInteractionBadRequestException;
 final class UiFormPayloadSnapshot
 {
     public const MAX_FIELDS       = 50;
-    public const MAX_VALUE_LENGTH = 4096;
+    /** Long enough for an article body in a textarea. */
+    public const MAX_VALUE_LENGTH = 65536;
+    /** A multi-select or checkbox group: at most this many picked values. */
+    public const MAX_LIST_ITEMS   = 100;
 
     private const SAFE_IDENTIFIER = '/\A[A-Za-z_][A-Za-z0-9_-]*\z/';
 
@@ -117,11 +120,30 @@ final class UiFormPayloadSnapshot
                     'Form snapshot keys must match the safe identifier shape [A-Za-z_][A-Za-z0-9_-]*.',
                 );
             }
+            if (is_array($value)) {
+                // A multi-select or a checkbox group: a flat list of strings.
+                if (!array_is_list($value) || count($value) > self::MAX_LIST_ITEMS) {
+                    throw new UiInteractionBadRequestException(
+                        'invalid_form_snapshot_value',
+                        sprintf('Form snapshot value for "%s" must be a scalar, null, or a list of at most %d strings.', $key, self::MAX_LIST_ITEMS),
+                    );
+                }
+                foreach ($value as $item) {
+                    if (!is_string($item) || mb_strlen($item) > self::MAX_VALUE_LENGTH) {
+                        throw new UiInteractionBadRequestException(
+                            'invalid_form_snapshot_value',
+                            sprintf('Form snapshot list for "%s" may only hold strings.', $key),
+                        );
+                    }
+                }
+                $out[$key] = $value;
+                continue;
+            }
             if ($value !== null && !is_scalar($value)) {
                 throw new UiInteractionBadRequestException(
                     'invalid_form_snapshot_value',
                     sprintf(
-                        'Form snapshot value for "%s" must be a scalar or null; arrays and objects are rejected.',
+                        'Form snapshot value for "%s" must be a scalar, null, or a list of strings; objects are rejected.',
                         $key,
                     ),
                 );

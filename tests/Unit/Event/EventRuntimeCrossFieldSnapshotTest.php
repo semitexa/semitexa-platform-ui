@@ -125,10 +125,8 @@ final class EventRuntimeCrossFieldSnapshotTest extends TestCase
             '/fieldEl\.querySelector\(\s*[\'"]\[data-ui-part="input"\][\'"]\s*\)/s',
             $code,
         );
-        self::assertMatchesRegularExpression(
-            "/'value'\s+in\s+inputEl/",
-            $code,
-        );
+        // verify:accept-test-change tk-la-form-controls: the value now comes from readControlValue(inputEl) — still ONLY the input part — so selects, checkbox groups and radios read correctly
+        self::assertStringContainsString('var rawValue = readControlValue(inputEl);', $code);
     }
 
     #[Test]
@@ -188,7 +186,8 @@ final class EventRuntimeCrossFieldSnapshotTest extends TestCase
         self::assertStringNotContainsString('UiFieldValidator', $code);
         self::assertStringNotContainsString('UiFieldRuleParser', $code);
         // No string-execution / DOM-write APIs added by this slice.
-        self::assertStringNotContainsString('innerHTML', $code);
+        // verify:accept-test-change innerHTML now exists once, in the effect applier's inert <template> parse (EventRuntimeAssetTest pins it)
+        self::assertSame(1, substr_count($code, 'innerHTML'));
         self::assertStringNotContainsString('outerHTML', $code);
         self::assertStringNotContainsString('eval(', $code);
         self::assertStringNotContainsString('new Function(', $code);

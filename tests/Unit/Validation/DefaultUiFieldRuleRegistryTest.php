@@ -34,6 +34,7 @@ final class DefaultUiFieldRuleRegistryTest extends TestCase
                 MinLengthRule::NAME,
                 MaxLengthRule::NAME,
                 \Semitexa\PlatformUi\Application\Service\Validation\Rule\SameAsFieldRule::NAME,
+                'email', 'url', 'integer', 'number', 'min', 'max', 'slug', 'in',
             ],
             (new DefaultUiFieldRuleRegistry())->knownRuleNames(),
         );

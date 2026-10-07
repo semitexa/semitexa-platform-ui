@@ -22,7 +22,7 @@ use Semitexa\PlatformUi\Domain\Model\Event\UiResponsePatch;
  */
 final class FieldComponentValidationTest extends TestCase
 {
-    private function event(string $value = '', string $instance = 'uci_field_test_01'): UiInteractionEvent
+    private function event(string $value = '', string $instance = 'uci_field_test_01', bool $ack = true): UiInteractionEvent
     {
         return new UiInteractionEvent(
             componentName: 'platform.field',
@@ -35,7 +35,31 @@ final class FieldComponentValidationTest extends TestCase
             expiresAt:     time() + 60,
             claims:        [],
             dispatchId:    'ui_evt_test_0001',
+            config:        $ack ? ['ack' => true] : [],
         );
+    }
+
+    #[Test]
+    public function a_named_field_without_rules_is_simply_valid(): void
+    {
+        $event = new UiInteractionEvent(
+            componentName: 'platform.field', instanceId: 'uci_field_test_01', partName: 'input', eventName: 'change',
+            updatesPath: null, payload: ['value' => true], issuedAt: time(), expiresAt: time() + 60,
+            claims: [], dispatchId: 'ui_evt_test_0002', config: ['fn' => 'notify'],
+        );
+        $result = (new FieldComponent())->onInputChanged($event);
+
+        self::assertSame('valid', $result->debug['validation']['state']);
+        self::assertNull($result->debug['validation']['message'], 'a switch is not "at least 3 characters"');
+    }
+
+    #[Test]
+    public function without_a_server_ack_target_the_value_is_not_echoed(): void
+    {
+        // verify:accept-test-change the server-ack echo is opt-in (signed cfg.ack) — fields that never rendered the target got a target_not_found failure and the typed value on the wire
+        $result = (new FieldComponent())->onInputChanged($this->event('secret-ish', ack: false));
+        self::assertCount(3, $result->patches);
+        self::assertNotContains('server-ack', array_map(static fn ($p) => $p->targetName, $result->patches));
     }
 
     #[Test]

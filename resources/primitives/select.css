@@ -1,0 +1,52 @@
+@layer platform-ui.primitives {
+    /* The shared control look lives in input.css; here only the select's own. */
+    [ui="select"]:not([multiple]) {
+        appearance: none;
+        padding-inline-end: calc(var(--ui-space-3) + 1.25rem);
+        /* A chevron from two gradients: inherits the token colour, no image. */
+        background-image:
+            linear-gradient(45deg, transparent 50%, var(--ui-text-muted) 50%),
+            linear-gradient(135deg, var(--ui-text-muted) 50%, transparent 50%);
+        background-position:
+            calc(100% - var(--ui-space-3) - 0.3125rem) 50%,
+            calc(100% - var(--ui-space-3)) 50%;
+        background-size: 0.3125rem 0.3125rem, 0.3125rem 0.3125rem;
+        background-repeat: no-repeat;
+        cursor: pointer;
+    }
+    [ui="select"][multiple] { padding: var(--ui-space-1); }
+    [ui="select"][multiple] option { padding: var(--ui-space-1) var(--ui-space-2); border-radius: var(--ui-radius-sm, 0.25rem); }
+
+    /* Customizable select where the browser has it: the open list is styled
+       from tokens too, and the native picker icon replaces the gradient. */
+    @supports (appearance: base-select) {
+        [ui="select"]:not([multiple]),
+        [ui="select"]:not([multiple])::picker(select) { appearance: base-select; }
+        [ui="select"]:not([multiple]) {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: var(--ui-space-2);
+            background-image: none;
+            padding-inline-end: var(--ui-space-3);
+        }
+        [ui="select"]::picker-icon { color: var(--ui-text-muted); transition: rotate var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease); }
+        [ui="select"]:open::picker-icon { rotate: 180deg; }
+        [ui="select"]::picker(select) {
+            margin-block: var(--ui-space-1);
+            padding: var(--ui-space-1);
+            background: var(--ui-surface-raised);
+            color: var(--ui-text-primary);
+            border: 1px solid var(--ui-border-subtle);
+            border-radius: var(--ui-radius-md, 0.5rem);
+            box-shadow: var(--ui-shadow-md, var(--ui-shadow-xs));
+        }
+        [ui="select"]:not([multiple]) option {
+            padding: var(--ui-space-1-5) var(--ui-space-2-5);
+            border-radius: var(--ui-radius-sm, 0.25rem);
+        }
+        [ui="select"]:not([multiple]) option:is(:hover, :focus-visible) { background: var(--ui-surface-sunken); outline: none; }
+        [ui="select"]:not([multiple]) option:checked { font-weight: 600; }
+        [ui="select"] option::checkmark { color: var(--ui-accent-brand); }
+    }
+}

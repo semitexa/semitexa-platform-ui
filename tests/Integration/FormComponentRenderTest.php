@@ -93,6 +93,25 @@ final class FormComponentRenderTest extends TestCase
             ['is_safe' => ['html']],
         ));
 
+        // The field template's `control: 'file'` branch compiles with the rest of it.
+        $this->twig->addFunction(new TwigFunction('ui_upload_context', static fn (): string => 'sc1.stub'));
+        $this->twig->addFunction(new TwigFunction('asset_require', static fn (): string => ''));
+        $this->twig->addFunction(new TwigFunction('ui_href', static fn (mixed $href): string => \Semitexa\PlatformUi\Application\Service\Link\UiSafeHref::filter($href)));
+        // The field template's non-input controls read the resolved part props.
+        $this->twig->addFunction(new TwigFunction(
+            'ui_part_props',
+            static function (array $context, string $partName, array $overrides = []): array {
+                $metadata = \Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry::get((string) ($context['_component']['name'] ?? ''));
+                if ($metadata === null) {
+                    return $overrides;
+                }
+                $props = array_filter($context, static fn ($k): bool => is_string($k) && $k !== '' && $k[0] !== '_', ARRAY_FILTER_USE_KEY);
+
+                return (new \Semitexa\PlatformUi\Application\Service\Component\UiPartPropResolver())->resolve($metadata, $partName, $props, $overrides);
+            },
+            ['needs_context' => true],
+        ));
+
         $renderer = new PrimitiveRenderer($this->twig);
         $this->twig->addFunction(new TwigFunction(
             'primitive',

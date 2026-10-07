@@ -20,7 +20,7 @@ use Semitexa\PlatformUi\Domain\Model\Event\UiFieldValidationResult;
 
 /**
  * Proves the extension seam end-to-end without shipping any extra
- * production rule. A SlugRule + AppFieldRuleRegistry fixture lives at
+ * production rule. A HandleRule + AppFieldRuleRegistry fixture lives at
  * the bottom of this file (inlined per PSR-4 dev autoload limitations
  * in path-repo packages — see ref_framework_traps memory).
  *
@@ -28,14 +28,14 @@ use Semitexa\PlatformUi\Domain\Model\Event\UiFieldValidationResult;
  *   - custom registry composes the default registry to inherit
  *     required / minLength / maxLength;
  *   - parser + validator end-to-end with the custom registry resolve
- *     slug rules;
+ *     handle rules;
  *   - unknown rule names fail safely even with the custom registry;
  *   - signed wire shape round-trips for custom rules (cfg.r can carry
  *     custom names — apps that bind a custom registry sign whatever
  *     names that registry knows).
  *
- * The slug rule itself is intentionally NOT a built-in. Apps that
- * want it provide their own equivalent and bind a custom registry.
+ * The handle rule is a fixture, never a built-in (it was "slug" until slug
+ * became a built-in for the slug field type, 2026-10-06).
  */
 final class CustomRuleRegistryFixtureTest extends TestCase
 {
@@ -54,14 +54,14 @@ final class CustomRuleRegistryFixtureTest extends TestCase
     }
 
     #[Test]
-    public function custom_registry_lists_built_ins_plus_slug(): void
+    public function custom_registry_lists_built_ins_plus_handle(): void
     {
         $registry = new AppFieldRuleRegistry();
         $names = $registry->knownRuleNames();
         self::assertContains('required', $names);
         self::assertContains('minLength', $names);
         self::assertContains('maxLength', $names);
-        self::assertContains('slug', $names);
+        self::assertContains('handle', $names);
     }
 
     #[Test]
@@ -79,40 +79,40 @@ final class CustomRuleRegistryFixtureTest extends TestCase
     }
 
     #[Test]
-    public function custom_registry_resolves_slug_rule(): void
+    public function custom_registry_resolves_handle_rule(): void
     {
         $registry = new AppFieldRuleRegistry();
-        $rule = $registry->resolve(new UiFieldRuleSpec('slug'));
-        self::assertInstanceOf(SlugRule::class, $rule);
+        $rule = $registry->resolve(new UiFieldRuleSpec('handle'));
+        self::assertInstanceOf(HandleRule::class, $rule);
     }
 
     #[Test]
-    public function slug_rule_passes_valid_slug(): void
+    public function handle_rule_passes_valid_handle(): void
     {
-        $rule = new SlugRule();
+        $rule = new HandleRule();
         self::assertNull($rule->validate('hello-world', $this->ctx()));
         self::assertNull($rule->validate('abc', $this->ctx()));
         self::assertNull($rule->validate('platform-ui-2026', $this->ctx()));
     }
 
     #[Test]
-    public function slug_rule_fails_invalid_slug(): void
+    public function handle_rule_fails_invalid_handle(): void
     {
-        $rule = new SlugRule();
+        $rule = new HandleRule();
         foreach (['Hello World', 'UPPER', '_leading_underscore', 'double--dash', '-leading-dash', 'trailing-', 'space inside'] as $bad) {
             $r = $rule->validate($bad, $this->ctx());
-            self::assertNotNull($r, "Expected '{$bad}' to fail slug validation.");
+            self::assertNotNull($r, "Expected '{$bad}' to fail handle validation.");
             self::assertFalse($r->isValid());
-            self::assertSame('Please enter a valid slug.', $r->message);
+            self::assertSame('Please enter a valid handle.', $r->message);
         }
     }
 
     #[Test]
-    public function slug_rule_passes_empty_value_to_defer_to_required(): void
+    public function handle_rule_passes_empty_value_to_defer_to_required(): void
     {
-        // Slug alone passes empty — pair with required to also reject
+        // Handle alone passes empty — pair with required to also reject
         // empties. Matches the same contract minLength uses.
-        $rule = new SlugRule();
+        $rule = new HandleRule();
         self::assertNull($rule->validate('', $this->ctx()));
         self::assertNull($rule->validate("   ", $this->ctx()));
     }
@@ -123,43 +123,43 @@ final class CustomRuleRegistryFixtureTest extends TestCase
         $parser = $this->customParser();
 
         // Empty: required fails first.
-        $rules = $parser->resolveAll($parser->parseAll(['required', 'slug']));
+        $rules = $parser->resolveAll($parser->parseAll(['required', 'handle']));
         $r = (new UiFieldValidator())->validate('', $rules, $this->ctx());
         self::assertFalse($r->isValid());
         self::assertSame('This field is required.', $r->message);
 
-        // Non-empty + invalid slug: required passes, slug fails.
-        $r = (new UiFieldValidator())->validate('Bad Slug', $rules, $this->ctx());
+        // Non-empty + invalid handle: required passes, handle fails.
+        $r = (new UiFieldValidator())->validate('Bad Handle', $rules, $this->ctx());
         self::assertFalse($r->isValid());
-        self::assertSame('Please enter a valid slug.', $r->message);
+        self::assertSame('Please enter a valid handle.', $r->message);
 
-        // Valid slug: all rules pass.
+        // Valid handle: all rules pass.
         $r = (new UiFieldValidator())->validate('hello-world', $rules, $this->ctx());
         self::assertTrue($r->isValid());
         self::assertSame('Looks good.', $r->message);
     }
 
     #[Test]
-    public function parser_with_custom_registry_round_trips_slug_through_wire_shape(): void
+    public function parser_with_custom_registry_round_trips_handle_through_wire_shape(): void
     {
         $parser = $this->customParser();
-        $wire = $parser->parseAllToWire(['required', 'slug']);
+        $wire = $parser->parseAllToWire(['required', 'handle']);
         self::assertSame([
             ['n' => 'required'],
-            ['n' => 'slug'],
+            ['n' => 'handle'],
         ], $wire);
 
         // Resolve back from the wire shape and verify rule types.
         $rules = $parser->resolveFromWire($wire);
         self::assertCount(2, $rules);
         self::assertInstanceOf(RequiredRule::class, $rules[0]);
-        self::assertInstanceOf(SlugRule::class, $rules[1]);
+        self::assertInstanceOf(HandleRule::class, $rules[1]);
     }
 
     #[Test]
     public function unknown_rule_still_fails_with_custom_registry(): void
     {
-        // The custom registry adds 'slug' but does NOT add 'evilRule'.
+        // The custom registry adds 'handle' but does NOT add 'evilRule'.
         // Unknown names still surface as a typed exception.
         $parser = $this->customParser();
         $this->expectException(UiFieldValidationRuleException::class);
@@ -168,15 +168,15 @@ final class CustomRuleRegistryFixtureTest extends TestCase
     }
 
     #[Test]
-    public function default_parser_does_NOT_know_slug(): void
+    public function default_parser_does_NOT_know_handle(): void
     {
-        // Sanity: the default registry must not know 'slug' — that's
+        // Sanity: the default registry must not know 'handle' — that's
         // a fixture rule, never shipped as a built-in. Built explicitly
         // with DefaultUiFieldRuleRegistry now that the parser ctor
         // requires the registry argument (no silent fallback).
         $defaultParser = new UiFieldRuleParser(new DefaultUiFieldRuleRegistry());
         $this->expectException(UiFieldValidationRuleException::class);
-        $defaultParser->parseAllToWire(['slug']);
+        $defaultParser->parseAllToWire(['handle']);
     }
 
     #[Test]
@@ -197,15 +197,15 @@ final class CustomRuleRegistryFixtureTest extends TestCase
 }
 
 /**
- * Test fixture: lowercase-and-dashes slug rule. NOT a production
+ * Test fixture: lowercase-and-dashes handle rule. NOT a production
  * built-in. Implementations live under the test namespace so they
  * cannot accidentally leak into the framework.
  */
-final class SlugRule implements UiFieldValidationRuleInterface
+final class HandleRule implements UiFieldValidationRuleInterface
 {
-    public const NAME = 'slug';
+    public const NAME = 'handle';
     public const PATTERN = '/\A[a-z0-9]+(?:-[a-z0-9]+)*\z/';
-    public const MESSAGE = 'Please enter a valid slug.';
+    public const MESSAGE = 'Please enter a valid handle.';
 
     public function validate(mixed $value, UiFieldValidationContext $context): ?UiFieldValidationResult
     {
@@ -224,7 +224,7 @@ final class SlugRule implements UiFieldValidationRuleInterface
 
 /**
  * Test fixture: a custom registry composing DefaultUiFieldRuleRegistry
- * to inherit the three built-ins and adding `slug`. Matches the
+ * to inherit the three built-ins and adding `handle`. Matches the
  * documented override pattern from DefaultUiFieldRuleRegistry's
  * docblock — apps in production would mark a similar class with
  * #[SatisfiesServiceContract(of: UiFieldRuleRegistryInterface::class)].
@@ -240,14 +240,14 @@ final class AppFieldRuleRegistry implements UiFieldRuleRegistryInterface
 
     public function resolve(UiFieldRuleSpec $spec): UiFieldValidationRuleInterface
     {
-        if ($spec->name === SlugRule::NAME) {
+        if ($spec->name === HandleRule::NAME) {
             if ($spec->params !== []) {
                 throw new UiFieldValidationRuleException(
-                    'Rule "slug" takes no parameters.',
+                    'Rule "handle" takes no parameters.',
                     $spec->name,
                 );
             }
-            return new SlugRule();
+            return new HandleRule();
         }
         return $this->builtins->resolve($spec);
     }
@@ -255,6 +255,6 @@ final class AppFieldRuleRegistry implements UiFieldRuleRegistryInterface
     /** @return list<string> */
     public function knownRuleNames(): array
     {
-        return [...$this->builtins->knownRuleNames(), SlugRule::NAME];
+        return [...$this->builtins->knownRuleNames(), HandleRule::NAME];
     }
 }

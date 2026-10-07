@@ -201,8 +201,12 @@ final class FormSubmitDispatchTest extends TestCase
         self::assertSame(0, $data['debug']['submit']['validCount']);
         self::assertSame(2, $data['debug']['submit']['invalidCount']);
         self::assertSame('2 fields need attention.', $data['debug']['submit']['message']);
-        // Patches: setText form-status + setAttribute ui-state.
-        self::assertCount(2, $data['patches']);
+        // Patches: setText form-status + setAttribute ui-state, then the
+        // `ui-form:invalid` lifecycle event.
+        // verify:accept-test-change a failed submit now also announces ui-form:invalid on the form root (tk-la-form-lifecycle)
+        self::assertCount(3, $data['patches']);
+        self::assertSame('dispatch', $data['patches'][2]['op']);
+        self::assertSame('ui-form:invalid', $data['patches'][2]['value']);
         self::assertSame('setText', $data['patches'][0]['op']);
         self::assertSame('form-status', $data['patches'][0]['target']['name']);
         self::assertSame('2 fields need attention.', $data['patches'][0]['value']);
@@ -477,8 +481,10 @@ final class FormSubmitDispatchTest extends TestCase
         self::assertSame('validation-message', $accessPatches[2]['target']['name']);
         self::assertSame('This field is required.', $confirmPatches[2]['value']);
 
-        // Form-level summary still last.
-        self::assertCount(2, $formPatches);
+        // Form-level summary, then the `ui-form:invalid` event.
+        // verify:accept-test-change a failed submit now also announces ui-form:invalid on the form root (tk-la-form-lifecycle)
+        self::assertCount(3, $formPatches);
+        self::assertSame('ui-form:invalid', $formPatches[2]['value']);
         self::assertSame('2 fields need attention.', $formPatches[0]['value']);
         self::assertSame('invalid', $formPatches[1]['value']);
     }
@@ -497,10 +503,11 @@ final class FormSubmitDispatchTest extends TestCase
         $access  = $this->patchesForInstance($data, self::FIELD_INSTANCE_ACCESS);
         $confirm = $this->patchesForInstance($data, self::FIELD_INSTANCE_CONFIRM);
 
-        // access_code passes → aria-invalid removed (null) + ui-state valid + "Looks good." setText.
+        // access_code passes → aria-invalid removed (null) + ui-state valid + its message cleared:
+        // a submit clears an earlier error and praises nothing ("Looks good." is the change event's).
         self::assertNull($access[0]['value']);
         self::assertSame('valid', $access[1]['value']);
-        self::assertSame('Looks good.', $access[2]['value']);
+        self::assertSame('', $access[2]['value']);
 
         // confirm_access_code fails sameAsField → custom message.
         self::assertSame('true', $confirm[0]['value']);
@@ -828,6 +835,21 @@ final class FormSubmitDispatchTest extends TestCase
     }
 
     #[Test]
+    public function a_form_with_no_fields_but_a_signed_action_runs_the_action(): void
+    {
+        // A confirmation — the delete button of an edit dialog — has nothing
+        // to validate; it used to stop at "Form has no fields." and never
+        // reach its action.
+        $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME, []), ['form' => ['values' => []]]);
+        self::assertSame(200, $resp->getStatusCode());
+        $data = $this->decode($resp);
+
+        self::assertSame(PlatformDemoAcceptAction::NAME, $data['debug']['action']['name']);
+        self::assertTrue($data['debug']['action']['accepted']);
+        self::assertContains(PlatformDemoAcceptAction::MESSAGE, array_column($data['patches'], 'value'));
+    }
+
+    #[Test]
     public function invalid_submit_with_signed_action_does_NOT_invoke_action(): void
     {
         $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME), [
@@ -1011,10 +1033,16 @@ final class FormSubmitDispatchTest extends TestCase
         ]);
         $data = $this->decode($resp);
         $totalCount = count($data['patches']);
-        // First patches target the field instance, last patches target
-        // the form instance and carry the action message + ui-state.
+        // First patches target the field instance, then the form instance's
+        // action message + ui-state; the lifecycle effects come after them.
+        // verify:accept-test-change the action outcome is now followed by its ui-form:accepted event (tk-la-form-lifecycle)
         self::assertSame('uci_action_field_pin', $data['patches'][0]['target']['instance']);
-        $lastTwo = array_slice($data['patches'], -2);
+        $ops = array_column($data['patches'], 'op');
+        $statusAt = array_search('form-status', array_map(static fn (array $p): ?string => $p['target']['name'] ?? null, $data['patches']), true);
+        self::assertIsInt($statusAt);
+        self::assertSame('dispatch', $ops[$statusAt + 2]);
+        self::assertSame('ui-form:accepted', $data['patches'][$statusAt + 2]['value']);
+        $lastTwo = array_slice($data['patches'], $statusAt, 2);
         self::assertSame(self::FORM_INSTANCE, $lastTwo[0]['target']['instance']);
         self::assertSame('form-status', $lastTwo[0]['target']['name']);
         self::assertSame(PlatformDemoAcceptAction::MESSAGE, $lastTwo[0]['value']);

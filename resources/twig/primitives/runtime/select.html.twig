@@ -1,0 +1,18 @@
+{#- platform.select — options [{value, label, disabled?}], value (list when multiple). -#}
+{%- set _multiple = multiple|default(false) -%}
+{%- set _value = value ?? null -%}
+{%- set _values = _value is iterable ? _value|map(v => v ~ '') : (_value is null ? [] : [_value ~ '']) -%}
+<select ui="{{ _primitive.ui }}" data-ui-primitive="{{ _primitive.name }}"
+{%- if part|default(null) %} data-ui-part="{{ part }}"{% endif -%}
+{%- if name|default(null) %} name="{{ name }}{{ _multiple ? '[]' : '' }}"{% endif -%}
+{%- if id|default(null) %} id="{{ id }}"{% endif -%}
+{%- if size|default(null) %} ui-size="{{ size }}"{% endif -%}
+{%- if _multiple %} multiple{% endif -%}
+{%- if required|default(false) %} required{% endif -%}
+{%- if disabled|default(false) %} disabled{% endif -%}
+>
+{%- if not _multiple and placeholder|default(null) %}<option value="">{{ placeholder }}</option>{% endif -%}
+{%- for option in options|default([]) -%}
+<option value="{{ option.value }}"{% if (option.value ~ '') in _values %} selected{% endif %}{% if option.disabled|default(false) %} disabled{% endif %}>{{ option.label|default(option.value) }}</option>
+{%- endfor -%}
+</select>
