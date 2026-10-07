@@ -20,16 +20,22 @@ use Semitexa\Ssr\Attribute\AsComponent;
  */
 final class UiOnTimingTest extends TestCase
 {
+    private string|false $previousSecret = false;
+
+    private string|false $previousEnv = false;
+
     protected function setUp(): void
     {
+        $this->previousSecret = getenv('APP_SECRET');
+        $this->previousEnv = getenv('APP_ENV');
         putenv('APP_SECRET=ui-on-timing-test');
         putenv('APP_ENV=dev');
     }
 
     protected function tearDown(): void
     {
-        putenv('APP_SECRET');
-        putenv('APP_ENV');
+        putenv($this->previousSecret === false ? 'APP_SECRET' : 'APP_SECRET=' . $this->previousSecret);
+        putenv($this->previousEnv === false ? 'APP_ENV' : 'APP_ENV=' . $this->previousEnv);
     }
 
     #[Test]

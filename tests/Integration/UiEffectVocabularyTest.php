@@ -41,8 +41,14 @@ final class UiEffectVocabularyTest extends TestCase
     /** @var list<array{string, array<string, mixed>, ?string}> */
     private array $renders = [];
 
+    private string|false $previousSecret = false;
+
+    private string|false $previousEnv = false;
+
     protected function setUp(): void
     {
+        $this->previousSecret = getenv('APP_SECRET');
+        $this->previousEnv = getenv('APP_ENV');
         putenv('APP_SECRET=platform-ui-effects-test');
         putenv('APP_ENV=dev');
         UiComponentRegistry::reset();
@@ -54,8 +60,8 @@ final class UiEffectVocabularyTest extends TestCase
     {
         UiComponentRegistry::reset();
         UiSseSessionState::reset();
-        putenv('APP_SECRET');
-        putenv('APP_ENV');
+        putenv($this->previousSecret === false ? 'APP_SECRET' : 'APP_SECRET=' . $this->previousSecret);
+        putenv($this->previousEnv === false ? 'APP_ENV' : 'APP_ENV=' . $this->previousEnv);
     }
 
     #[Test]
