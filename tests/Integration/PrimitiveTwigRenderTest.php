@@ -21,6 +21,7 @@ use Twig\Environment as TwigEnvironment;
 use Twig\Loader\FilesystemLoader;
 use Twig\Markup;
 use Twig\TwigFunction;
+use Semitexa\PlatformUi\Application\Service\Link\UiSafeHref;
 
 /**
  * Drives PrimitiveRenderer through a real Twig environment loaded against
@@ -52,6 +53,8 @@ final class PrimitiveTwigRenderTest extends TestCase
             static fn (string $name, array $opts = []): Markup => new Markup(IconRegistry::render($name, $opts), 'UTF-8'),
             ['is_safe' => ['html']],
         ));
+        // …and ui_href(), which the button template passes its href through.
+        $this->twig->addFunction(new TwigFunction('ui_href', static fn (mixed $href): string => UiSafeHref::filter($href)));
     }
 
     protected function tearDown(): void
@@ -103,6 +106,20 @@ final class PrimitiveTwigRenderTest extends TestCase
         self::assertStringContainsString('href="/docs"', $html);
         self::assertStringContainsString('data-ui-primitive="platform.button"', $html);
         self::assertStringNotContainsString('type="button"', $html);
+    }
+
+    #[Test]
+    public function button_template_drops_a_script_href_and_renders_a_button(): void
+    {
+        $factory = new UiPrimitiveMetadataFactory();
+        UiPrimitiveRegistry::register($factory->fromClass(ButtonPrimitive::class));
+
+        $html = $this->renderer()->render('button', ['text' => 'Go', 'href' => 'javascript:alert(1)']);
+
+        self::assertStringStartsWith('<button ', ltrim($html));
+        self::assertStringNotContainsString('href', $html);
+        self::assertStringNotContainsString('javascript', $html);
+        self::assertStringContainsString('type="button"', $html);
     }
 
     #[Test]

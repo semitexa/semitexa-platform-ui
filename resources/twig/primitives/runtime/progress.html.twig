@@ -1,0 +1,12 @@
+{#- platform.progress — value (omit = indeterminate), max, label, showValue, tone, size. -#}
+{%- set _max = max|default(100) -%}
+{%- set _value = value ?? null -%}
+<div ui="{{ _primitive.ui }}" data-ui-primitive="{{ _primitive.name }}"
+{%- if tone|default(null) %} ui-tone="{{ tone }}"{% endif -%}
+{%- if size|default(null) %} ui-size="{{ size }}"{% endif -%}
+>
+{%- if label|default(null) -%}
+<div ui-progress-caption><span>{{ label }}</span>{% if _value is not null and showValue ?? true %}<span ui-progress-value>{{ (_value / _max * 100)|round }}%</span>{% endif %}</div>
+{%- endif -%}
+<progress max="{{ _max }}"{% if _value is not null %} value="{{ _value }}"{% endif %}{% if label|default(null) %} aria-label="{{ label }}"{% endif %}></progress>
+</div>

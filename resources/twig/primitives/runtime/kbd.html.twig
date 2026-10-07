@@ -1,0 +1,5 @@
+{#- platform.kbd — keys: ['Ctrl', 'K'] (a string is one key). -#}
+{%- set _keys = keys is iterable ? keys : [keys|default('')] -%}
+<kbd ui="{{ _primitive.ui }}" data-ui-primitive="{{ _primitive.name }}">
+{%- for key in _keys %}<kbd>{{ key }}</kbd>{% if not loop.last %}<span aria-hidden="true">+</span>{% endif %}{% endfor -%}
+</kbd>

@@ -3,7 +3,10 @@
  # disabled, loading, pressed, icon (leading), iconEnd, shape ('square' for icon-only;
  # pass label for its accessible name).
  #}
-{%- set tag = (href|default(null)) ? 'a' : 'button' -%}
+{#- An href that could run script (javascript:, data:, //host) is dropped: the
+    control renders as a button instead of a link nobody should follow. -#}
+{%- set href = ui_href(href|default('')) -%}
+{%- set tag = href ? 'a' : 'button' -%}
 {%- set _type = type|default('button') -%}
 {%- set _text = text|default(label|default('')) -%}
 {%- set _disabled = disabled|default(false) -%}

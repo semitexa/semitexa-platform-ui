@@ -462,9 +462,12 @@
     [ui="badge"][ui-tone="warning"] { --_tone: var(--ui-state-warning); --_on-tone: var(--ui-text-on-warning); }
     [ui="badge"][ui-tone="danger"]  { --_tone: var(--ui-state-danger);  --_on-tone: var(--ui-text-on-danger); }
 
+    /* Soft and outline text mix the tone toward the text colour: an amber
+       warning at 85% read 3.06:1 on its own tint (axe, light skin), below AA's
+       4.5:1 for 12px text. 62% keeps the hue and clears AA in both modes. */
     [ui="badge"]:where(:not([ui-variant]), [ui-variant="soft"]) {
         background: color-mix(in oklab, var(--_tone) 13%, var(--ui-surface-raised));
-        color: color-mix(in oklab, var(--_tone) 85%, var(--ui-text-primary));
+        color: color-mix(in oklab, var(--_tone) 62%, var(--ui-text-primary));
         border-color: color-mix(in oklab, var(--_tone) 22%, transparent);
     }
     [ui="badge"][ui-variant="solid"] {
@@ -473,7 +476,7 @@
     }
     [ui="badge"][ui-variant="outline"] {
         background: transparent;
-        color: color-mix(in oklab, var(--_tone) 85%, var(--ui-text-primary));
+        color: color-mix(in oklab, var(--_tone) 62%, var(--ui-text-primary));
         border-color: color-mix(in oklab, var(--_tone) 50%, transparent);
     }
 
@@ -641,7 +644,7 @@
         color: transparent !important;
         pointer-events: none;
     }
-    [ui="button"][ui-state="loading"]::after {
+    [ui="button"]:is([ui-state="loading"], [data-loading])::after {
         content: "";
         position: absolute;
         inset: 0;
@@ -653,10 +656,24 @@
         border-right-color: transparent;
         animation: ui-button-spin 0.7s linear infinite;
     }
-    [ui="button"]:is([ui-variant="soft"], [ui-variant="outline"], [ui-variant="ghost"], [ui-variant="link"])[ui-state="loading"]::after {
+    [ui="button"]:is([ui-variant="soft"], [ui-variant="outline"], [ui-variant="ghost"], [ui-variant="link"]):is([ui-state="loading"], [data-loading])::after {
         border-color: var(--_tone);
         border-right-color: transparent;
     }
+
+    /* An action in flight from this button (the event runtime sets
+       data-loading): the same ring, after a short grace period so a fast
+       answer never flickers. */
+    [ui="button"][data-loading] {
+        pointer-events: none;
+        animation: ui-button-busy 0s linear 150ms forwards;
+    }
+    [ui="button"][data-loading]::after {
+        opacity: 0;
+        animation: ui-button-spin 0.7s linear infinite, ui-button-appear 0s linear 150ms forwards;
+    }
+    @keyframes ui-button-busy { to { color: transparent; } }
+    @keyframes ui-button-appear { to { opacity: 1; } }
 
     /* Icons inside buttons size with the text. */
     [ui="button"] > .sx-icon { width: 1.15em; height: 1.15em; flex: none; }
@@ -668,6 +685,132 @@
         [ui="button"] { transition: none; }
         [ui="button"][ui-state="loading"]::after { animation-duration: 1.6s; }
     }
+}
+
+
+@layer platform-ui.primitives {
+    /* checkbox · radio · switch — a <label> root around the native control,
+       drawn from tokens (appearance: none), focus / invalid / disabled alike. */
+    :is([ui="checkbox"], [ui="radio"], [ui="switch"]) {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--ui-space-2);
+        font-size: var(--ui-text-sm);
+        line-height: var(--ui-text-sm-leading);
+        color: var(--ui-text-primary);
+        cursor: pointer;
+    }
+    :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input {
+        appearance: none;
+        flex: none;
+        margin: 0;
+        display: inline-grid;
+        place-content: center;
+        background: var(--ui-surface-raised);
+        border: 1px solid var(--ui-border-strong);
+        cursor: inherit;
+        transition:
+            background-color var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease),
+            border-color var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease);
+    }
+    :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-focus-ring) 30%, transparent);
+    }
+    :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input[aria-invalid="true"] { border-color: var(--ui-state-danger); }
+    :is([ui="checkbox"], [ui="radio"], [ui="switch"]):has(> input:disabled) { color: var(--ui-text-muted); cursor: not-allowed; }
+    :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input:disabled { opacity: 0.55; }
+
+    /* checkbox: a rounded square, a check mark drawn by clip-path */
+    [ui="checkbox"] > input { width: 1.125rem; height: 1.125rem; border-radius: var(--ui-radius-sm, 0.25rem); }
+    [ui="checkbox"] > input::before {
+        content: "";
+        width: 0.625rem;
+        height: 0.625rem;
+        background: var(--ui-text-on-accent);
+        clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+        scale: 0;
+        transition: scale var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease);
+    }
+    [ui="checkbox"] > input:checked { background: var(--ui-accent-brand); border-color: var(--ui-accent-brand); }
+    [ui="checkbox"] > input:checked::before { scale: 1; }
+
+    /* radio: a circle with a dot */
+    [ui="radio"] > input { width: 1.125rem; height: 1.125rem; border-radius: 50%; }
+    [ui="radio"] > input::before {
+        content: "";
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 50%;
+        background: var(--ui-accent-brand);
+        scale: 0;
+        transition: scale var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease);
+    }
+    [ui="radio"] > input:checked { border-color: var(--ui-accent-brand); }
+    [ui="radio"] > input:checked::before { scale: 1; }
+
+    /* switch: a track with a thumb that slides */
+    [ui="switch"] > input {
+        width: 2.25rem;
+        height: 1.25rem;
+        border-radius: 999px;
+        place-content: center start;
+        padding: 0.125rem;
+        background: var(--ui-surface-sunken);
+    }
+    [ui="switch"] > input::before {
+        content: "";
+        width: 0.875rem;
+        height: 0.875rem;
+        border-radius: 50%;
+        background: var(--ui-surface-raised);
+        box-shadow: var(--ui-shadow-xs);
+        transition: translate var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease);
+    }
+    [ui="switch"] > input:checked { background: var(--ui-accent-brand); border-color: var(--ui-accent-brand); }
+    [ui="switch"] > input:checked::before { translate: 1rem 0; }
+
+    @media (prefers-reduced-motion: reduce) {
+        :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input,
+        :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input::before { transition: none; }
+    }
+}
+
+
+@layer platform-ui.primitives {
+    /* Side by side where the container has room, stacked where it has not —
+       a container query, so it adapts to the column it sits in, not the window. */
+    [ui="description-list"] { container-type: inline-size; margin: 0; display: grid; gap: 0; }
+    [ui="description-list"] > div {
+        display: grid;
+        gap: var(--ui-space-1);
+        padding: var(--ui-space-2-5) 0;
+        border-top: 1px solid var(--ui-border-subtle);
+    }
+    [ui="description-list"] > div:first-child { border-top: 0; }
+    [ui="description-list"] dt { font-size: var(--ui-text-sm); color: var(--ui-text-muted); font-weight: var(--ui-font-weight-medium); }
+    [ui="description-list"] dd { margin: 0; font-size: var(--ui-text-sm); color: var(--ui-text-primary); }
+    @container (min-width: 28rem) {
+        [ui="description-list"][ui-layout="inline"] > div { grid-template-columns: minmax(8rem, 1fr) 2fr; gap: var(--ui-space-4); }
+    }
+}
+
+
+@layer platform-ui.primitives {
+    hr[ui="divider"] { border: 0; border-top: 1px solid var(--ui-border-subtle); margin: var(--ui-space-3) 0; width: 100%; }
+    [ui="divider"][aria-orientation="vertical"] { align-self: stretch; width: 0; min-height: 1em; border-left: 1px solid var(--ui-border-subtle); margin: 0 var(--ui-space-2); }
+    [ui="divider"][ui-divider-label] {
+        display: flex;
+        align-items: center;
+        gap: var(--ui-space-3);
+        margin: var(--ui-space-3) 0;
+        color: var(--ui-text-muted);
+        font-size: var(--ui-text-xs);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+    [ui="divider"][ui-divider-label]::before,
+    [ui="divider"][ui-divider-label]::after { content: ""; flex: 1; border-top: 1px solid var(--ui-border-subtle); }
 }
 
 
@@ -697,7 +840,7 @@
 
 
 @layer platform-ui.primitives {
-    [ui="input"] {
+    :is([ui="input"], [ui="textarea"], [ui="select"]) {
         --_height: var(--ui-control-height-md);
 
         display: block;
@@ -716,36 +859,56 @@
             border-color var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease),
             box-shadow   var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease);
     }
-    textarea[ui="input"] { min-height: calc(var(--_height) * 2.5); resize: vertical; }
+    textarea[ui="input"], [ui="textarea"] { min-height: calc(var(--_height) * 2.5); resize: vertical; }
 
-    [ui="input"][ui-size="sm"] { --_height: var(--ui-control-height-sm); padding: var(--ui-space-1) var(--ui-space-2-5); font-size: var(--ui-text-xs); }
-    [ui="input"][ui-size="lg"] { --_height: var(--ui-control-height-lg); padding: var(--ui-space-2) var(--ui-space-3-5); font-size: var(--ui-text-base); }
+    :is([ui="input"], [ui="textarea"], [ui="select"])[ui-size="sm"] { --_height: var(--ui-control-height-sm); padding: var(--ui-space-1) var(--ui-space-2-5); font-size: var(--ui-text-xs); }
+    :is([ui="input"], [ui="textarea"], [ui="select"])[ui-size="lg"] { --_height: var(--ui-control-height-lg); padding: var(--ui-space-2) var(--ui-space-3-5); font-size: var(--ui-text-base); }
 
-    [ui="input"]::placeholder { color: var(--ui-text-muted); opacity: 0.8; }
+    :is([ui="input"], [ui="textarea"], [ui="select"])::placeholder { color: var(--ui-text-muted); opacity: 0.8; }
 
-    [ui="input"]:hover:not(:disabled, :focus) { border-color: var(--ui-border-strong); }
+    :is([ui="input"], [ui="textarea"], [ui="select"]):hover:not(:disabled, :focus) { border-color: var(--ui-border-strong); }
 
-    [ui="input"]:focus,
-    [ui="input"]:focus-visible {
+    :is([ui="input"], [ui="textarea"], [ui="select"]):focus,
+    :is([ui="input"], [ui="textarea"], [ui="select"]):focus-visible {
         outline: none;
         border-color: var(--ui-focus-ring);
         box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-focus-ring) 22%, transparent);
     }
 
-    [ui="input"][ui-state="invalid"],
-    [ui="input"][aria-invalid="true"] { border-color: var(--ui-state-danger); }
-    [ui="input"][ui-state="invalid"]:focus,
-    [ui="input"][aria-invalid="true"]:focus {
+    :is([ui="input"], [ui="textarea"], [ui="select"])[ui-state="invalid"],
+    :is([ui="input"], [ui="textarea"], [ui="select"])[aria-invalid="true"] { border-color: var(--ui-state-danger); }
+    :is([ui="input"], [ui="textarea"], [ui="select"])[ui-state="invalid"]:focus,
+    :is([ui="input"], [ui="textarea"], [ui="select"])[aria-invalid="true"]:focus {
         box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-state-danger) 22%, transparent);
     }
 
-    [ui="input"]:disabled {
+    :is([ui="input"], [ui="textarea"], [ui="select"]):disabled {
         background: var(--ui-surface-sunken);
         color: var(--ui-text-muted);
         box-shadow: none;
         cursor: not-allowed;
     }
-    [ui="input"]:read-only:not(:disabled) { background: var(--ui-surface-panel); }
+    /* A select always matches :read-only (it is not a text control). */
+    :is([ui="input"], [ui="textarea"]):read-only:not(:disabled) { background: var(--ui-surface-panel); }
+}
+
+
+@layer platform-ui.primitives {
+    [ui="kbd"] { display: inline-flex; align-items: center; gap: 0.25rem; font-size: var(--ui-text-xs); color: var(--ui-text-muted); }
+    [ui="kbd"] > kbd {
+        display: inline-grid;
+        place-items: center;
+        min-width: 1.5rem;
+        height: 1.375rem;
+        padding: 0 0.375rem;
+        font: inherit;
+        font-family: var(--ui-font-mono, ui-monospace, monospace);
+        color: var(--ui-text-primary);
+        background: var(--ui-surface-raised);
+        border: 1px solid var(--ui-border-subtle);
+        border-bottom-width: 2px;
+        border-radius: var(--ui-radius-sm, 0.25rem);
+    }
 }
 
 
@@ -764,6 +927,210 @@
 
     /* <label ui="label" ui-required> appends a quiet marker. */
     [ui="label"][ui-required]::after { content: " *"; color: var(--ui-state-danger); }
+}
+
+
+@layer platform-ui.primitives {
+    /* progress · meter — native elements, drawn from tokens. */
+    :is([ui="progress"], [ui="meter"]) {
+        --_tone: var(--ui-accent-brand);
+        --_track: color-mix(in oklab, var(--ui-text-muted) 18%, var(--ui-surface-raised));
+        --_height: 0.5rem;
+        display: grid;
+        gap: var(--ui-space-1);
+        width: 100%;
+    }
+    [ui="progress"][ui-size="sm"] { --_height: 0.25rem; }
+    [ui="progress"][ui-size="lg"] { --_height: 0.75rem; }
+    [ui="progress"][ui-tone="neutral"] { --_tone: var(--ui-text-muted); }
+    [ui="progress"][ui-tone="info"]    { --_tone: var(--ui-state-info); }
+    [ui="progress"][ui-tone="success"] { --_tone: var(--ui-state-success); }
+    [ui="progress"][ui-tone="warning"] { --_tone: var(--ui-state-warning); }
+    [ui="progress"][ui-tone="danger"]  { --_tone: var(--ui-state-danger); }
+
+    [ui-progress-caption] {
+        display: flex;
+        justify-content: space-between;
+        gap: var(--ui-space-2);
+        font-size: var(--ui-text-sm);
+        color: var(--ui-text-primary);
+    }
+    [ui-progress-value] { color: var(--ui-text-muted); font-variant-numeric: tabular-nums; }
+
+    :is([ui="progress"] > progress, [ui="meter"] > meter) {
+        appearance: none;
+        display: block;
+        width: 100%;
+        height: var(--_height);
+        border: 0;
+        border-radius: 999px;
+        overflow: hidden;
+        background: var(--_track);
+    }
+    [ui="progress"] > progress::-webkit-progress-bar { background: var(--_track); border-radius: 999px; }
+    [ui="progress"] > progress::-webkit-progress-value {
+        background: var(--_tone);
+        border-radius: 999px;
+        transition: inline-size var(--ui-motion-duration-base, 200ms) var(--ui-motion-easing-standard, ease);
+    }
+    [ui="progress"] > progress::-moz-progress-bar { background: var(--_tone); border-radius: 999px; }
+
+    /* Indeterminate: a band sweeping across the track. */
+    [ui="progress"] > progress:indeterminate {
+        background:
+            linear-gradient(90deg, transparent, var(--_tone), transparent) no-repeat,
+            var(--_track);
+        background-size: 40% 100%, auto;
+        animation: ui-progress-sweep 1.2s var(--ui-motion-easing-standard, ease-in-out) infinite;
+    }
+    [ui="progress"] > progress:indeterminate::-webkit-progress-bar { background: transparent; }
+    [ui="progress"] > progress:indeterminate::-moz-progress-bar { background: transparent; }
+    @keyframes ui-progress-sweep {
+        from { background-position: -40% 0, 0 0; }
+        to   { background-position: 140% 0, 0 0; }
+    }
+
+    /* meter: the browser picks the segment; we colour it. */
+    [ui="meter"] > meter::-webkit-meter-bar { background: var(--_track); border: 0; border-radius: 999px; height: var(--_height); }
+    [ui="meter"] > meter::-webkit-meter-optimum-value { background: var(--ui-state-success); border-radius: 999px; }
+    [ui="meter"] > meter::-webkit-meter-suboptimum-value { background: var(--ui-state-warning); border-radius: 999px; }
+    [ui="meter"] > meter::-webkit-meter-even-less-good-value { background: var(--ui-state-danger); border-radius: 999px; }
+    [ui="meter"] > meter:-moz-meter-optimum::-moz-meter-bar { background: var(--ui-state-success); }
+    [ui="meter"] > meter:-moz-meter-sub-optimum::-moz-meter-bar { background: var(--ui-state-warning); }
+    [ui="meter"] > meter:-moz-meter-sub-sub-optimum::-moz-meter-bar { background: var(--ui-state-danger); }
+
+    @media (prefers-reduced-motion: reduce) {
+        [ui="progress"] > progress:indeterminate { animation: none; background-position: 50% 0, 0 0; }
+        [ui="progress"] > progress::-webkit-progress-value { transition: none; }
+    }
+}
+
+
+@layer platform-ui.primitives {
+    /* A radio group drawn as one button bar; the radios stay real (keyboard,
+       form value), only visually hidden. */
+    [ui="segmented"] {
+        display: inline-flex;
+        gap: 0.125rem;
+        margin: 0;
+        padding: 0.1875rem;
+        border: 1px solid var(--ui-border-subtle);
+        border-radius: var(--ui-radius-md, 0.5rem);
+        background: var(--ui-surface-sunken);
+        min-inline-size: 0;
+        /* Its own width, even as a child of a stretching stack. */
+        inline-size: fit-content;
+        max-inline-size: 100%;
+        align-self: flex-start;
+    }
+    [ui="segmented"] > label {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        min-height: calc(var(--ui-control-height-md) - 0.5rem);
+        padding: 0 var(--ui-space-3);
+        border-radius: calc(var(--ui-radius-md, 0.5rem) - 0.1875rem);
+        font-size: var(--ui-text-sm);
+        color: var(--ui-text-muted);
+        cursor: pointer;
+        transition: background-color var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease), color var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease);
+    }
+    [ui="segmented"][ui-size="sm"] > label { min-height: calc(var(--ui-control-height-sm) - 0.5rem); padding: 0 var(--ui-space-2); font-size: var(--ui-text-xs); }
+    /* The label takes the click (it activates its radio); the input keeps focus and keys. */
+    [ui="segmented"] > label > input { position: absolute; opacity: 0; inset: 0; margin: 0; pointer-events: none; }
+    [ui="segmented"] > label:hover { color: var(--ui-text-primary); }
+    [ui="segmented"] > label:has(> input:checked) { background: var(--ui-surface-raised); color: var(--ui-text-primary); box-shadow: var(--ui-shadow-xs); }
+    [ui="segmented"] > label:has(> input:focus-visible) { box-shadow: 0 0 0 2px var(--ui-focus-ring); }
+    [ui="segmented"][aria-invalid="true"] { border-color: var(--ui-state-danger); }
+    [ui="segmented"] > label > svg { flex: none; }
+    [ui="segmented"] > label > svg + span { margin-inline-start: var(--ui-space-1-5); }
+    /* Icons only: the label text stays for assistive technology. */
+    [ui="segmented"][ui-icon-only] > label { padding: 0 var(--ui-space-2); }
+    [ui="segmented"][ui-icon-only] > label > span {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+}
+
+
+@layer platform-ui.primitives {
+    /* The shared control look lives in input.css; here only the select's own. */
+    [ui="select"]:not([multiple]) {
+        appearance: none;
+        padding-inline-end: calc(var(--ui-space-3) + 1.25rem);
+        /* A chevron from two gradients: inherits the token colour, no image. */
+        background-image:
+            linear-gradient(45deg, transparent 50%, var(--ui-text-muted) 50%),
+            linear-gradient(135deg, var(--ui-text-muted) 50%, transparent 50%);
+        background-position:
+            calc(100% - var(--ui-space-3) - 0.3125rem) 50%,
+            calc(100% - var(--ui-space-3)) 50%;
+        background-size: 0.3125rem 0.3125rem, 0.3125rem 0.3125rem;
+        background-repeat: no-repeat;
+        cursor: pointer;
+    }
+    [ui="select"][multiple] { padding: var(--ui-space-1); }
+    [ui="select"][multiple] option { padding: var(--ui-space-1) var(--ui-space-2); border-radius: var(--ui-radius-sm, 0.25rem); }
+
+    /* Customizable select where the browser has it: the open list is styled
+       from tokens too, and the native picker icon replaces the gradient. */
+    @supports (appearance: base-select) {
+        [ui="select"]:not([multiple]),
+        [ui="select"]:not([multiple])::picker(select) { appearance: base-select; }
+        [ui="select"]:not([multiple]) {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: var(--ui-space-2);
+            background-image: none;
+            padding-inline-end: var(--ui-space-3);
+        }
+        [ui="select"]::picker-icon { color: var(--ui-text-muted); transition: rotate var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease); }
+        [ui="select"]:open::picker-icon { rotate: 180deg; }
+        [ui="select"]::picker(select) {
+            margin-block: var(--ui-space-1);
+            padding: var(--ui-space-1);
+            background: var(--ui-surface-raised);
+            color: var(--ui-text-primary);
+            border: 1px solid var(--ui-border-subtle);
+            border-radius: var(--ui-radius-md, 0.5rem);
+            box-shadow: var(--ui-shadow-md, var(--ui-shadow-xs));
+        }
+        [ui="select"]:not([multiple]) option {
+            padding: var(--ui-space-1-5) var(--ui-space-2-5);
+            border-radius: var(--ui-radius-sm, 0.25rem);
+        }
+        [ui="select"]:not([multiple]) option:is(:hover, :focus-visible) { background: var(--ui-surface-sunken); outline: none; }
+        [ui="select"]:not([multiple]) option:checked { font-weight: 600; }
+        [ui="select"] option::checkmark { color: var(--ui-accent-brand); }
+    }
+}
+
+
+@layer platform-ui.primitives {
+    [ui="skeleton"] {
+        --_base: color-mix(in oklab, var(--ui-text-muted) 14%, var(--ui-surface-raised));
+        --_shine: color-mix(in oklab, var(--ui-text-muted) 6%, var(--ui-surface-raised));
+        display: block;
+        width: var(--_w, 100%);
+    }
+    :is([ui="skeleton"]:not([ui-shape="text"]), [ui-skeleton-line]) {
+        background: linear-gradient(90deg, var(--_base) 25%, var(--_shine) 50%, var(--_base) 75%) 0 0 / 300% 100%;
+        animation: ui-skeleton-shimmer 1.6s linear infinite;
+    }
+    [ui="skeleton"][ui-shape="text"] { display: grid; gap: var(--ui-space-2); }
+    [ui-skeleton-line] { display: block; height: var(--_h, 0.75rem); border-radius: var(--ui-radius-sm, 0.25rem); }
+    [ui-skeleton-line]:last-child:not(:first-child) { width: 60%; }
+    [ui="skeleton"][ui-shape="circle"] { width: var(--_w, 2.5rem); aspect-ratio: 1; border-radius: 50%; }
+    [ui="skeleton"][ui-shape="rect"] { height: var(--_h, 6rem); border-radius: var(--ui-radius-md, 0.5rem); }
+    @keyframes ui-skeleton-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+    @media (prefers-reduced-motion: reduce) {
+        :is([ui="skeleton"]:not([ui-shape="text"]), [ui-skeleton-line]) { animation: none; background: var(--_base); }
+    }
 }
 
 
@@ -804,4 +1171,52 @@
         border-radius: var(--ui-radius-lg, 0.75rem);
         padding: var(--ui-space-4);
     }
+}
+
+
+@layer platform-ui.primitives {
+    /* The badge's tone mechanics, as a chip that can be removed. */
+    [ui="tag"] {
+        --_tone: var(--ui-text-muted);
+        display: inline-flex;
+        align-items: center;
+        gap: var(--ui-space-1);
+        min-height: 1.625rem;
+        padding: 0 var(--ui-space-2-5);
+        border-radius: var(--ui-radius-md, 0.5rem);
+        font-size: var(--ui-text-xs);
+        font-weight: var(--ui-font-weight-medium);
+        line-height: 1;
+        white-space: nowrap;
+        background: color-mix(in oklab, var(--_tone) 12%, var(--ui-surface-raised));
+        color: color-mix(in oklab, var(--_tone) 80%, var(--ui-text-primary));
+        border: 1px solid color-mix(in oklab, var(--_tone) 22%, transparent);
+    }
+    [ui="tag"][ui-tone="brand"]   { --_tone: var(--ui-accent-brand); }
+    [ui="tag"][ui-tone="info"]    { --_tone: var(--ui-state-info); }
+    [ui="tag"][ui-tone="success"] { --_tone: var(--ui-state-success); }
+    [ui="tag"][ui-tone="warning"] { --_tone: var(--ui-state-warning); }
+    [ui="tag"][ui-tone="danger"]  { --_tone: var(--ui-state-danger); }
+    [ui="tag"] > [ui-removable-trigger] {
+        display: inline-grid;
+        place-items: center;
+        width: 1.125rem;
+        height: 1.125rem;
+        margin-inline-end: calc(var(--ui-space-1) * -1);
+        padding: 0;
+        border: 0;
+        border-radius: 50%;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        opacity: 0.7;
+    }
+    [ui="tag"] > [ui-removable-trigger]:hover { opacity: 1; background: color-mix(in oklab, var(--_tone) 18%, transparent); }
+    [ui="tag"] > [ui-removable-trigger]:focus-visible { outline: none; opacity: 1; box-shadow: 0 0 0 2px var(--ui-focus-ring); }
+}
+
+
+@layer platform-ui.primitives {
+    /* The shared control look lives in input.css. */
+    [ui="textarea"] { display: block; field-sizing: content; max-height: 24lh; }
 }

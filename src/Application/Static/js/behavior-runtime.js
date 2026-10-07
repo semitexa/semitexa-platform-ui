@@ -359,7 +359,9 @@ function useFloating(anchor, floater, { pos = 'bottom-start', offset = 4, flip =
         floater.style.positionAnchor = id;
         floater.style.position = 'fixed';
         floater.style.positionArea = logicalToArea(pos);
-        floater.style.marginBlock = offset + 'px';
+        // The gap sits on the side the panel opens toward.
+        if (pos === 'left' || pos === 'right') floater.style.marginInline = offset + 'px';
+        else floater.style.marginBlock = offset + 'px';
         if (flip) floater.style.positionTryFallbacks = 'flip-block, flip-inline';
     }
     function applyFallback() {
@@ -375,6 +377,130 @@ function useFloating(anchor, floater, { pos = 'bottom-start', offset = 4, flip =
     return {
         update,
         destroy() { cleanupFns.forEach((f) => f()); cleanupFns = []; },
+    };
+}
+
+// -----------------------------------------------------------------------------
+// usePopoverPanel — a panel opened by a trigger, on the native platform:
+//   - `popover="auto"`: top layer (no z-index war), light dismiss (outside
+//     click, Esc), nested panels stay open as children of their parent;
+//   - the trigger invokes it with `commandfor` + `command="toggle-popover"`
+//     where buttons support it, else a click handler does the same;
+//   - CSS anchor positioning through useFloating (computed fallback).
+// Without popover support the panel falls back to `hidden` + useDismiss.
+// -----------------------------------------------------------------------------
+const SUPPORTS_POPOVER = typeof HTMLElement !== 'undefined' && 'popover' in HTMLElement.prototype;
+const SUPPORTS_COMMAND = typeof HTMLButtonElement !== 'undefined' && 'command' in HTMLButtonElement.prototype;
+let sxPanelUid = 0;
+
+function usePopoverPanel(trigger, panel, { pos = 'bottom-start', offset = 4, flip = true, signal, onOpen, onClose } = {}) {
+    if (!panel.id) panel.id = 'sx-panel-' + (++sxPanelUid).toString(36);
+    trigger.setAttribute('aria-controls', panel.id);
+    trigger.setAttribute('aria-expanded', 'false');
+    let floating = null;
+    let open = false;
+    const listen = (target, type, handler) => target.addEventListener(type, handler, signal ? { signal } : undefined);
+
+    function opened() {
+        if (open) return;
+        open = true;
+        trigger.setAttribute('aria-expanded', 'true');
+        floating = useFloating(trigger, panel, { pos, offset, flip });
+        if (onOpen) onOpen();
+    }
+    function closed() {
+        if (!open) return;
+        open = false;
+        trigger.setAttribute('aria-expanded', 'false');
+        if (floating) { floating.destroy(); floating = null; }
+        if (onClose) onClose();
+    }
+
+    let fallbackDismiss = null;
+    if (SUPPORTS_POPOVER) {
+        if (!panel.hasAttribute('popover')) panel.setAttribute('popover', 'auto');
+        panel.hidden = false;
+        if (SUPPORTS_COMMAND && trigger.tagName === 'BUTTON') {
+            trigger.setAttribute('commandfor', panel.id);
+            trigger.setAttribute('command', 'toggle-popover');
+        } else {
+            listen(trigger, 'click', (e) => { e.preventDefault(); toggle(); });
+        }
+        listen(panel, 'toggle', (e) => { if (e.newState === 'open') opened(); else closed(); });
+    } else {
+        panel.hidden = true;
+        fallbackDismiss = useDismiss(panel.parentElement || panel, { onDismiss: () => hide(), esc: true, outside: true });
+        listen(trigger, 'click', (e) => { e.preventDefault(); toggle(); });
+    }
+
+    function show() {
+        if (open) return;
+        if (SUPPORTS_POPOVER) {
+            try { panel.showPopover({ source: trigger }); } catch (e) { try { panel.showPopover(); } catch (e2) { /* detached */ } }
+            // The `toggle` event is queued, not synchronous: settle state and
+            // focus now, so the very next key lands in the open panel.
+            if (panel.matches(':popover-open')) opened();
+        } else {
+            panel.hidden = false;
+            panel.classList.add('sx-open');
+            fallbackDismiss.activate();
+            opened();
+        }
+    }
+    function hide() {
+        if (!open) return;
+        if (SUPPORTS_POPOVER) {
+            try { panel.hidePopover(); } catch (e) { /* already hidden */ }
+            if (!panel.matches(':popover-open')) closed();
+        } else {
+            panel.classList.remove('sx-open');
+            panel.hidden = true;
+            fallbackDismiss.release();
+            closed();
+        }
+    }
+    function toggle() { if (open) hide(); else show(); }
+
+    return {
+        show, hide, toggle,
+        isOpen: () => open,
+        destroy() { if (floating) floating.destroy(); if (fallbackDismiss) fallbackDismiss.release(); },
+    };
+}
+
+// -----------------------------------------------------------------------------
+// useMenuKeys — the WAI-ARIA menu keyboard: Arrow up/down (wrapping), Home,
+// End, typeahead by first letter; Tab leaves (onTab). Keys typed in a field
+// inside the panel (a filter box) stay with the field.
+// -----------------------------------------------------------------------------
+function useMenuKeys(panel, { items, onTab, signal } = {}) {
+    const editable = (t) => t instanceof Element && t.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]') !== null;
+    panel.addEventListener('keydown', (e) => {
+        if (e.key === 'Tab') { if (onTab) onTab(e); return; }
+        if (editable(e.target)) return;
+        const list = items();
+        if (list.length === 0) return;
+        const i = list.indexOf(document.activeElement);
+        let n = null;
+        if (e.key === 'ArrowDown') n = (i + 1) % list.length;
+        else if (e.key === 'ArrowUp') n = (i - 1 + list.length) % list.length;
+        else if (e.key === 'Home') n = 0;
+        else if (e.key === 'End') n = list.length - 1;
+        else if (e.key.length === 1 && /\S/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            const k = e.key.toLowerCase();
+            for (let step = 1; step <= list.length; step++) {
+                const j = (i + step) % list.length;
+                if ((list[j].textContent || '').trim().toLowerCase().startsWith(k)) { n = j; break; }
+            }
+        }
+        if (n === null) return;
+        e.preventDefault();
+        e.stopPropagation(); // a parent menu must not move focus again
+        list[n].focus();
+    }, signal ? { signal } : undefined);
+    return {
+        focusFirst() { const l = items(); if (l.length) l[0].focus(); },
+        focusLast() { const l = items(); if (l.length) l[l.length - 1].focus(); },
     };
 }
 
@@ -546,5 +672,7 @@ export {
     useDismiss,
     useInView,
     useScrollLock,
+    usePopoverPanel,
+    useMenuKeys,
 };
 export default api;

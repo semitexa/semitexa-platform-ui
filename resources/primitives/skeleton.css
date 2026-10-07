@@ -1,0 +1,21 @@
+@layer platform-ui.primitives {
+    [ui="skeleton"] {
+        --_base: color-mix(in oklab, var(--ui-text-muted) 14%, var(--ui-surface-raised));
+        --_shine: color-mix(in oklab, var(--ui-text-muted) 6%, var(--ui-surface-raised));
+        display: block;
+        width: var(--_w, 100%);
+    }
+    :is([ui="skeleton"]:not([ui-shape="text"]), [ui-skeleton-line]) {
+        background: linear-gradient(90deg, var(--_base) 25%, var(--_shine) 50%, var(--_base) 75%) 0 0 / 300% 100%;
+        animation: ui-skeleton-shimmer 1.6s linear infinite;
+    }
+    [ui="skeleton"][ui-shape="text"] { display: grid; gap: var(--ui-space-2); }
+    [ui-skeleton-line] { display: block; height: var(--_h, 0.75rem); border-radius: var(--ui-radius-sm, 0.25rem); }
+    [ui-skeleton-line]:last-child:not(:first-child) { width: 60%; }
+    [ui="skeleton"][ui-shape="circle"] { width: var(--_w, 2.5rem); aspect-ratio: 1; border-radius: 50%; }
+    [ui="skeleton"][ui-shape="rect"] { height: var(--_h, 6rem); border-radius: var(--ui-radius-md, 0.5rem); }
+    @keyframes ui-skeleton-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+    @media (prefers-reduced-motion: reduce) {
+        :is([ui="skeleton"]:not([ui-shape="text"]), [ui-skeleton-line]) { animation: none; background: var(--_base); }
+    }
+}
