@@ -154,9 +154,7 @@ final class UiPatchValidator
             case UiResponsePatch::OP_CLOSE:
                 break;
             case UiResponsePatch::OP_REDIRECT:
-                // Same-origin paths only: an absolute or protocol-relative URL
-                // would let a handler bounce the user off-site.
-                if (!is_string($patch->value) || preg_match('#\A/(?!/)[^\s\\\\]*\z#', $patch->value) !== 1) {
+                if (!UiResponsePatch::isSameOriginPath($patch->value)) {
                     $this->fail('invalid_redirect', sprintf('Patch %d redirect must be a same-origin path starting with a single "/".', $index));
                 }
                 break;

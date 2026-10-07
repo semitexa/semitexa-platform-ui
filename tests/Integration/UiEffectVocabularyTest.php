@@ -147,6 +147,23 @@ final class UiEffectVocabularyTest extends TestCase
     }
 
     #[Test]
+    public function an_off_site_redirect_is_dropped_and_the_rest_of_the_answer_goes_through(): void
+    {
+        // The handler's work is done by now: a refusal (422) would tell the
+        // user it failed. Only the redirect the browser must not follow goes.
+        $result = (new UiInteractionDispatchAdapter())->toInteractionResult(new UiEventResponse(
+            redirect: new UiEventRedirectInstruction('https://evil.test/'),
+            notification: new UiEventNotificationInstruction('Saved', 'success'),
+        ), self::INSTANCE);
+
+        self::assertSame(
+            [UiResponsePatch::OP_TOAST],
+            array_map(static fn (UiResponsePatch $p): string => $p->op, $result->patches),
+        );
+        (new UiPatchValidator())->validateAll($result->patches, self::INSTANCE);
+    }
+
+    #[Test]
     public function the_rendered_props_ride_the_signed_context_only_when_plain_and_small(): void
     {
         $metadata = UiComponentRegistry::get('effects.counter');

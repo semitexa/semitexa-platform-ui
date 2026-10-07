@@ -202,6 +202,16 @@ final readonly class UiResponsePatch
         return new self(self::OP_REDIRECT, $instance, null, null, $path, null, $replace ? ['replace' => true] : []);
     }
 
+    /**
+     * A redirect target the browser may follow: a same-origin path with a
+     * single leading "/". An absolute or protocol-relative URL would let a
+     * handler bounce the user off-site.
+     */
+    public static function isSameOriginPath(mixed $path): bool
+    {
+        return is_string($path) && preg_match('#\A/(?!/)[^\s\\\\]*\z#', $path) === 1;
+    }
+
     public static function toast(string $instance, string $message, string $level = 'info', ?string $title = null): self
     {
         $args = ['level' => $level];

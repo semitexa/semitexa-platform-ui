@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Event;
 
+use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionUnprocessableException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventResponse;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventResponseStatus;
@@ -89,8 +90,16 @@ final class UiInteractionDispatchAdapter
                     $response->notification->title,
                 );
             }
-            if ($response->redirect !== null) {
+            if ($response->redirect !== null && UiResponsePatch::isSameOriginPath($response->redirect->url)) {
                 $effects[] = UiResponsePatch::redirect($instanceId, $response->redirect->url, $response->redirect->replace);
+            } elseif ($response->redirect !== null) {
+                // The handler has already done its work; refusing the whole
+                // answer now would tell the user it failed. The off-site
+                // redirect is dropped, loudly, and the rest goes through.
+                StaticLoggerBridge::error('platform_ui', 'UI handler redirect dropped: only same-origin paths are followed', [
+                    'instance' => $instanceId,
+                    'url' => $response->redirect->url,
+                ]);
             }
         }
 
