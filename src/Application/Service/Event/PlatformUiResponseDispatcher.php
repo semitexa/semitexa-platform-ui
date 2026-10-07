@@ -271,6 +271,11 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
      * The domain events a handler returned (`UiInteractionResult::dispatching()`)
      * reach the application's own #[AsEventListener]s — the server side of
      * "something happened", where `dispatch` effects are the browser side.
+     *
+     * A synchronous listener that throws fails the interaction, as a
+     * synchronous listener failure does anywhere (EventDispatcher treats it
+     * as the caller's failure). A listener that must not hold up the UI
+     * answer is declared async or queued.
      */
     private function dispatchDomainEvents(UiInteractionResult $result): void
     {
