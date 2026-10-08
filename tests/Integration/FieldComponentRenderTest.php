@@ -904,5 +904,72 @@ final class FieldComponentRenderTest extends TestCase
         self::assertSame(2, substr_count($radios, 'ui="radio"'));
         self::assertStringContainsString('<input type="radio" value="pro" name="plan" checked>', $radios);
     }
-}
 
+    private function registerControlPrimitives(): void
+    {
+        $factory = new UiPrimitiveMetadataFactory();
+        foreach ([
+            \Semitexa\PlatformUi\Application\Service\Primitive\Builtin\SwitchPrimitive::class,
+            \Semitexa\PlatformUi\Application\Service\Primitive\Builtin\CheckboxPrimitive::class,
+            \Semitexa\PlatformUi\Application\Service\Primitive\Builtin\SelectPrimitive::class,
+            \Semitexa\PlatformUi\Application\Service\Primitive\Builtin\RadioPrimitive::class,
+            \Semitexa\PlatformUi\Application\Service\Primitive\Builtin\TextareaPrimitive::class,
+            \Semitexa\PlatformUi\Application\Service\Primitive\Builtin\SegmentedPrimitive::class,
+        ] as $class) {
+            UiPrimitiveRegistry::register($factory->fromClass($class));
+        }
+    }
+
+    #[Test]
+    public function every_control_kind_receives_the_resolved_disabled_and_error_state(): void
+    {
+        $this->registerControlPrimitives();
+        $options = [['value' => 'a'], ['value' => 'b']];
+
+        $select = $this->renderField(['label' => 'Status', 'name' => 'status', 'control' => 'select', 'options' => $options, 'disabled' => true, 'error' => 'Pick one.']);
+        self::assertMatchesRegularExpression('#<select [^>]*name="status" id="status" disabled aria-invalid="true" aria-describedby="status-error">#', $select);
+
+        $textarea = $this->renderField(['label' => 'Body', 'name' => 'body', 'control' => 'textarea', 'disabled' => true, 'error' => 'Too short.']);
+        self::assertMatchesRegularExpression('#<textarea [^>]*name="body" id="body" disabled aria-invalid="true" aria-describedby="body-error">#', $textarea);
+
+        $switch = $this->renderField(['label' => 'Alerts', 'name' => 'alerts', 'control' => 'switch', 'disabled' => true]);
+        self::assertMatchesRegularExpression('#<input type="checkbox" role="switch" [^>]*name="alerts" id="alerts" disabled>#', $switch);
+
+        $radios = $this->renderField(['label' => 'Plan', 'name' => 'plan', 'control' => 'radio', 'options' => $options, 'disabled' => true, 'error' => 'Choose a plan.']);
+        self::assertMatchesRegularExpression('#<fieldset data-ui-part="input" [^>]* id="plan" disabled aria-describedby="plan-error">#', $radios);
+        self::assertSame(2, substr_count($radios, ' aria-invalid="true"'));
+
+        $segmented = $this->renderField(['label' => 'View', 'name' => 'view', 'control' => 'segmented', 'options' => $options, 'disabled' => true]);
+        self::assertMatchesRegularExpression('#<fieldset ui="segmented" [^>]* aria-label="View" disabled>#', $segmented);
+
+        $file = $this->renderField(['label' => 'Avatar', 'name' => 'avatar', 'control' => 'file', 'disabled' => true, 'error' => 'Too large.']);
+        self::assertMatchesRegularExpression('#<input type="file" [^>]* id="avatar" disabled aria-invalid="true" aria-describedby="avatar-error">#', $file);
+    }
+
+    #[Test]
+    public function a_switch_or_checkbox_field_shows_its_label_once(): void
+    {
+        $this->registerControlPrimitives();
+
+        $switch = $this->renderField(['label' => 'Alerts', 'name' => 'alerts', 'control' => 'switch']);
+        self::assertSame(1, substr_count($switch, '>Alerts<'), 'one visible label (the submit marker carries the name too)');
+        self::assertSame(1, substr_count($switch, '<label'), 'the switch\'s own label, around its input');
+        self::assertStringContainsString('<span ui-choice-label>Alerts</span>', $switch);
+
+        $checkbox = $this->renderField(['label' => 'Terms', 'checkboxLabel' => 'I accept the terms', 'name' => 'terms', 'control' => 'checkbox']);
+        self::assertSame(1, substr_count($checkbox, '<label'));
+        self::assertStringContainsString('<span ui-text="label">Terms</span>', $checkbox);
+        self::assertStringContainsString('<span ui-choice-label>I accept the terms</span>', $checkbox);
+    }
+
+    #[Test]
+    public function a_choice_group_is_named_by_a_legend_not_a_label_for_its_fieldset(): void
+    {
+        $this->registerControlPrimitives();
+
+        $radios = $this->renderField(['label' => 'Plan', 'name' => 'plan', 'control' => 'radio', 'required' => true, 'options' => [['value' => 'free'], ['value' => 'pro']]]);
+
+        self::assertStringNotContainsString('for="plan"', $radios);
+        self::assertMatchesRegularExpression('#<fieldset data-ui-part="input"[^>]*>\s*<legend ui-text="label"[^>]*>Plan <span aria-hidden="true"[^>]*>\*</span></legend>#', $radios);
+    }
+}

@@ -27,7 +27,8 @@ use Semitexa\PlatformUi\Domain\Model\Contract\UiPropType;
     props: [
         new UiProp('name', default: ''),
         new UiProp('options', UiPropType::Array, default: [], description: '[{value, label, disabled?}]'),
-        new UiProp('value', default: null, nullable: true, description: 'Selected value (a list for multiple).'),
+        new UiProp('value', default: null, nullable: true, description: 'Selected value of a single select.'),
+        new UiProp('values', UiPropType::Array, default: null, nullable: true, description: 'Selected values of a multiple select.', items: new UiProp('value')),
         new UiProp('placeholder', default: '', description: 'An empty first option.'),
         new UiProp('multiple', UiPropType::Boolean, default: false),
         new UiProp('size', default: 'md', values: ['sm', 'md', 'lg']),
@@ -36,6 +37,7 @@ use Semitexa\PlatformUi\Domain\Model\Contract\UiPropType;
     examples: [
         new UiExample('default', 'Status', ['name' => 'status', 'placeholder' => 'Choose…', 'options' => [['value' => 'draft', 'label' => 'Draft'], ['value' => 'published', 'label' => 'Published']]]),
         new UiExample('selected', 'With a value', ['name' => 'status', 'value' => 'published', 'options' => [['value' => 'draft', 'label' => 'Draft'], ['value' => 'published', 'label' => 'Published']]]),
+        new UiExample('multiple', 'Several values', ['name' => 'tags', 'multiple' => true, 'values' => ['news', 'tips'], 'options' => [['value' => 'news', 'label' => 'News'], ['value' => 'tips', 'label' => 'Tips'], ['value' => 'events', 'label' => 'Events']]]),
     ],
     previewSafe: true,
 )]
