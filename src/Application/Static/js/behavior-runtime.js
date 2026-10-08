@@ -386,6 +386,8 @@ function useFloating(anchor, floater, { pos = 'bottom-start', offset = 4, flip =
 //     click, Esc), nested panels stay open as children of their parent;
 //   - the trigger invokes it with `commandfor` + `command="toggle-popover"`
 //     where buttons support it, else a click handler does the same;
+//     `invoke: 'show'` makes the trigger only open it (a hover-opened panel
+//     must not close when its trigger is then clicked);
 //   - CSS anchor positioning through useFloating (computed fallback).
 // Without popover support the panel falls back to `hidden` + useDismiss.
 // -----------------------------------------------------------------------------
@@ -393,7 +395,7 @@ const SUPPORTS_POPOVER = typeof HTMLElement !== 'undefined' && 'popover' in HTML
 const SUPPORTS_COMMAND = typeof HTMLButtonElement !== 'undefined' && 'command' in HTMLButtonElement.prototype;
 let sxPanelUid = 0;
 
-function usePopoverPanel(trigger, panel, { pos = 'bottom-start', offset = 4, flip = true, signal, onOpen, onClose } = {}) {
+function usePopoverPanel(trigger, panel, { pos = 'bottom-start', offset = 4, flip = true, invoke = 'toggle', signal, onOpen, onClose } = {}) {
     if (!panel.id) panel.id = 'sx-panel-' + (++sxPanelUid).toString(36);
     trigger.setAttribute('aria-controls', panel.id);
     trigger.setAttribute('aria-expanded', 'false');
@@ -422,15 +424,15 @@ function usePopoverPanel(trigger, panel, { pos = 'bottom-start', offset = 4, fli
         panel.hidden = false;
         if (SUPPORTS_COMMAND && trigger.tagName === 'BUTTON') {
             trigger.setAttribute('commandfor', panel.id);
-            trigger.setAttribute('command', 'toggle-popover');
+            trigger.setAttribute('command', invoke === 'show' ? 'show-popover' : 'toggle-popover');
         } else {
-            listen(trigger, 'click', (e) => { e.preventDefault(); toggle(); });
+            listen(trigger, 'click', (e) => { e.preventDefault(); invoked(); });
         }
         listen(panel, 'toggle', (e) => { if (e.newState === 'open') opened(); else closed(); });
     } else {
         panel.hidden = true;
         fallbackDismiss = useDismiss(panel.parentElement || panel, { onDismiss: () => hide(), esc: true, outside: true });
-        listen(trigger, 'click', (e) => { e.preventDefault(); toggle(); });
+        listen(trigger, 'click', (e) => { e.preventDefault(); invoked(); });
     }
 
     function show() {
@@ -460,6 +462,7 @@ function usePopoverPanel(trigger, panel, { pos = 'bottom-start', offset = 4, fli
         }
     }
     function toggle() { if (open) hide(); else show(); }
+    function invoked() { if (invoke === 'show') show(); else toggle(); }
 
     return {
         show, hide, toggle,

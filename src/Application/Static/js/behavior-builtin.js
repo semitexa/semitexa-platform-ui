@@ -102,6 +102,7 @@ registerBehavior({
         const keys = isMenu ? useMenuKeys(content, { items: visibleItems, onTab: () => panel.hide(), signal: ctx.signal }) : null;
         const panel = usePopoverPanel(trigger, content, {
             pos: opts.pos, offset: opts.offset, flip: opts.flip, signal: ctx.signal,
+            invoke: opts.mode === 'hover' ? 'show' : 'toggle',
             onOpen: () => {
                 ctx.emit('open', {});
                 if (keys) { if (focusLast) keys.focusLast(); else keys.focusFirst(); }
