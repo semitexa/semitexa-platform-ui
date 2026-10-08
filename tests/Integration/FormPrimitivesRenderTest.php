@@ -89,6 +89,37 @@ final class FormPrimitivesRenderTest extends TestCase
         self::assertSame(2, substr_count($html, ' selected'));
     }
 
+    /**
+     * Outside a field nothing points a <label> at the select (a toolbar filter,
+     * a sort order), so the primitive itself must carry the accessible name.
+     * The Workbench audit found every select example nameless.
+     */
+    #[Test]
+    public function a_select_outside_a_field_takes_its_accessible_name_from_label(): void
+    {
+        $contract = (new \ReflectionClass(SelectPrimitive::class))->getAttributes(AsUiContract::class)[0]->newInstance();
+        $props = ['name' => 'sort', 'label' => 'Sort by', 'options' => [['value' => 'new', 'label' => 'Newest']]];
+
+        UiProp::validateObject($contract->props, $props, 'select');
+        $html = $this->renderer->render('select', $props);
+
+        self::assertStringContainsString('<select ui="select" data-ui-primitive="platform.select" name="sort" aria-label="Sort by"', $html);
+        self::assertSame(1, substr_count($html, 'Sort by'), 'the label names the control; it is not an option');
+    }
+
+    #[Test]
+    public function every_select_example_has_an_accessible_name(): void
+    {
+        $contract = (new \ReflectionClass(SelectPrimitive::class))->getAttributes(AsUiContract::class)[0]->newInstance()->metadata();
+        $labels = [];
+        foreach ($contract->examples as $example) {
+            $html = $this->renderer->render('select', $example->props);
+            $labels[$example->name] = preg_match('/<select[^>]* aria-label="([^"]+)"/', $html, $m) === 1 ? $m[1] : null;
+        }
+
+        self::assertSame(['default' => 'Status', 'selected' => 'Status', 'multiple' => 'Tags'], $labels);
+    }
+
     #[Test]
     public function the_contract_declares_the_list_a_multiple_select_takes(): void
     {

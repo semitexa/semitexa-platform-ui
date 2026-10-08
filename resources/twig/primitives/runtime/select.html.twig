@@ -7,6 +7,7 @@
 {%- if part|default(null) %} data-ui-part="{{ part }}"{% endif -%}
 {%- if name|default(null) %} name="{{ name }}{{ _multiple ? '[]' : '' }}"{% endif -%}
 {%- if id|default(null) %} id="{{ id }}"{% endif -%}
+{%- if label|default(null) %} aria-label="{{ label }}"{% endif -%}
 {%- if size|default(null) %} ui-size="{{ size }}"{% endif -%}
 {%- if _multiple %} multiple{% endif -%}
 {%- if required|default(false) %} required{% endif -%}
