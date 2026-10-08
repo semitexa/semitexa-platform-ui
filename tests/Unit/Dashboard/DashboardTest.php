@@ -139,6 +139,14 @@ final class DashboardTest extends TestCase
     }
 
     #[Test]
+    public function two_widgets_with_one_id_on_a_dashboard_fail_boot(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('two widgets with the id "public-widget-fixture"');
+        UiDashboards::discover([PublicWidgetFixture::class, Twin\PublicWidgetFixture::class], static fn (string $c): object => new $c());
+    }
+
+    #[Test]
     public function a_widget_shape_is_checked_where_it_is_made(): void
     {
         $stat = UiWidget::stat('Orders', '12', series: ['Oct 5' => 1, 'Oct 6' => 3])->withLink('/orders', 'All orders');
