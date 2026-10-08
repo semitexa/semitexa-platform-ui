@@ -31,6 +31,8 @@ use Semitexa\PlatformUi\Domain\Model\Contract\UiProp;
         new UiExample('large', 'Large', ['initials' => 'TH', 'size' => 'lg', 'label' => 'Taras H.']),
     ],
     previewSafe: true,
+    // A Workbench preview, not yet a block an AI-composed screen may use.
+    agent: false,
 )]
 final class AvatarPrimitive
 {

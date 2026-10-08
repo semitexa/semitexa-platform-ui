@@ -44,6 +44,8 @@ use Semitexa\PlatformUi\Domain\Model\Contract\UiPropType;
         new UiExample('app', 'Application bar', ['items' => [['label' => 'Dashboard', 'href' => '/', 'current' => true], ['label' => 'Customers', 'href' => '/customers'], ['label' => 'Orders', 'href' => '/orders'], ['label' => 'Reports', 'href' => '/reports']]], ['brand' => 'Acme', 'actions' => 'Jane Doe']),
     ],
     previewSafe: true,
+    // A Workbench preview, not yet a block an AI-composed screen may use.
+    agent: false,
 )]
 final class NavbarComponent
 {

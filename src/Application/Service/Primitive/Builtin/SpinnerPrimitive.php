@@ -27,6 +27,8 @@ use Semitexa\PlatformUi\Domain\Model\Contract\UiProp;
         new UiExample('large-neutral', 'Large neutral', ['size' => 'lg', 'tone' => 'neutral', 'label' => 'Loading']),
     ],
     previewSafe: true,
+    // A Workbench preview, not yet a block an AI-composed screen may use.
+    agent: false,
 )]
 final class SpinnerPrimitive
 {

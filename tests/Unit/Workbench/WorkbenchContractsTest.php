@@ -9,8 +9,13 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
+use Semitexa\PlatformUi\Application\Component\Builtin\BreadcrumbComponent;
+use Semitexa\PlatformUi\Application\Component\Builtin\NavbarComponent;
+use Semitexa\PlatformUi\Application\Component\Builtin\PaginationComponent;
+use Semitexa\PlatformUi\Application\Component\Builtin\TableComponent;
 use Semitexa\PlatformUi\Application\Service\Css\PrimitiveRegistry;
 use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\AlertPrimitive;
+use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\AvatarPrimitive;
 use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\BadgePrimitive;
 use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\ButtonPrimitive;
 use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\InputPrimitive;
@@ -56,6 +61,34 @@ final class WorkbenchContractsTest extends TestCase
             sort($declared);
             self::assertSame($declared, $values, "{$ui}.{$prop}");
         }
+    }
+
+    /**
+     * A contract is open to an AI-composed screen unless it says otherwise.
+     * These exist for the Workbench; some render hrefs without ui_href, so
+     * opening them to agents is a decision of its own, not a side effect.
+     *
+     * @return iterable<string, array{class-string}>
+     */
+    public static function workbenchOnlyContracts(): iterable
+    {
+        yield 'avatar' => [AvatarPrimitive::class];
+        yield 'spinner' => [SpinnerPrimitive::class];
+        yield 'input' => [InputPrimitive::class];
+        yield 'breadcrumb' => [BreadcrumbComponent::class];
+        yield 'navbar' => [NavbarComponent::class];
+        yield 'pagination' => [PaginationComponent::class];
+        yield 'table' => [TableComponent::class];
+    }
+
+    /** @param class-string $class */
+    #[Test]
+    #[DataProvider('workbenchOnlyContracts')]
+    public function a_workbench_contract_is_not_open_to_agents(string $class): void
+    {
+        $contract = (new ReflectionClass($class))->getAttributes(AsUiContract::class)[0]->newInstance()->metadata();
+        self::assertTrue($contract->previewSafe);
+        self::assertFalse($contract->agent);
     }
 
     #[Test]

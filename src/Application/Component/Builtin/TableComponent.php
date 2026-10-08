@@ -53,6 +53,8 @@ use Semitexa\PlatformUi\Domain\Model\Contract\UiPropType;
         new UiExample('empty', 'Empty', ['caption' => 'Invoices', 'columns' => [['key' => 'number', 'label' => 'Number'], ['key' => 'amount', 'label' => 'Amount', 'align' => 'end']], 'rows' => []], ['empty' => 'No invoices yet.']),
     ],
     previewSafe: true,
+    // A Workbench preview, not yet a block an AI-composed screen may use.
+    agent: false,
 )]
 final class TableComponent
 {

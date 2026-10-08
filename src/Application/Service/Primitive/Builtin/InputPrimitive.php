@@ -41,6 +41,8 @@ use Semitexa\PlatformUi\Domain\Model\Contract\UiPropType;
         new UiExample('disabled', 'Disabled', ['name' => 'locked', 'label' => 'Workspace', 'value' => 'Read only', 'disabled' => true]),
     ],
     previewSafe: true,
+    // A Workbench preview, not yet a block an AI-composed screen may use.
+    agent: false,
 )]
 final class InputPrimitive
 {

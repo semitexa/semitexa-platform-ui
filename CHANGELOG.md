@@ -21,3 +21,6 @@ next release tag. This file is machine-read by `update:changelog` and the OS
 - Field types, validation rules, submit lifecycle, HUG uploads, form and display
   primitives, full Lucide set, app shell, dashboards, command palette, grid
   actions, AI UI trees + MCP.
+- UI Workbench at `GET /__ui/workbench` (dev, or `PLATFORM_UI_WORKBENCH=1`): every
+  catalog entry's contract examples rendered by the real runtime, with copyable Twig.
+- `platform.input` takes `label`, rendered as its `aria-label`.

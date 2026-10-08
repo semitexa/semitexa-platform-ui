@@ -53,6 +53,8 @@ use Semitexa\PlatformUi\Domain\Model\Contract\UiPropType;
         new UiExample('with-action', 'With trailing action', ['items' => [['label' => 'Settings', 'href' => '/settings'], ['label' => 'Billing']]], ['trailing' => 'Last saved 2 minutes ago']),
     ],
     previewSafe: true,
+    // A Workbench preview, not yet a block an AI-composed screen may use.
+    agent: false,
 )]
 final class BreadcrumbComponent
 {

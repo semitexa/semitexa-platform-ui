@@ -52,6 +52,8 @@ use Semitexa\PlatformUi\Domain\Model\Contract\UiPropType;
         new UiExample('first', 'First page', ['current' => 1, 'total' => 3, 'hrefTemplate' => '?page={page}']),
     ],
     previewSafe: true,
+    // A Workbench preview, not yet a block an AI-composed screen may use.
+    agent: false,
 )]
 final class PaginationComponent
 {

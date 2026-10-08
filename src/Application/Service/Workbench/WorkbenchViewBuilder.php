@@ -46,7 +46,7 @@ final class WorkbenchViewBuilder
         $slugs = $this->skinDiscovery->availableSlugs();
         sort($slugs);
         $entry = $requested === '' ? null : $this->skinDiscovery->find($requested);
-        return ['slugs' => $slugs, 'current' => $entry?->slug ?? '', 'url' => $entry?->tokensUrl];
+        return ['slugs' => $slugs, 'current' => $entry === null ? '' : $entry->slug, 'url' => $entry?->tokensUrl];
     }
 
     /**
@@ -76,7 +76,9 @@ final class WorkbenchViewBuilder
         return ['groups' => $groups, 'total' => $total, 'previewable' => $previewable];
     }
 
-    /** @return array<string, mixed>|null */
+    /**
+     * @return array{name: string, short: string, kind: string, summary: mixed, class: string, source: mixed, template: ?string, props: list<array<string, mixed>>, slots: array<mixed>, a11y: mixed, examples: list<array<string, mixed>>}|null
+     */
     public function entry(string $name): ?array
     {
         $item = $this->catalog->find($name);
@@ -86,7 +88,7 @@ final class WorkbenchViewBuilder
         $described = $this->catalog->describe($item);
 
         $examples = [];
-        foreach ($item->contract?->examples ?? [] as $example) {
+        foreach ($item->contract->examples ?? [] as $example) {
             $examples[] = $this->example($item, $example);
         }
 
@@ -122,10 +124,10 @@ final class WorkbenchViewBuilder
             $type = $prop['type'] ?? 'string';
             $out[] = [
                 'name' => (string) $propName,
-                'type' => is_array($type) ? implode(' | ', $type) : (string) $type,
+                'type' => is_array($type) ? implode(' | ', array_filter($type, 'is_string')) : (is_string($type) ? $type : 'string'),
                 'default' => array_key_exists('default', $prop) ? TwigLiteral::export($prop['default']) : '',
-                'values' => array_map('strval', array_values(array_filter((array) ($prop['enum'] ?? []), static fn ($v): bool => $v !== null))),
-                'description' => (string) ($prop['description'] ?? ''),
+                'values' => array_values(array_map(static fn (int|float|string|bool $v): string => (string) $v, array_filter((array) ($prop['enum'] ?? []), 'is_scalar'))),
+                'description' => is_string($prop['description'] ?? null) ? $prop['description'] : '',
                 'required' => in_array($propName, $required, true),
             ];
         }
