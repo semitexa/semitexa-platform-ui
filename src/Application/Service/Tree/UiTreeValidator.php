@@ -58,6 +58,20 @@ final class UiTreeValidator
     {
         $open = $this->catalog->open();
         $errors = [];
+        // An action that fails its own check is reported once, there; a prop
+        // referring to it is not checked against the value it cannot produce,
+        // or one fault (an unknown screen) came back as two.
+        $actionErrors = $this->actions->check($tree);
+        $broken = [];
+        foreach ($tree->actions as $name => $_) {
+            $prefix = '/actions/' . UiTreeParser::escape((string) $name);
+            foreach ($actionErrors as $error) {
+                if ($error->path === $prefix || str_starts_with($error->path, $prefix . '/')) {
+                    $broken[(string) $name] = true;
+                    break;
+                }
+            }
+        }
         foreach ($tree->nodes as $id => $node) {
             $path = '/nodes/' . UiTreeParser::escape($id);
             $item = $open[$node->type] ?? null;
@@ -76,19 +90,20 @@ final class UiTreeValidator
                 $errors[] = new UiTreeError('tree.component_forbidden', $path . '/type', sprintf('This visitor may not be shown "%s".', $node->type), 'a component this visitor may use', $node->type, 'Leave it out of this screen.');
                 continue;
             }
-            array_push($errors, ...$this->props($tree, $item, $path, $node->props));
+            array_push($errors, ...$this->props($tree, $item, $path, $node->props, $broken));
             array_push($errors, ...$this->children($tree, $item, $id, $path));
         }
-        array_push($errors, ...$this->actions->check($tree));
+        array_push($errors, ...$actionErrors);
 
         return $errors;
     }
 
     /**
      * @param array<string, mixed> $props
+     * @param array<string, true> $broken actions that failed their own check
      * @return list<UiTreeError>
      */
-    private function props(UiTree $tree, UiCatalogItem $item, string $path, array $props): array
+    private function props(UiTree $tree, UiCatalogItem $item, string $path, array $props, array $broken = []): array
     {
         $declared = $item->contract?->props ?? [];
         $errors = [];
@@ -102,6 +117,9 @@ final class UiTreeValidator
             $action = self::actionOf($value);
             if ($action !== null && !isset($tree->actions[$action])) {
                 $errors[] = new UiTreeError('tree.action_unknown', $propPath, sprintf('"%s" names no action of the tree.', $action), $tree->actions === [] ? 'an action declared under actions' : implode(', ', array_keys($tree->actions)), $action, 'Declare it under actions, or remove the reference.');
+                continue;
+            }
+            if ($action !== null && isset($broken[$action])) {
                 continue;
             }
             // An action reference is drawn as the value its kind resolves to
