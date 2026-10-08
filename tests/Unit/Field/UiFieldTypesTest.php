@@ -20,9 +20,17 @@ use Semitexa\PlatformUi\Domain\Model\Field\UiField;
  */
 final class UiFieldTypesTest extends TestCase
 {
+    /** The process-wide registry as the test found it (a test here discovers into it). */
+    private mixed $typesBefore = null;
+
+    protected function setUp(): void
+    {
+        $this->typesBefore = (new \ReflectionProperty(UiFieldTypes::class, 'types'))->getValue();
+    }
+
     protected function tearDown(): void
     {
-        UiFieldTypes::reset();
+        (new \ReflectionProperty(UiFieldTypes::class, 'types'))->setValue(null, $this->typesBefore);
     }
 
     #[Test]
