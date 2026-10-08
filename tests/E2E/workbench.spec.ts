@@ -131,8 +131,10 @@ function auditStage(stage: Element): string[] {
         if (!visible(el)) continue;
         check(el, text);
     }
-    // A field's value is text too, but not a text node.
-    for (const input of stage.querySelectorAll('input:not([type="hidden"]), textarea')) {
+    // A field's value is text too, but not a text node. Only where it is
+    // drawn: a checkbox's or radio's value ("1") is submitted, never shown,
+    // and range/colour/file inputs draw a widget, not their value.
+    for (const input of stage.querySelectorAll('input:not([type="hidden"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]), textarea')) {
         const value = (input as HTMLInputElement).value.trim();
         if (value && !(input as HTMLInputElement).disabled && visible(input)) check(input, value);
     }
@@ -207,6 +209,11 @@ test.describe('platform-ui · UI Workbench', () => {
 
     test('every example matches its screenshot baseline', async ({ page }) => {
         test.setTimeout(300_000);
+        // A baseline is compared pixel for pixel, so nothing in it may depend
+        // on the day it runs: the calendar draws the current month with today
+        // marked. Freeze the clock (timers still run) and mask the events,
+        // which are whatever the shared calendar holds in this database.
+        await page.clock.setFixedTime(new Date('2026-01-14T10:00:00'));
         const entries = (await catalog(page)).filter((e) => e.examples > 0);
         await page.setViewportSize({ width: 1280, height: 900 });
         for (const entry of entries) {
@@ -214,9 +221,10 @@ test.describe('platform-ui · UI Workbench', () => {
                 await page.goto(`/__ui/workbench?entry=${entry.name}&mode=${mode}&skin=default`, { waitUntil: 'networkidle' });
                 for (const example of await page.locator('[data-workbench-example]').all()) {
                     const id = await example.getAttribute('data-workbench-example');
-                    await expect(example.locator('[data-workbench-stage]')).toHaveScreenshot(
+                    const stage = example.locator('[data-workbench-stage]');
+                    await expect(stage).toHaveScreenshot(
                         `${entry.name.replace('platform.', '')}-${id}-${mode}.png`,
-                        { animations: 'disabled', caret: 'hide', maxDiffPixels: 0, threshold: 0.1 },
+                        { animations: 'disabled', caret: 'hide', maxDiffPixels: 0, threshold: 0.1, mask: [stage.locator('.uical__chip, .uical__more, .uical__agenda-list')] },
                     );
                 }
             }

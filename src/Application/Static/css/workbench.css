@@ -96,6 +96,9 @@
   }
   .wb-stage > * { max-width: 100%; }
   .wb-stage > [ui-component] { width: 100%; }
+  /* A page block is an inline-size container: it has no intrinsic width, so
+     under justify-items: start it shrank to its longest word. Stretch it. */
+  .wb-stage > [ui-block] { justify-self: stretch; }
 
   .wb-code summary { cursor: pointer; font-size: var(--ui-text-xs); color: var(--ui-text-muted); width: max-content; }
   .wb-code pre {
