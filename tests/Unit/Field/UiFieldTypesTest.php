@@ -150,6 +150,17 @@ final class UiFieldTypesTest extends TestCase
     }
 
     #[Test]
+    public function a_moment_the_cast_cannot_read_is_refused_by_the_rules_not_stored_as_null(): void
+    {
+        // Without a rule, "tomorrow" passed `required` and cast() turned it
+        // into null: a required date saved empty, an edit wiped the old one.
+        $date = Field::date('d')->required();
+        $moment = Field::datetime('m')->required();
+        self::assertSame(['required', 'date'], UiFieldTypes::for($date)->rules($date));
+        self::assertSame(['required', 'datetime'], UiFieldTypes::for($moment)->rules($moment));
+    }
+
+    #[Test]
     public function a_stored_column_suggests_its_field(): void
     {
         $infer = static fn (string $name, string $type, bool $nullable = false, ?int $length = null, bool $pk = false): UiField

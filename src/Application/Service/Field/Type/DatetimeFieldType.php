@@ -35,6 +35,12 @@ final class DatetimeFieldType extends AbstractUiFieldType
         return $props;
     }
 
+    /** A crafted request is not a date picker: what cast() cannot read is refused, not stored as null. */
+    protected function typeRules(UiField $field): array
+    {
+        return ['datetime'];
+    }
+
     public function column(UiField $field): array
     {
         return ['field' => $field->name, 'label' => $field->label, 'format' => 'datetime'];
