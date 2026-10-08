@@ -44,15 +44,26 @@ final class UiTempUploads
         }
         self::sweep($dir);
         $id = 'upl_' . bin2hex(random_bytes(16));
+        $meta['expires'] = time() + self::TTL_SECONDS;
+        $metaJson = json_encode($meta, JSON_THROW_ON_ERROR);
+        $metaPath = $dir . '/' . $id . '.json';
+        $metaTmp = $metaPath . '.tmp';
+        // The metadata lands first and whole (written aside, renamed in), the
+        // file second: a sweep never reads half a sidecar, a take never finds
+        // a file without one, and a failure leaves nothing the sweep cannot see.
+        if (@file_put_contents($metaTmp, $metaJson) !== strlen($metaJson) || !@rename($metaTmp, $metaPath)) {
+            @unlink($metaTmp);
+            throw new \RuntimeException('The upload metadata could not be stored.');
+        }
         $target = $dir . '/' . $id . '.bin';
         if (!@rename($sourcePath, $target)) {
             if (!@copy($sourcePath, $target)) {
+                @unlink($target);
+                @unlink($metaPath);
                 throw new \RuntimeException('The upload could not be stored.');
             }
             @unlink($sourcePath);
         }
-        $meta['expires'] = time() + self::TTL_SECONDS;
-        file_put_contents($dir . '/' . $id . '.json', json_encode($meta, JSON_THROW_ON_ERROR), LOCK_EX);
 
         return $id;
     }
@@ -83,7 +94,7 @@ final class UiTempUploads
         return new UiUploadedFile($id, $claimed, (int) $meta['size'], (string) $meta['mime'], (string) $meta['name']);
     }
 
-    /** Expired entries and claimed files nobody moved, a bounded batch at a time. */
+    /** Expired entries, claimed files nobody moved and abandoned sidecar writes, a bounded batch at a time. */
     private static function sweep(string $dir): void
     {
         $now = time();
@@ -93,14 +104,19 @@ final class UiTempUploads
                 break;
             }
             $meta = json_decode((string) @file_get_contents($metaPath), true);
-            if (!is_array($meta) || (int) ($meta['expires'] ?? 0) < $now) {
+            // Metadata that does not decode is only stale once its file is
+            // older than the TTL; a fresh one may belong to a put in progress.
+            $expired = is_array($meta)
+                ? (int) ($meta['expires'] ?? 0) < $now
+                : @filemtime($metaPath) < $now - self::TTL_SECONDS;
+            if ($expired) {
                 @unlink(substr($metaPath, 0, -5) . '.bin');
                 @unlink($metaPath);
             }
         }
-        foreach (glob($dir . '/upl_*.claimed') ?: [] as $claimed) {
-            if (@filemtime($claimed) < $now - self::TTL_SECONDS) {
-                @unlink($claimed);
+        foreach ([...(glob($dir . '/upl_*.claimed') ?: []), ...(glob($dir . '/upl_*.json.tmp') ?: [])] as $leftover) {
+            if (@filemtime($leftover) < $now - self::TTL_SECONDS) {
+                @unlink($leftover);
             }
         }
     }

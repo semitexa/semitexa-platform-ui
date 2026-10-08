@@ -26,9 +26,11 @@ final class UiUploadTest extends TestCase
     private const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
     private string $dir;
+    private string|false $previousSecret = false;
 
     protected function setUp(): void
     {
+        $this->previousSecret = getenv('APP_SECRET');
         putenv('APP_SECRET=platform-ui-upload-test');
         $this->dir = sys_get_temp_dir() . '/ui-upload-test-' . bin2hex(random_bytes(4));
         UiTempUploads::useDirectory($this->dir);
@@ -41,7 +43,41 @@ final class UiUploadTest extends TestCase
             @unlink($f);
         }
         @rmdir($this->dir);
-        putenv('APP_SECRET');
+        putenv($this->previousSecret === false ? 'APP_SECRET' : 'APP_SECRET=' . $this->previousSecret);
+    }
+
+    #[Test]
+    public function a_sidecar_still_being_written_is_not_swept_with_its_file(): void
+    {
+        mkdir($this->dir, 0775, true);
+        $id = 'upl_' . str_repeat('a', 32);
+        file_put_contents($this->dir . '/' . $id . '.bin', 'bytes');
+        file_put_contents($this->dir . '/' . $id . '.json', '');
+        $staleId = 'upl_' . str_repeat('b', 32);
+        file_put_contents($this->dir . '/' . $staleId . '.bin', 'bytes');
+        file_put_contents($this->dir . '/' . $staleId . '.json', '');
+        touch($this->dir . '/' . $staleId . '.json', time() - UiTempUploads::TTL_SECONDS - 60);
+
+        UiTempUploads::put($this->file('x', 'next.txt')->tmpPath, ['size' => 1, 'mime' => 'text/plain', 'name' => 'next.txt', 'field' => 'f']);
+
+        self::assertFileExists($this->dir . '/' . $id . '.bin', 'a fresh sidecar that does not decode yet is left alone');
+        self::assertFileDoesNotExist($this->dir . '/' . $staleId . '.bin', 'an unreadable sidecar older than the TTL is swept');
+        self::assertFileDoesNotExist($this->dir . '/' . $staleId . '.json');
+    }
+
+    #[Test]
+    public function a_failed_metadata_write_leaves_no_file_behind(): void
+    {
+        $source = $this->file('x', 'a.txt')->tmpPath;
+        try {
+            UiTempUploads::put($source, ['size' => 1, 'mime' => 'text/plain', 'name' => "\xB1\x31", 'field' => 'f']);
+            self::fail('metadata that cannot be encoded must not be stored');
+        } catch (\JsonException) {
+        }
+
+        self::assertSame([], glob($this->dir . '/upl_*') ?: [], 'no orphan file the sweep could never see');
+        self::assertFileExists($source, 'the source stays where it was');
+        @unlink($source);
     }
 
     #[Test]
