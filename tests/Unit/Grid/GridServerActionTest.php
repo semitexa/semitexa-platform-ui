@@ -26,15 +26,21 @@ final class GridServerActionTest extends TestCase
 {
     private RecordingGridActionFixture $handler;
 
+    /** @var array<string, mixed> The registry as this test found it. */
+    private array $handlersBefore;
+
     protected function setUp(): void
     {
+        // The registry is process-global: put back what was there, or a
+        // later test that dispatches a discovered action fails in company.
+        $this->handlersBefore = (new \ReflectionProperty(UiGridActions::class, 'handlers'))->getValue();
         $this->handler = new RecordingGridActionFixture();
         UiGridActions::add($this->handler);
     }
 
     protected function tearDown(): void
     {
-        UiGridActions::reset();
+        (new \ReflectionProperty(UiGridActions::class, 'handlers'))->setValue(null, $this->handlersBefore);
     }
 
     #[Test]

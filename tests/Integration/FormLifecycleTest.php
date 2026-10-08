@@ -33,8 +33,13 @@ final class FormLifecycleTest extends TestCase
     private const FORM = 'uci_form_lifecycle_0001';
     private const FIELD = 'uci_form_lifecycle_name';
 
+    private string|false $previousSecret = false;
+    private string|false $previousEnv = false;
+
     protected function setUp(): void
     {
+        $this->previousSecret = getenv('APP_SECRET');
+        $this->previousEnv = getenv('APP_ENV');
         putenv('APP_SECRET=platform-ui-form-lifecycle-test');
         putenv('APP_ENV=dev');
         UiPrimitiveRegistry::reset();
@@ -53,8 +58,8 @@ final class FormLifecycleTest extends TestCase
         UiFormSubmitActionRegistry::reset();
         UiFormSubmitSecurityPolicy::reset();
         UiFormSubmitCsrfTokenStore::reset();
-        putenv('APP_SECRET');
-        putenv('APP_ENV');
+        putenv($this->previousSecret === false ? 'APP_SECRET' : 'APP_SECRET=' . $this->previousSecret);
+        putenv($this->previousEnv === false ? 'APP_ENV' : 'APP_ENV=' . $this->previousEnv);
     }
 
     #[Test]
@@ -103,7 +108,9 @@ final class FormLifecycleTest extends TestCase
         $response = $this->submit($this->ctx(), 'leave');
 
         $ops = array_column($response['body']['patches'], 'op');
-        self::assertContains('redirect', $ops);
+        $redirects = array_values(array_filter($response['body']['patches'], static fn (array $p): bool => $p['op'] === 'redirect'));
+        self::assertCount(1, $redirects);
+        self::assertSame('/articles', $redirects[0]['value']);
         self::assertNotContains('replace', $ops);
         self::assertNotContains('reset', $ops);
     }

@@ -118,7 +118,10 @@ final class PageBlocksRenderTest extends TestCase
         $features = $this->render(FeaturesBlockComponent::class, ['items' => [['title' => 'T', 'href' => 'data:text/html,x']]]);
         self::assertStringContainsString('<h3 ui-feature-title>T</h3>', $features);
 
-        $footer = $this->render(FooterBlockComponent::class, ['columns' => [['title' => 'C', 'links' => [['label' => 'L', 'href' => '//evil.test']]]]]);
+        $footer = $this->render(FooterBlockComponent::class, ['columns' => [['title' => 'C', 'links' => [['label' => 'L', 'href' => '//evil.test'], ['label' => 'Ok', 'href' => '/ok']]]]]);
+        self::assertStringContainsString('<nav ui-footer-column aria-label="C">', $footer, 'the column is drawn');
+        self::assertSame(1, substr_count($footer, '<li>'), 'only the safe link is listed');
+        self::assertStringContainsString('<li><a href="/ok">Ok</a></li>', $footer);
         self::assertStringNotContainsString('evil', $footer);
     }
 
@@ -132,6 +135,7 @@ final class PageBlocksRenderTest extends TestCase
         self::assertStringContainsString('<p>A &lt;b&gt;1&lt;/b&gt;</p><p>second</p>', $html);
 
         $loose = $this->render(FaqBlockComponent::class, ['items' => $items, 'exclusive' => false]);
+        self::assertSame(2, substr_count($loose, '<details ui-faq-item>'), 'both items drawn, neither in a group');
         self::assertStringNotContainsString('name=', $loose);
     }
 

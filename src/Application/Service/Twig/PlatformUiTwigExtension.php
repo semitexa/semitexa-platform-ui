@@ -14,6 +14,7 @@ use Semitexa\PlatformUi\Application\Service\Event\UiEventManifestBuilder;
 use Semitexa\PlatformUi\Application\Service\Event\UiInstanceIdGenerator;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleParser;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistry;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionInterface;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistry;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitCsrfTokenStore;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFormSubmitConfigParser;
@@ -625,7 +626,7 @@ final class PlatformUiTwigExtension
                         'FormComponent `submitAction` prop must be a string action name.',
                     );
                 }
-                if (preg_match('/\A[A-Za-z_][A-Za-z0-9_.-]{0,127}\z/', $name) !== 1) {
+                if (preg_match(UiFormSubmitActionInterface::NAME_PATTERN, $name) !== 1) {
                     throw new UiFormSubmitActionException(
                         'FormComponent `submitAction` must match [A-Za-z_][A-Za-z0-9_.-]{0,127}.',
                         $name,

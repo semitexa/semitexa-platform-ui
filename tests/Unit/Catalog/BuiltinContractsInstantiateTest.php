@@ -29,9 +29,9 @@ final class BuiltinContractsInstantiateTest extends TestCase
                 }
                 $relative = substr($file->getPathname(), strlen($root) + 1, -4);
                 $class = 'Semitexa\\PlatformUi\\Application\\' . str_replace('/', '\\', $relative);
-                if (!class_exists($class)) {
-                    continue;
-                }
+                // A file whose class does not load is a fault, not a skip: its
+                // attributes would go unchecked until worker boot.
+                self::assertTrue(class_exists($class) || interface_exists($class) || trait_exists($class) || enum_exists($class), sprintf('%s declares no %s (namespace or class name off its path).', $relative . '.php', $class));
                 foreach ((new \ReflectionClass($class))->getAttributes() as $attribute) {
                     try {
                         $attribute->newInstance();

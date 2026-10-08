@@ -6,6 +6,10 @@ namespace Semitexa\PlatformUi\Application\Component\Builtin;
 
 use Semitexa\Ssr\Attribute\AsComponent;
 use Semitexa\PlatformUi\Attribute\UiSlot;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiProp;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiPropType;
 
 /**
  * platform.pagination — page navigation for a paged list.
@@ -34,6 +38,23 @@ use Semitexa\PlatformUi\Attribute\UiSlot;
     cacheable: true,
 )]
 #[UiSlot(name: 'summary', description: 'Optional leading text such as a result-count summary, rendered before the controls.')]
+#[AsUiContract(
+    summary: 'Move between pages of a long result set.',
+    props: [
+        new UiProp('current', UiPropType::Integer, default: 1),
+        new UiProp('total', UiPropType::Integer, default: 1),
+        new UiProp('hrefTemplate', default: '?page={page}', description: 'URL with a literal {page} placeholder.'),
+        new UiProp('window', UiPropType::Integer, default: 1, description: 'Pages shown on each side of the current one.'),
+        new UiProp('ariaLabel', default: 'Pagination'),
+    ],
+    examples: [
+        new UiExample('middle', 'Middle of a long list', ['current' => 6, 'total' => 12, 'hrefTemplate' => '?page={page}'], ['summary' => 'Showing 51-60 of 118']),
+        new UiExample('first', 'First page', ['current' => 1, 'total' => 3, 'hrefTemplate' => '?page={page}']),
+    ],
+    previewSafe: true,
+    // A Workbench preview, not yet a block an AI-composed screen may use.
+    agent: false,
+)]
 final class PaginationComponent
 {
 }

@@ -28,6 +28,7 @@ use Semitexa\PlatformUi\Domain\Model\Contract\UiPropType;
         new UiProp('label', default: '', description: 'Accessible name of the group.'),
         new UiProp('size', default: 'md', values: ['sm', 'md']),
         new UiProp('iconOnly', UiPropType::Boolean, default: false, description: 'Show only the icons; each label stays as the radio\'s accessible name.'),
+        new UiProp('disabled', UiPropType::Boolean, default: false),
     ],
     examples: [
         new UiExample('default', 'View', ['name' => 'view', 'label' => 'View', 'value' => 'list', 'options' => [['value' => 'list', 'label' => 'List'], ['value' => 'grid', 'label' => 'Grid'], ['value' => 'map', 'label' => 'Map']]]),

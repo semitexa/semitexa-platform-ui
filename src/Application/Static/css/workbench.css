@@ -1,0 +1,140 @@
+/*
+ * UI Workbench page chrome. Token-only, like the kit it shows; the stage
+ * itself adds nothing, so an example looks exactly as it does in an app.
+ */
+@layer platform-ui.primitives {
+  .wb {
+    display: grid;
+    grid-template-columns: minmax(13rem, 16rem) minmax(0, 1fr);
+    gap: var(--ui-space-8);
+    align-items: start;
+    max-width: var(--ui-container-xl);
+    margin-inline: auto;
+    padding: var(--ui-space-6) var(--ui-space-4) var(--ui-space-16);
+  }
+  @media (max-width: 52rem) { .wb { grid-template-columns: minmax(0, 1fr); } }
+
+  .wb-nav {
+    position: sticky;
+    top: var(--ui-space-4);
+    max-height: calc(100dvh - 2 * var(--ui-space-4));
+    overflow: auto;
+    display: grid;
+    gap: var(--ui-space-4);
+    font-size: var(--ui-text-sm);
+  }
+  @media (max-width: 52rem) { .wb-nav { position: static; max-height: none; } }
+  .wb-brand { display: grid; gap: var(--ui-space-0-5); color: var(--ui-text-primary); text-decoration: none; }
+  .wb-brand strong { font-size: var(--ui-text-lg); letter-spacing: var(--ui-tracking-tight); }
+  .wb-count { margin: 0; }
+  .wb-group h2 { margin: 0 0 var(--ui-space-1); }
+  .wb-group ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--ui-space-0-5); }
+  .wb-group a {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ui-space-2);
+    padding: var(--ui-space-1-5) var(--ui-space-2-5);
+    border-radius: var(--ui-radius-md);
+    color: var(--ui-text-muted);
+    text-decoration: none;
+  }
+  .wb-group a:hover { color: var(--ui-text-primary); background: var(--ui-surface-panel); }
+  .wb-group a[aria-current="page"] { color: var(--ui-text-primary); background: var(--ui-surface-panel); font-weight: var(--ui-font-weight-medium); box-shadow: var(--ui-hairline); }
+  .wb-pill {
+    min-width: 1.25rem;
+    padding: 0 var(--ui-space-1-5);
+    border-radius: var(--ui-radius-pill);
+    background: color-mix(in oklab, var(--ui-accent-brand) 12%, var(--ui-surface-raised));
+    color: var(--ui-text-primary);
+    font-size: var(--ui-text-xs);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .wb-pill-muted { background: var(--ui-surface-sunken); color: var(--ui-text-muted); }
+
+  .wb-main { min-width: 0; display: grid; gap: var(--ui-space-8); }
+  .wb-toolbar { display: flex; flex-wrap: wrap; gap: var(--ui-space-3); }
+  .wb-seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--ui-space-0-5);
+    padding: var(--ui-space-1);
+    border-radius: var(--ui-radius-lg);
+    background: var(--ui-surface-panel);
+    box-shadow: inset 0 0 0 1px var(--ui-border-subtle);
+    font-size: var(--ui-text-xs);
+  }
+  .wb-seg a { padding: var(--ui-space-1) var(--ui-space-2-5); border-radius: var(--ui-radius-md); color: var(--ui-text-muted); text-decoration: none; }
+  .wb-seg a:hover { color: var(--ui-text-primary); }
+  .wb-seg a[aria-current="true"] { background: var(--ui-surface-raised); color: var(--ui-text-primary); box-shadow: var(--ui-hairline), var(--ui-shadow-xs); }
+
+  .wb-head { display: grid; gap: var(--ui-space-2); }
+  .wb-head h1, .wb-head p { margin: 0; }
+  .wb-head code { font-size: var(--ui-text-sm); color: var(--ui-text-muted); }
+
+  .wb-examples { display: grid; gap: var(--ui-space-6); }
+  /* Small things side by side; a component gets the full width it is built for. */
+  .wb-examples:is([data-kind="primitive"], [data-kind="behavior"]) { grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: var(--ui-space-4); }
+  .wb-examples:is([data-kind="primitive"], [data-kind="behavior"]) .wb-stage { padding: var(--ui-space-6); min-height: 7rem; justify-items: center; }
+  .wb-example { display: grid; gap: var(--ui-space-2); align-content: start; min-width: 0; }
+  .wb-example-title { margin: 0; font-size: var(--ui-text-sm); font-weight: var(--ui-font-weight-semibold); color: var(--ui-text-muted); letter-spacing: 0; }
+  .wb-stage {
+    padding: var(--ui-space-8);
+    border-radius: var(--ui-radius-lg);
+    background: var(--ui-surface-page);
+    color: var(--ui-text-primary);
+    box-shadow: var(--ui-hairline);
+    min-height: 6rem;
+    display: grid;
+    align-content: center;
+    justify-items: start;
+    gap: var(--ui-space-3);
+    overflow: hidden;
+    background-image: radial-gradient(circle, color-mix(in oklab, var(--ui-border-subtle) 70%, transparent) 1px, transparent 1px);
+    background-size: 16px 16px;
+  }
+  .wb-stage > * { max-width: 100%; }
+  .wb-stage > [ui-component] { width: 100%; }
+  /* A page block is an inline-size container: it has no intrinsic width, so
+     under justify-items: start it shrank to its longest word. Stretch it. */
+  .wb-stage > [ui-block] { justify-self: stretch; }
+
+  .wb-code summary { cursor: pointer; font-size: var(--ui-text-xs); color: var(--ui-text-muted); width: max-content; }
+  .wb-code pre {
+    margin: var(--ui-space-2) 0 0;
+    padding: var(--ui-space-3) var(--ui-space-4);
+    border-radius: var(--ui-radius-md);
+    background: var(--ui-surface-sunken);
+    color: var(--ui-text-primary);
+    font-size: var(--ui-text-xs);
+    line-height: var(--ui-text-xs-leading);
+    overflow: auto;
+    white-space: pre-wrap;
+  }
+
+  .wb-ref { display: grid; gap: var(--ui-space-3); }
+  .wb-ref h2 { margin: 0; font-size: var(--ui-text-lg); }
+  .wb-table-wrap { overflow-x: auto; border-radius: var(--ui-radius-lg); box-shadow: var(--ui-hairline); background: var(--ui-surface-raised); }
+  .wb-table { width: 100%; border-collapse: collapse; font-size: var(--ui-text-sm); }
+  .wb-table :is(th, td) { padding: var(--ui-space-2) var(--ui-space-3); text-align: start; vertical-align: top; border-bottom: 1px solid var(--ui-border-subtle); }
+  .wb-table th { font-size: var(--ui-text-xs); color: var(--ui-text-muted); font-weight: var(--ui-font-weight-medium); }
+  .wb-table tr:last-child td { border-bottom: 0; }
+  .wb-table code, .wb-dl code { font-size: var(--ui-text-xs); padding: 0 var(--ui-space-1); border-radius: var(--ui-radius-sm); background: var(--ui-surface-sunken); }
+  .wb-dl { display: grid; grid-template-columns: max-content 1fr; gap: var(--ui-space-2) var(--ui-space-4); margin: 0; font-size: var(--ui-text-sm); }
+  .wb-dl dd { margin: 0; color: var(--ui-text-muted); }
+
+  .wb-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: var(--ui-space-3); }
+  .wb-card {
+    display: grid;
+    gap: var(--ui-space-1);
+    padding: var(--ui-space-4);
+    border-radius: var(--ui-radius-lg);
+    background: var(--ui-surface-raised);
+    box-shadow: var(--ui-hairline), var(--ui-shadow-xs);
+    color: var(--ui-text-primary);
+    text-decoration: none;
+    transition: box-shadow var(--ui-motion-duration-fast) var(--ui-motion-easing-standard);
+  }
+  .wb-card:hover { box-shadow: var(--ui-hairline), var(--ui-elevation-2); }
+}

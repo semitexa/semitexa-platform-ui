@@ -56,6 +56,7 @@ final class DashboardTest extends TestCase
         self::assertSame('Visits', $rendered[0]['widget']?->title);
         self::assertNull($rendered[2]['widget'], 'a widget that throws is unavailable, not a broken page');
         self::assertTrue($rendered[1]['wide']);
+        self::assertSame(1, SecretWidgetFixture::$computed, 'a permitted widget is computed once, so the 0 below means it was skipped');
     }
 
     #[Test]
@@ -67,6 +68,35 @@ final class DashboardTest extends TestCase
         self::assertSame(['public-widget-fixture', 'broken-widget-fixture'], array_column($rendered, 'id'), 'attribute permission and stated permission both hide');
         self::assertSame(0, SecretWidgetFixture::$computed);
         self::assertSame([], UiDashboards::render('nowhere'));
+    }
+
+    /**
+     * A widget that names no permission is for a signed-in visitor, as
+     * can(null) and UiWidgetPermissionInterface's null are; a guest is shown
+     * only the widgets that say public: true, and the rest are not computed.
+     */
+    #[Test]
+    public function a_guest_sees_only_the_widgets_that_say_they_are_public(): void
+    {
+        UiDashboards::discover([PublicWidgetFixture::class, GuestWidgetFixture::class, SecretWidgetFixture::class], static fn (string $c): object => new $c());
+
+        $this->actAsGuest();
+        self::assertSame(['guest-widget-fixture'], array_column(UiDashboards::render('admin'), 'id'));
+        self::assertSame(['guest-widget-fixture'], array_column(UiDashboards::entries('admin'), 'id'));
+        self::assertNull(UiDashboards::widget('admin', 'public-widget-fixture'));
+        self::assertSame(0, PublicWidgetFixture::$computed, 'not computed for a guest');
+
+        $this->grant([]);
+        self::assertSame(['public-widget-fixture', 'guest-widget-fixture'], array_column(UiDashboards::render('admin'), 'id'));
+        self::assertSame(1, PublicWidgetFixture::$computed);
+    }
+
+    #[Test]
+    public function a_public_widget_names_no_permission(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('A public widget names no permission, not "reports.view".');
+        new AsDashboardWidget(dashboard: 'admin', permission: 'reports.view', public: true);
     }
 
     #[Test]
@@ -157,6 +187,24 @@ final class DashboardTest extends TestCase
         UiWidget::chart('Orders', 'pie', []);
     }
 
+    /** A guest: signed out, and granted no permission. */
+    private function actAsGuest(): void
+    {
+        $auth = new class implements AuthContextInterface {
+            public function getUser(): ?AuthenticatableInterface { return null; }
+            public function isGuest(): bool { return true; }
+            public function setUser(?AuthenticatableInterface $user): void {}
+            public static function get(): ?AuthContextInterface { return null; }
+            public static function getOrFail(): AuthContextInterface { throw new \LogicException('not used'); }
+        };
+        UiPermissions::use($auth, new class implements AuthorizerInterface {
+            public function authorize(SubjectInterface $subject, AccessPolicy $policy): AccessDecision
+            {
+                return AccessDecision::denyForbidden(DenyReason::PermissionRequired);
+            }
+        });
+    }
+
     /** @param list<string> $permissions */
     private function grant(array $permissions): void
     {
@@ -189,6 +237,12 @@ final class PublicWidgetFixture implements UiDashboardWidgetInterface
 {
     public static int $computed = 0;
     public function widget(): UiWidget { self::$computed++; return UiWidget::stat('Visits', '3'); }
+}
+
+#[AsDashboardWidget(dashboard: 'admin', order: 15, public: true)]
+final class GuestWidgetFixture implements UiDashboardWidgetInterface
+{
+    public function widget(): UiWidget { return UiWidget::stat('Articles', '7'); }
 }
 
 #[AsDashboardWidget(dashboard: 'admin', order: 20, permission: 'reports.view', wide: true)]

@@ -44,6 +44,8 @@ use Semitexa\PlatformUi\Attribute\UiSlot;
     ],
     examples: [
         new UiExample('default', 'No orders', ['title' => 'No orders yet', 'description' => 'Orders appear here as they arrive.', 'icon' => 'inbox']),
+        new UiExample('first-run', 'First run', ['icon' => 'inbox', 'title' => 'No customers yet', 'description' => 'Create your first customer to start sending invoices.'], ['actions' => 'Use the New customer button above.']),
+        new UiExample('search', 'No results', ['icon' => 'search', 'title' => 'No matches', 'description' => 'Try a shorter search or clear the filters.']),
     ],
     previewSafe: true,
 )]

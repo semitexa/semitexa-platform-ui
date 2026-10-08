@@ -15,8 +15,6 @@ use Semitexa\PlatformUi\Attribute\AsFormSubmitAction;
  */
 final class UiFormSubmitActionDiscovery
 {
-    private const NAME_PATTERN = '/\A[a-z][a-z0-9_.-]{0,127}\z/';
-
     /**
      * @param iterable<class-string> $classes
      * @param callable(class-string): object $resolve makes the action for one submit
@@ -34,7 +32,7 @@ final class UiFormSubmitActionDiscovery
                 continue;
             }
             $name = $attributes[0]->newInstance()->name;
-            if (preg_match(self::NAME_PATTERN, $name) !== 1) {
+            if (preg_match(UiFormSubmitActionInterface::NAME_PATTERN, $name) !== 1) {
                 throw new \LogicException(sprintf('#[AsFormSubmitAction] on %s has an invalid name "%s".', $class, $name));
             }
             if (isset($declaredBy[$name])) {

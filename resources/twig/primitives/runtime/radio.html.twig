@@ -7,6 +7,8 @@
 {%- if checked|default(false) %} checked{% endif -%}
 {%- if required|default(false) %} required{% endif -%}
 {%- if disabled|default(false) %} disabled{% endif -%}
+{%- if aria_invalid|default(null) %} aria-invalid="true"{% endif -%}
+{%- if aria_describedby|default(null) %} aria-describedby="{{ aria_describedby }}"{% endif -%}
 >
 {%- if label|default(null) %}<span ui-choice-label>{{ label }}</span>{% endif -%}
 </label>

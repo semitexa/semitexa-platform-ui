@@ -58,8 +58,21 @@
     the surface tight and lets the frontend reject anything stranger. -#}
 {%- set _safe_field_name = (name|default('') matches '/\\A[A-Za-z_][A-Za-z0-9_-]*\\z/') ? name : null -%}
 <div data-ui-component="platform.field" data-ui-component-instance-id="{{ _ui_instance }}"{% if _safe_field_name %} data-ui-field-name="{{ _safe_field_name }}"{% endif %} ui-component="field" sx-layout="stack" sx-gap="1">
-    {% if label|default(null) %}
-        <label{% if _id %} for="{{ _id }}"{% endif %} ui-text="label">{{ label }}{% if required|default(false) %} <span aria-hidden="true" style="color:var(--ui-state-danger);">*</span>{% endif %}</label>
+    {#- One visible label per control. A checkbox or switch carries its own
+        <label> around the input, so the field adds none (a distinct
+        `checkboxLabel` keeps `label` as plain heading text). A radio or
+        checkbox group gets its name from a <legend> inside its fieldset, and
+        a segmented bar from its own aria-label — a <label for> would point
+        at an element that is not labelable. -#}
+    {%- set _control = control|default('input') -%}
+    {%- set _required_mark = required|default(false) ? ' <span aria-hidden="true" style="color:var(--ui-state-danger);">*</span>' : '' -%}
+    {%- set _label_as = _control in ['checkboxes', 'radio'] ? 'legend'
+        : (_control in ['checkbox', 'switch'] ? ((checkboxLabel|default(null)) and checkboxLabel != label|default(null) ? 'text' : 'none')
+        : (_control == 'segmented' ? 'text' : 'label')) -%}
+    {% if label|default(null) and _label_as == 'label' %}
+        <label{% if _id %} for="{{ _id }}"{% endif %} ui-text="label">{{ label }}{{ _required_mark|raw }}</label>
+    {% elseif label|default(null) and _label_as == 'text' %}
+        <span ui-text="label">{{ label }}{{ _required_mark|raw }}</span>
     {% endif %}
 
     {#- `control`: input (default) | textarea | select | checkbox | switch | checkboxes | radio | segmented | file.
@@ -70,36 +83,45 @@
         1 MiB; above SWOOLE_PACKAGE_MAX_LENGTH less 16 KiB the render fails); the
         file goes to HUG as it is chosen and the field's value is the signed
         ticket the form action redeems (UiUploadTickets::fromForm). -#}
-    {%- set _control = control|default('input') -%}
     {% if _control != 'input' %}
         {%- set _p = ui_part_props('input', inputProps|default({})) -%}
         {%- set _name = _p.name|default(name|default('')) -%}
-        {%- set _value = _p.value ?? value ?? null -%}
+        {#- `values` (a multiple select's list, as the select primitive takes it)
+            before `value`, from inputProps or the field itself. -#}
+        {%- set _value = _p.values ?? values ?? _p.value ?? value ?? null -%}
         {%- set _values = _value is iterable ? _value|map(v => v ~ '') : (_value is null ? [] : [_value ~ '']) -%}
         {%- set _options = options|default([]) -%}
         {%- set _required = required|default(false) -%}
+        {#- The resolved part state (disabled, aria-invalid, aria-describedby)
+            reaches every control kind, not only the text input. -#}
+        {%- set _disabled = _p.disabled|default(false) -%}
+        {%- set _aria_invalid = _p.aria_invalid|default(null) -%}
+        {%- set _aria_describedby = _p.aria_describedby|default(null) -%}
+        {%- set _aria = {disabled: _disabled, aria_invalid: _aria_invalid, aria_describedby: _aria_describedby} -%}
         {% if _control == 'textarea' %}
-            {{ primitive('textarea', {part: 'input', name: _name, id: _id, rows: rows|default(6), placeholder: placeholder|default(null), required: _required, value: _values|first|default('')}) }}
+            {{ primitive('textarea', {part: 'input', name: _name, id: _id, rows: rows|default(6), placeholder: placeholder|default(null), required: _required, value: _values|first|default('')}|merge(_aria)) }}
         {% elseif _control == 'select' %}
-            {{ primitive('select', {part: 'input', name: _name, id: _id, multiple: multiple|default(false), placeholder: placeholder|default(null), required: _required, options: _options, value: _values}) }}
+            {{ primitive('select', {part: 'input', name: _name, id: _id, multiple: multiple|default(false), placeholder: placeholder|default(null), required: _required, options: _options, value: _values}|merge(_aria)) }}
         {% elseif _control == 'segmented' %}
-            {{ primitive('segmented', {part: 'input', name: _name, label: label|default(null), options: _options, value: _values|first|default(null)}) }}
+            {{ primitive('segmented', {part: 'input', name: _name, label: label|default(null), options: _options, value: _values|first|default(null), disabled: _disabled, aria_invalid: _aria_invalid, aria_describedby: _aria_describedby}) }}
         {% elseif _control == 'checkbox' or _control == 'switch' %}
-            {{ primitive(_control, {part: 'input', name: _name, id: _id, label: checkboxLabel|default(label|default('')), checked: _value and _value != '0', required: _required}) }}
+            {{ primitive(_control, {part: 'input', name: _name, id: _id, label: checkboxLabel|default(label|default('')), checked: _value and _value != '0', required: _required}|merge(_aria)) }}
         {% elseif _control == 'file' %}
             {{ asset_require('platform-ui:js:upload-runtime') }}
             {%- set _accept = accept|default(['image/*']) -%}
             {%- set _maxBytes = maxBytes ?? constant('Semitexa\\PlatformUi\\Application\\Service\\Upload\\UiUploadTickets::DEFAULT_MAX_BYTES') -%}
             <div ui-component="upload" sx-layout="stack" sx-gap="1" data-ui-upload-root>
-                <input type="file" data-ui-upload="{{ ui_upload_context(_ui_instance, _name, _accept, _maxBytes) }}" data-ui-upload-max="{{ _maxBytes }}" accept="{{ _accept|join(',') }}"{% if _id %} id="{{ _id }}"{% endif %}>
+                <input type="file" data-ui-upload="{{ ui_upload_context(_ui_instance, _name, _accept, _maxBytes) }}" data-ui-upload-max="{{ _maxBytes }}" accept="{{ _accept|join(',') }}"{% if _id %} id="{{ _id }}"{% endif %}{% if _disabled %} disabled{% endif %}{% if _aria_invalid %} aria-invalid="true"{% endif %}{% if _aria_describedby %} aria-describedby="{{ _aria_describedby }}"{% endif %}>
                 <input data-ui-part="input" type="hidden" name="{{ _name }}" value="">
                 <progress data-ui-upload-progress max="100" value="0" hidden></progress>
                 <span data-ui-upload-status ui-text="muted" aria-live="polite"></span>
             </div>
         {% else %}
-            <fieldset data-ui-part="input" ui-component="choices" sx-layout="cluster" sx-gap="3" style="border:0;padding:0;margin:0;"{% if _id %} id="{{ _id }}"{% endif %}>
+            {#- A disabled fieldset disables every option inside it natively. -#}
+            <fieldset data-ui-part="input" ui-component="choices" sx-layout="cluster" sx-gap="3" style="border:0;padding:0;margin:0;"{% if _id %} id="{{ _id }}"{% endif %}{% if _disabled %} disabled{% endif %}{% if _aria_describedby %} aria-describedby="{{ _aria_describedby }}"{% endif %}>
+                {% if label|default(null) %}<legend ui-text="label" style="padding:0;margin-bottom:var(--ui-space-1);">{{ label }}{{ _required_mark|raw }}</legend>{% endif %}
                 {% for option in _options %}
-                    {{ primitive(_control == 'radio' ? 'radio' : 'checkbox', {name: _name ~ (_control == 'checkboxes' ? '[]' : ''), value: option.value, label: option.label|default(option.value), checked: (option.value ~ '') in _values}) }}
+                    {{ primitive(_control == 'radio' ? 'radio' : 'checkbox', {name: _name ~ (_control == 'checkboxes' ? '[]' : ''), value: option.value, label: option.label|default(option.value), checked: (option.value ~ '') in _values, aria_invalid: _aria_invalid}) }}
                 {% endfor %}
             </fieldset>
         {% endif %}

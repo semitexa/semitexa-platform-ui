@@ -803,6 +803,9 @@ export function recordUrl(url, options) {
     if (options && options.replace === true) {
         window.history.replaceState(state, '', target);
     } else {
+        // The entry being left keeps where the visitor was, as every other
+        // push does: Back returns to that scroll position, not an old one.
+        saveScroll();
         window.history.pushState(state, '', target);
     }
     committedUrl = target;

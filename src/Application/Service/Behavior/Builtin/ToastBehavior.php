@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Behavior\Builtin;
 
 use Semitexa\PlatformUi\Attribute\AsUiBehavior;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiBehaviorOption;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
 
@@ -30,5 +32,13 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
         new UiBehaviorOption('timeout', UiOptionType::Number, default: 4000, description: 'Auto-dismiss ms (0 = sticky).'),
     ],
     a11y: ['aria-live'],
+)]
+#[AsUiContract(
+    summary: 'A transient notification in a corner of the screen.',
+    examples: [
+        new UiExample('success', 'Success', ['title' => 'Customer saved', 'message' => 'Jane Doe was added to Customers.', 'status' => 'success'], template: '@platform-ui/examples/toast.html.twig'),
+        new UiExample('danger', 'Error', ['title' => 'Payment failed', 'message' => 'Update the card on file.', 'status' => 'danger'], template: '@platform-ui/examples/toast.html.twig'),
+    ],
+    previewSafe: true,
 )]
 final class ToastBehavior {}

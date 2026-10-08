@@ -31,7 +31,27 @@ final class UiFormSubmitActionDiscoveryTest extends TestCase
         UiFormSubmitActionRegistry::setActive(new DefaultUiFormSubmitActionRegistry());
         UiFormSubmitActionRegistry::setDiscovered($actions);
         self::assertInstanceOf(DiscoveredArticleAction::class, UiFormSubmitActionRegistry::getActive()->resolve('blog.article.create'));
-        self::assertContains('blog.article.create', UiFormSubmitActionRegistry::getActive()->knownActionNames());
+        self::assertSame(
+            ['blog.article.create', ...(new DefaultUiFormSubmitActionRegistry())->knownActionNames()],
+            UiFormSubmitActionRegistry::getActive()->knownActionNames(),
+        );
+    }
+
+    #[Test]
+    public function discovery_accepts_every_name_the_signed_dispatch_accepts(): void
+    {
+        $actions = UiFormSubmitActionDiscovery::fromClasses([UppercaseNamedAction::class], static fn (string $c): object => new $c());
+
+        self::assertSame(['_Blog.Create'], array_keys($actions));
+        self::assertSame(1, preg_match(UiFormSubmitActionInterface::NAME_PATTERN, '_Blog.Create'));
+    }
+
+    #[Test]
+    public function a_name_outside_the_grammar_fails_the_boot(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('#[AsFormSubmitAction] on ' . BadlyNamedAction::class . ' has an invalid name "blog article".');
+        UiFormSubmitActionDiscovery::fromClasses([BadlyNamedAction::class], static fn (string $c): object => new $c());
     }
 
     #[Test]
@@ -112,4 +132,32 @@ final class MisnamedAction implements UiFormSubmitActionInterface
 #[AsFormSubmitAction('blog.article.delete')]
 final class NotAnAction
 {
+}
+
+#[AsFormSubmitAction('_Blog.Create')]
+final class UppercaseNamedAction implements UiFormSubmitActionInterface
+{
+    public function name(): string
+    {
+        return '_Blog.Create';
+    }
+
+    public function handle(UiFormSubmitActionContext $context): UiFormSubmitActionResult
+    {
+        return UiFormSubmitActionResult::accepted();
+    }
+}
+
+#[AsFormSubmitAction('blog article')]
+final class BadlyNamedAction implements UiFormSubmitActionInterface
+{
+    public function name(): string
+    {
+        return 'blog article';
+    }
+
+    public function handle(UiFormSubmitActionContext $context): UiFormSubmitActionResult
+    {
+        return UiFormSubmitActionResult::accepted();
+    }
 }

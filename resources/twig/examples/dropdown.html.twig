@@ -1,0 +1,11 @@
+<div ui-behavior="dropdown" ui-dropdown="{{ opts }}">
+    <button ui="button" ui-variant="soft" ui-behavior-toggle>Actions {{ icon('chevron-down') }}</button>
+    <div ui-behavior-content hidden>
+        <div ui-menu="label">Customer</div>
+        <a ui-behavior-item href="#edit">{{ icon('pencil') }}Edit<span ui-menu="shortcut">E</span></a>
+        <a ui-behavior-item href="#duplicate">Duplicate</a>
+        <a ui-behavior-item href="#archive">Archive</a>
+        <hr>
+        <button ui-behavior-item ui-tone="danger" type="button">{{ icon('trash') }}Delete</button>
+    </div>
+</div>

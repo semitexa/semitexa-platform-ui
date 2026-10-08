@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Behavior\Builtin;
 
 use Semitexa\PlatformUi\Attribute\AsUiBehavior;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiBehaviorOption;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
 
@@ -24,5 +26,12 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
         new UiBehaviorOption('offset', UiOptionType::Number, default: 0, description: 'Sticky top offset in px.'),
     ],
     a11y: [],
+)]
+#[AsUiContract(
+    summary: 'Keep a header in view while its content scrolls.',
+    examples: [
+        new UiExample('header', 'Sticky header', [], template: '@platform-ui/examples/sticky.html.twig'),
+    ],
+    previewSafe: true,
 )]
 final class StickyBehavior {}

@@ -10,6 +10,14 @@ use InvalidArgumentException;
 final readonly class UiProp
 {
     /**
+     * A path on this site: one leading "/", not "//" or "/\\" (another
+     * host), and nothing that could close the attribute it is written into.
+     * Unicode-aware (u): JSON Schema's \s, which the emitted schema() pattern
+     * uses, includes Unicode whitespace such as U+00A0, and the two must agree.
+     */
+    public const SITE_PATH = '#\A/(?![/\\\\])[^\s"\'<>`]*\z#u';
+
+    /**
      * @param list<string|int|float|bool> $values
      * @param list<UiProp> $properties Nested object properties; empty means an open map.
      */
@@ -24,7 +32,16 @@ final readonly class UiProp
         public ?self $items = null,
         public array $properties = [],
         public bool $sensitive = false,
+        /**
+         * A link target that must stay on this site (SITE_PATH): what the
+         * contract promises an agent-composed tree cannot widen to
+         * javascript:, another host, or a phishing page.
+         */
+        public bool $sitePath = false,
     ) {
+        if ($sitePath && $type !== UiPropType::String) {
+            throw new InvalidArgumentException("UI prop {$name} is a site path, so it is a string.");
+        }
         if (preg_match('/\A[a-zA-Z][a-zA-Z0-9_-]*\z/', $name) !== 1) {
             throw new InvalidArgumentException("Invalid UI prop name: {$name}");
         }
@@ -68,6 +85,9 @@ final readonly class UiProp
         }
         if ($this->values !== [] && !$this->type->inEnum($value, $this->values)) {
             throw new InvalidArgumentException("{$path} is not one of the declared values.");
+        }
+        if ($this->sitePath && is_string($value) && preg_match(self::SITE_PATH, $value) !== 1) {
+            throw new InvalidArgumentException("{$path} must be a path on this site, starting with a single \"/\".");
         }
         if ($this->items !== null && is_array($value)) {
             foreach ($value as $index => $item) {
@@ -165,6 +185,9 @@ final readonly class UiProp
         }
         if ($this->hasDefault()) {
             $schema['default'] = $this->normalize($this->default);
+        }
+        if ($this->sitePath) {
+            $schema['pattern'] = '^/(?![/\\\\])[^\\s"\'<>`]*$';
         }
         if ($this->values !== []) {
             $schema['enum'] = $this->nullable ? [...$this->values, null] : $this->values;

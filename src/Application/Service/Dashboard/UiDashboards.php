@@ -13,7 +13,8 @@ use Semitexa\PlatformUi\Domain\Model\Dashboard\UiWidget;
  * The #[AsDashboardWidget] classes by dashboard, discovered at worker boot,
  * each resolved per page view from the request scope. A widget the visitor
  * lacks the permission for (its attribute's, or the one it states itself —
- * UiWidgetPermissionInterface) is never resolved; a widget that fails is shown as
+ * UiWidgetPermissionInterface; none means signed in, unless the attribute
+ * says `public: true`) is never resolved; a widget that fails is shown as
  * unavailable (and logged) instead of taking the whole page down.
  */
 final class UiDashboards
@@ -161,8 +162,11 @@ final class UiDashboards
     {
         $visible = [];
         foreach (self::$widgets[$dashboard] ?? [] as $entry) {
-            $permission = $entry['attribute']->permission;
-            if ($permission !== null && !UiPermissions::allows($permission)) {
+            // No permission means "signed in", as everywhere else
+            // (UiPermissions::permits): only a widget that says it is public
+            // is drawn for a guest.
+            $attribute = $entry['attribute'];
+            if (!$attribute->public && !UiPermissions::permits($attribute->permission)) {
                 continue;
             }
             if (is_subclass_of($entry['class'], UiWidgetPermissionInterface::class)

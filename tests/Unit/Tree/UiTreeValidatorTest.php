@@ -13,12 +13,15 @@ use Semitexa\Authorization\Domain\Model\AccessPolicy;
 use Semitexa\Core\Auth\AuthContextInterface;
 use Semitexa\Core\Auth\AuthenticatableInterface;
 use Semitexa\Core\Authorization\SubjectInterface;
+use Semitexa\PlatformUi\Application\Component\Builtin\ListComponent;
 use Semitexa\PlatformUi\Application\Service\Access\UiPermissions;
+use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\ButtonPrimitive;
 use Semitexa\PlatformUi\Application\Service\Tree\NavigateTreeAction;
 use Semitexa\PlatformUi\Application\Service\Tree\UiAgentCatalog;
 use Semitexa\PlatformUi\Application\Service\Tree\UiTreeActions;
 use Semitexa\PlatformUi\Application\Service\Tree\UiTreeParser;
 use Semitexa\PlatformUi\Application\Service\Tree\UiTreeValidator;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
 use Semitexa\PlatformUi\Domain\Model\Component\UiComponentMetadata;
 use Semitexa\PlatformUi\Domain\Model\Component\UiSlotMetadata;
 use Semitexa\PlatformUi\Domain\Model\Contract\UiCatalogItem;
@@ -188,6 +191,92 @@ final class UiTreeValidatorTest extends TestCase
         $doc['actions'] = ['go' => ['kind' => 'navigate', 'to' => '/orders']];
         $doc['nodes']['status']['props']['text'] = ['$action' => 'go'];
         self::assertSame([], self::codes($this->validator->check($doc)), 'a string prop takes the path');
+    }
+
+    /**
+     * Every shape of a fault an action reports about itself: under a field of
+     * it (/actions/go/to, /actions/go/kind) and at the action itself
+     * (/actions/go, an extra field).
+     *
+     * @return iterable<string, array{array<string, mixed>, string}>
+     */
+    public static function brokenActions(): iterable
+    {
+        yield 'target' => [['kind' => 'navigate', 'to' => 'orders'], 'tree.action_target'];
+        yield 'kind' => [['kind' => 'exec', 'to' => '/orders'], 'tree.action_kind'];
+        yield 'extra field' => [['kind' => 'navigate', 'to' => '/orders', 'then' => 'x'], 'tree.action_field'];
+    }
+
+    /** @param array<string, mixed> $action */
+    #[Test]
+    #[\PHPUnit\Framework\Attributes\DataProvider('brokenActions')]
+    public function a_broken_action_is_reported_once_not_again_at_each_reference(array $action, string $code): void
+    {
+        // The prop that refers to a broken action would only repeat its fault,
+        // so a model sees one fault, not two.
+        $doc = self::tree();
+        $doc['actions'] = ['go' => $action];
+        $doc['nodes']['page']['props']['variant'] = ['$action' => 'go'];
+
+        self::assertSame([$code], self::codes($this->validator->check($doc)));
+    }
+
+    #[Test]
+    public function a_sound_action_whose_name_starts_a_broken_ones_is_still_checked(): void
+    {
+        // The broken action's faults sit under /actions/gone/..., which begins
+        // with /actions/go: only /actions/go itself or /actions/go/... may
+        // mark "go" broken, so the reference to the sound "go" is still
+        // checked and its path does not fit an enum.
+        $doc = self::tree();
+        $doc['actions'] = ['go' => ['kind' => 'navigate', 'to' => '/orders'], 'gone' => ['kind' => 'navigate', 'to' => 'orders']];
+        $doc['nodes']['page']['props']['variant'] = ['$action' => 'go'];
+
+        self::assertSame(['tree.prop_invalid', 'tree.action_target'], self::codes($this->validator->check($doc)));
+    }
+
+    /**
+     * A link prop an agent can fill (a button's href, a list item's href) is a
+     * path on this site, however it is written: literally, bound with $data,
+     * or nested in a list's items. The contracts are the real ones.
+     */
+    #[Test]
+    public function a_link_prop_takes_only_a_path_on_this_site(): void
+    {
+        // The declared props, opened to agents here whatever the class says.
+        $contract = static function (string $class): UiContract {
+            $declared = (new \ReflectionClass($class))->getAttributes(AsUiContract::class)[0]->newInstance()->metadata();
+
+            return new UiContract($declared->summary, array_values($declared->props), agent: true);
+        };
+        $catalog = new UiAgentCatalog();
+        $catalog->useEntries([
+            'platform.card' => new UiCatalogItem('component', new UiComponentMetadata('Card', 'platform.card', [], ['body' => new UiSlotMetadata('body', null)]), new UiContract('Card', [new UiProp('title', required: true)], agent: true), null, '', 1, ''),
+            'platform.button' => new UiCatalogItem('primitive', new PrimitiveMetadata('Button', 'platform.button', 'button', null, null, null, []), $contract(ButtonPrimitive::class), null, '', 1, ''),
+            'platform.list' => new UiCatalogItem('component', new UiComponentMetadata('List', 'platform.list', [], []), $contract(ListComponent::class), null, '', 1, ''),
+        ]);
+        (new \ReflectionProperty($this->validator, 'catalog'))->setValue($this->validator, $catalog);
+        $doc = [
+            'version' => UiTree::VERSION,
+            'root' => 'page',
+            'nodes' => [
+                'page' => ['type' => 'platform.card', 'props' => ['title' => 'Go'], 'children' => ['script', 'away', 'bound', 'list', 'home']],
+                'script' => ['type' => 'platform.button', 'props' => ['text' => 'Go', 'href' => 'javascript:alert(document.cookie)']],
+                'away' => ['type' => 'platform.button', 'props' => ['text' => 'Go', 'href' => 'https://evil.example/']],
+                'bound' => ['type' => 'platform.button', 'props' => ['text' => 'Go', 'href' => ['$data' => '/next']]],
+                'list' => ['type' => 'platform.list', 'props' => ['items' => [['title' => 'Ok', 'href' => '/orders/1'], ['title' => 'Off', 'href' => '//evil.example']]]],
+                'home' => ['type' => 'platform.button', 'props' => ['text' => 'Home', 'href' => '/orders?create']],
+            ],
+            'data' => ['next' => '/\\evil.example'],
+        ];
+
+        $result = $this->validator->check($doc);
+
+        self::assertNull($result['tree']);
+        self::assertSame(['tree.prop_invalid', 'tree.prop_invalid', 'tree.prop_invalid', 'tree.prop_invalid'], self::codes($result));
+        self::assertSame(['/nodes/script/props/href', '/nodes/away/props/href', '/nodes/bound/props/href', '/nodes/list/props/items'], array_map(static fn ($e): string => $e->path, $result['errors']));
+        self::assertStringContainsString('href must be a path on this site', $result['errors'][0]->message);
+        self::assertStringContainsString('items[1].href must be a path on this site', $result['errors'][3]->message);
     }
 
     /** @param list<string> $permissions */

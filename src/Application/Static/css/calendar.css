@@ -25,7 +25,7 @@
   color: var(--ui-text-primary, #1f2937);
 }
 .uical__btn:hover { border-color: var(--ui-accent-brand, #37b7ff); }
-.uical__btn--go { background: var(--ui-accent-brand, #37b7ff); color: #04121f; border-color: transparent; font-weight: 600; }
+.uical__btn--go { background: var(--ui-accent-brand, #37b7ff); color: var(--ui-text-on-accent); border-color: transparent; font-weight: 600; }
 .uical__btn--danger { color: var(--ui-state-danger, #dc2626); border-color: var(--ui-state-danger, #dc2626); background: transparent; }
 
 .uical__body { display: flex; gap: 0; min-height: 460px; }
