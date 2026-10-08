@@ -33,7 +33,7 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
     a11y: ['aria-expanded', 'aria-controls', 'region-roles', 'arrow-nav'],
 )]
 #[AsUiContract(
-    summary: 'Stacked sections that expand one at a time.',
+    summary: 'Stacked sections that expand one at a time by default; with multiple, several can stay open.',
     examples: [
         new UiExample('single', 'Single open', [], template: '@platform-ui/examples/accordion.html.twig'),
         new UiExample('multiple', 'Several open', ['multiple' => true], template: '@platform-ui/examples/accordion.html.twig'),
