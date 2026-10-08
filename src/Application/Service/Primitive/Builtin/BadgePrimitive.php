@@ -28,6 +28,11 @@ use Semitexa\PlatformUi\Attribute\AsUiPrimitive;
     ],
     examples: [
         new UiExample('default', 'Paid', ['text' => 'Paid', 'tone' => 'success']),
+        new UiExample('neutral', 'Neutral', ['text' => 'Draft']),
+        new UiExample('success', 'Success', ['text' => 'Active', 'tone' => 'success']),
+        new UiExample('warning', 'Warning', ['text' => 'Pending', 'tone' => 'warning']),
+        new UiExample('danger-solid', 'Solid danger', ['text' => 'Overdue', 'tone' => 'danger', 'variant' => 'solid']),
+        new UiExample('live', 'Outline with dot', ['text' => 'Live', 'tone' => 'success', 'variant' => 'outline', 'dot' => true]),
     ],
     previewSafe: true,
 )]

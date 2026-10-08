@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Behavior\Builtin;
 
 use Semitexa\PlatformUi\Attribute\AsUiBehavior;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiBehaviorOption;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
 
@@ -28,5 +30,12 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
         new UiBehaviorOption('openClass', UiOptionType::String, default: 'sx-open', description: 'Class toggled on the target while open.'),
     ],
     a11y: ['aria-expanded'],
+)]
+#[AsUiContract(
+    summary: 'Show or hide a related region from a trigger.',
+    examples: [
+        new UiExample('details', 'Disclosure', [], template: '@platform-ui/examples/toggle.html.twig'),
+    ],
+    previewSafe: true,
 )]
 final class ToggleBehavior {}

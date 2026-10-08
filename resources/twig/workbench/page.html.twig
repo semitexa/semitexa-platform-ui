@@ -1,0 +1,161 @@
+{% extends theme_layout('app') %}
+
+{#
+ # UI Workbench — every catalog entry, rendered by the real runtime from the
+ # examples its #[AsUiContract] declares. Nothing on this page is hand-written
+ # per component: a new contract appears here as soon as it is discovered.
+ #}
+{% macro render(ex, name) %}
+    {%- if ex.render == 'primitive' -%}
+        {{ primitive(name, ex.props) }}
+    {%- elseif ex.render == 'component' -%}
+        {{ component(name, ex.props, ex.slots) }}
+    {%- elseif ex.render == 'template' -%}
+        {% include ex.template with ex.context only %}
+    {%- else -%}
+        <div ui="alert" ui-tone="warning" role="status"><div data-alert-body><div data-alert-title>Not rendered</div>A behavior example needs <code>template:</code>, the markup the behavior applies to.</div></div>
+    {%- endif -%}
+{% endmacro %}
+
+{% block title %}{{ workbench.entry ? workbench.entry.short ~ ' · ' : '' }}UI Workbench{% endblock %}
+
+{% block main %}
+{% import _self as wbm %}
+{% set wb = workbench %}
+{% set entry = wb.entry %}
+{% set q = { skin: wb.skins.current, mode: wb.mode } %}
+<link rel="stylesheet" href="{{ asset('css/workbench.css', 'platform-ui') }}">
+{% if wb.skins.url %}<link rel="stylesheet" href="{{ wb.skins.url }}">{% endif %}
+
+<div class="wb" data-workbench data-workbench-mode="{{ wb.mode }}">
+    <aside class="wb-nav" aria-label="UI catalog">
+        <a class="wb-brand" href="?{{ q|url_encode }}">
+            <span ui-text="overline">Semitexa Platform</span>
+            <strong>UI Workbench</strong>
+        </a>
+        <p class="wb-count" ui-text="caption">{{ wb.index.total }} entries · {{ wb.index.previewable }} with live examples</p>
+        {% for group in wb.index.groups %}
+            <nav class="wb-group" aria-label="{{ group.label }}">
+                <h2 ui-text="overline">{{ group.label }}</h2>
+                <ul>
+                    {% for e in group.entries %}
+                        <li>
+                            <a href="?{{ q|merge({ entry: e.name })|url_encode }}"
+                               {% if entry and entry.name == e.name %}aria-current="page"{% endif %}
+                               data-workbench-link="{{ e.name }}">
+                                <span>{{ e.short }}</span>
+                                {% if e.examples > 0 %}<span class="wb-pill">{{ e.examples }}</span>{% elseif not e.typed %}<span class="wb-pill wb-pill-muted">untyped</span>{% endif %}
+                            </a>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </nav>
+        {% endfor %}
+    </aside>
+
+    <div class="wb-main">
+        <div class="wb-toolbar" role="toolbar" aria-label="Preview settings">
+            <div class="wb-seg" role="group" aria-label="Colour scheme">
+                {% for m in ['light', 'dark'] %}
+                    <a href="?{{ q|merge({ mode: m, entry: entry ? entry.name : '' })|url_encode }}" {% if wb.mode == m %}aria-current="true"{% endif %}>{{ m|capitalize }}</a>
+                {% endfor %}
+            </div>
+            <div class="wb-seg" role="group" aria-label="Skin">
+                <a href="?{{ q|merge({ skin: '', entry: entry ? entry.name : '' })|url_encode }}" {% if wb.skins.current == '' %}aria-current="true"{% endif %}>page skin</a>
+                {% for slug in wb.skins.slugs %}
+                    <a href="?{{ q|merge({ skin: slug, entry: entry ? entry.name : '' })|url_encode }}" {% if wb.skins.current == slug %}aria-current="true"{% endif %}>{{ slug }}</a>
+                {% endfor %}
+            </div>
+        </div>
+
+        {% if entry %}
+            <header class="wb-head" data-workbench-entry="{{ entry.name }}">
+                <div sx-layout="cluster" sx-gap="2">
+                    <span ui="badge" ui-tone="brand">{{ entry.kind }}</span>
+                    <code>{{ entry.name }}</code>
+                </div>
+                <h1>{{ entry.short|replace({'-': ' '})|capitalize }}</h1>
+                {% if entry.summary %}<p ui-text="lead">{{ entry.summary }}</p>{% endif %}
+                {% if wb.showSource %}<p ui-text="caption">{{ entry.class }} · {{ entry.source.file }}:{{ entry.source.line }}</p>{% endif %}
+            </header>
+
+            {% if entry.examples is empty %}
+                <div ui="alert" ui-tone="neutral" role="status"><div data-alert-body><div data-alert-title>No examples declared</div>Add <code>examples:</code> to this entry's <code>#[AsUiContract]</code> and it renders here.</div></div>
+            {% endif %}
+
+            <div class="wb-examples" data-kind="{{ entry.kind }}">
+            {% for ex in entry.examples %}
+                <section class="wb-example" data-workbench-example="{{ ex.name }}" aria-labelledby="{{ ex.uid }}-label">
+                    <h2 id="{{ ex.uid }}-label" class="wb-example-title">{{ ex.label }}</h2>
+                    <div class="wb-stage" data-workbench-stage style="color-scheme: {{ wb.mode }}">
+                        {{ wbm.render(ex, entry.name) }}
+                    </div>
+                    <details class="wb-code">
+                        <summary>Twig</summary>
+                        <pre><code data-workbench-snippet>{{ ex.snippet }}</code></pre>
+                    </details>
+                </section>
+            {% endfor %}
+            </div>
+
+            {% if entry.props is not empty %}
+                <section class="wb-ref" aria-labelledby="wb-props">
+                    <h2 id="wb-props">Props</h2>
+                    <div class="wb-table-wrap" tabindex="0" role="region" aria-labelledby="wb-props">
+                        <table class="wb-table">
+                            <thead><tr><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Values</th><th scope="col">Default</th><th scope="col">Description</th></tr></thead>
+                            <tbody>
+                                {% for p in entry.props %}
+                                    <tr>
+                                        <td><code>{{ p.name }}</code>{% if p.required %} <span ui="badge" ui-size="sm" ui-tone="danger">required</span>{% endif %}</td>
+                                        <td>{{ p.type }}</td>
+                                        <td>{% for v in p.values %}<code>{{ v }}</code>{% if not loop.last %} {% endif %}{% endfor %}</td>
+                                        <td>{% if p.default != '' %}<code>{{ p.default }}</code>{% endif %}</td>
+                                        <td>{{ p.description }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            {% endif %}
+
+            {% if entry.slots is not empty %}
+                <section class="wb-ref" aria-labelledby="wb-slots">
+                    <h2 id="wb-slots">Slots</h2>
+                    <dl class="wb-dl">
+                        {% for name, slot in entry.slots %}<dt><code>{{ name }}</code></dt><dd>{{ slot.description }}</dd>{% endfor %}
+                    </dl>
+                </section>
+            {% endif %}
+
+            {% if entry.a11y is not empty %}
+                <section class="wb-ref" aria-labelledby="wb-a11y">
+                    <h2 id="wb-a11y">Accessibility</h2>
+                    <div sx-layout="cluster" sx-gap="2">{% for a in entry.a11y %}<span ui="badge" ui-tone="info">{{ a }}</span>{% endfor %}</div>
+                </section>
+            {% endif %}
+        {% elseif wb.requested %}
+            <div ui-component="empty-state"><div ui-empty="title">No entry named {{ wb.requested }}</div><div ui-empty="description">Pick one from the catalog.</div></div>
+        {% else %}
+            <header class="wb-head">
+                <h1>UI Workbench</h1>
+                <p ui-text="lead">Every primitive, component and behavior in the catalog, rendered live from the examples its contract declares.</p>
+            </header>
+            {% for group in wb.index.groups %}
+                <section class="wb-ref" aria-labelledby="wb-g-{{ group.kind }}">
+                    <h2 id="wb-g-{{ group.kind }}">{{ group.label }}</h2>
+                    <div class="wb-cards">
+                        {% for e in group.entries %}
+                            <a class="wb-card" href="?{{ q|merge({ entry: e.name })|url_encode }}">
+                                <strong>{{ e.short }}</strong>
+                                <span ui-text="caption">{{ e.summary ?: 'No contract yet' }}</span>
+                            </a>
+                        {% endfor %}
+                    </div>
+                </section>
+            {% endfor %}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

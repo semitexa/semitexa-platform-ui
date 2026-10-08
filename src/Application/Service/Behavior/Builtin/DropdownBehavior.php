@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Behavior\Builtin;
 
 use Semitexa\PlatformUi\Attribute\AsUiBehavior;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiBehaviorOption;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
 
@@ -43,5 +45,13 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
         new UiBehaviorOption('flip', UiOptionType::Bool, default: true, description: 'Flip to the opposite side when it would clip the viewport.'),
     ],
     a11y: ['aria-expanded', 'aria-haspopup', 'menu-roles', 'esc-dismiss', 'arrow-nav', 'typeahead', 'focus-return'],
+)]
+#[AsUiContract(
+    summary: 'A menu of actions anchored to a trigger.',
+    examples: [
+        new UiExample('menu', 'Action menu', [], template: '@platform-ui/examples/dropdown.html.twig'),
+        new UiExample('end', 'Aligned to the end', ['pos' => 'bottom-end'], template: '@platform-ui/examples/dropdown.html.twig'),
+    ],
+    previewSafe: true,
 )]
 final class DropdownBehavior {}

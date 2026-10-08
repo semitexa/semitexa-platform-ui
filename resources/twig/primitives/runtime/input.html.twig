@@ -12,6 +12,7 @@
 {%- if _id %} id="{{ _id }}"{% endif -%}
 {%- if value|default(null) is not null %} value="{{ value }}"{% endif -%}
 {%- if placeholder|default(null) %} placeholder="{{ placeholder }}"{% endif -%}
+{%- if label|default(null) %} aria-label="{{ label }}"{% endif -%}
 {%- if autocomplete|default(null) %} autocomplete="{{ autocomplete }}"{% endif -%}
 {%- if inputmode|default(null) %} inputmode="{{ inputmode }}"{% endif -%}
 {#- Native hints (keyboard, spinner, length cap); the server's rules stay the check. -#}

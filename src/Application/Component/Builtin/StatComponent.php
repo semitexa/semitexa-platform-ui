@@ -46,6 +46,9 @@ use Semitexa\PlatformUi\Attribute\UiSlot;
     ],
     examples: [
         new UiExample('default', 'Revenue', ['label' => 'Revenue', 'value' => '€42,180', 'delta' => '+12%', 'trend' => 'up', 'caption' => 'vs last week']),
+        new UiExample('up', 'Growing', ['label' => 'Revenue', 'value' => '$48,210', 'delta' => '+12.4%', 'trend' => 'up', 'caption' => 'vs last month']),
+        new UiExample('down', 'Falling', ['label' => 'Churn', 'value' => '2.1%', 'delta' => '-0.4%', 'trend' => 'down', 'caption' => 'vs last month']),
+        new UiExample('flat', 'Flat', ['label' => 'Active users', 'value' => '1,204', 'delta' => '0%']),
     ],
     previewSafe: true,
 )]

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Behavior\Builtin;
 
 use Semitexa\PlatformUi\Attribute\AsUiBehavior;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiBehaviorOption;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
 
@@ -37,5 +39,12 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
         new UiBehaviorOption('urlParam', UiOptionType::String, default: '', description: 'A query parameter the dialog follows: open on load when the address has it, added on open, dropped on close, followed on back/forward.'),
     ],
     a11y: ['focus-trap', 'esc-dismiss', 'aria-modal', 'scroll-lock'],
+)]
+#[AsUiContract(
+    summary: 'A focused dialog over the page, built on the native <dialog>.',
+    examples: [
+        new UiExample('form', 'Form dialog', [], template: '@platform-ui/examples/modal.html.twig'),
+    ],
+    previewSafe: true,
 )]
 final class ModalBehavior {}

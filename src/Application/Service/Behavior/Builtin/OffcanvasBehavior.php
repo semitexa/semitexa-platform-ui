@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Behavior\Builtin;
 
 use Semitexa\PlatformUi\Attribute\AsUiBehavior;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiBehaviorOption;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
 
@@ -27,5 +29,13 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
         new UiBehaviorOption('bgClose', UiOptionType::Bool, default: true, description: 'Close when the backdrop is clicked.'),
     ],
     a11y: ['focus-trap', 'esc-dismiss', 'scroll-lock'],
+)]
+#[AsUiContract(
+    summary: 'A side panel that slides over the page.',
+    examples: [
+        new UiExample('start', 'From the start', [], template: '@platform-ui/examples/offcanvas.html.twig'),
+        new UiExample('end', 'From the end', ['side' => 'end'], template: '@platform-ui/examples/offcanvas.html.twig'),
+    ],
+    previewSafe: true,
 )]
 final class OffcanvasBehavior {}
