@@ -42,6 +42,18 @@ final class UiDashboards
             $attribute = $attributes[0]->newInstance();
             $widgets[$attribute->dashboard][] = ['class' => $class, 'attribute' => $attribute];
         }
+        foreach ($widgets as $dashboard => $list) {
+            // A widget is addressed by its short class name: two classes named
+            // alike on one dashboard would draw the first one twice.
+            $byId = [];
+            foreach ($list as $entry) {
+                $id = self::idOf($entry['class']);
+                if (isset($byId[$id])) {
+                    throw new \LogicException(sprintf('Dashboard "%s" has two widgets with the id "%s" (%s and %s); rename one class.', $dashboard, $id, $byId[$id], $entry['class']));
+                }
+                $byId[$id] = $entry['class'];
+            }
+        }
         foreach ($widgets as &$list) {
             usort($list, static fn (array $a, array $b): int => [$a['attribute']->order, $a['class']] <=> [$b['attribute']->order, $b['class']]);
         }

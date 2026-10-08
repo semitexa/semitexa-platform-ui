@@ -21,7 +21,9 @@ final readonly class UiPaletteItem
         public ?string $permission = null,
         public array $keywords = [],
     ) {
-        if (preg_match('#\A/(?![/\\\\])#', $href) !== 1) {
+        // Control characters too: a browser drops a tab or newline inside a
+        // URL, so "/\t/evil.test" would become the protocol-relative "//evil.test".
+        if (preg_match('#\A/(?![/\\\\])#', $href) !== 1 || preg_match('/[\x00-\x1F\x7F]/', $href) === 1) {
             throw new \InvalidArgumentException(sprintf('A command goes to a same-origin path, not "%s".', $href));
         }
     }

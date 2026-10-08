@@ -59,7 +59,7 @@ final class UiCommandPaletteTest extends TestCase
     #[Test]
     public function a_command_goes_to_a_same_origin_path_only(): void
     {
-        foreach (['https://evil.test/', '//evil.test', '/\\evil.test', 'javascript:alert(1)'] as $href) {
+        foreach (['https://evil.test/', '//evil.test', '/\\evil.test', 'javascript:alert(1)', "/\t/evil.test", "/\n/evil.test", "/a\x00"] as $href) {
             try {
                 new UiPaletteItem('x', $href);
                 self::fail($href . ' was accepted');
@@ -98,6 +98,15 @@ final class UiCommandPaletteTest extends TestCase
     }
 
     #[Test]
+    public function a_failing_source_is_skipped_and_the_others_still_answer(): void
+    {
+        UiCommandSources::add('broken', new PaletteBrokenSource());
+        UiCommandSources::add('test', new PaletteFixtureSource());
+
+        self::assertSame(['Public page'], array_map(static fn (UiPaletteItem $c): string => $c->title, UiCommandSources::search('art')));
+    }
+
+    #[Test]
     public function discovery_needs_the_interface(): void
     {
         $this->expectException(\LogicException::class);
@@ -122,6 +131,14 @@ final class PaletteManySource implements UiCommandSourceInterface
         for ($i = 0; $i < 50; $i++) {
             yield new UiPaletteItem('Item ' . $i, '/item/' . $i);
         }
+    }
+}
+
+final class PaletteBrokenSource implements UiCommandSourceInterface
+{
+    public function search(string $query, int $limit): iterable
+    {
+        throw new \RuntimeException('table missing');
     }
 }
 
