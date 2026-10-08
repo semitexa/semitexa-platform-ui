@@ -76,10 +76,12 @@
            is overridden), a drawer on a narrow one ---- */
         [ui-app-sidebar] {
             grid-area: sidebar;
+            /* inset first: it undoes the popover's inset: 0, and set after
+               top it would reset top too and the column would scroll away. */
+            inset: auto;
             position: sticky;
             top: var(--app-topbar-height);
             height: calc(100dvh - var(--app-topbar-height));
-            inset: auto;
             margin: 0;
             width: auto;
             display: flex;
