@@ -193,6 +193,18 @@ final class UiTreeValidatorTest extends TestCase
         self::assertSame([], self::codes($this->validator->check($doc)), 'a string prop takes the path');
     }
 
+    #[Test]
+    public function a_broken_action_is_reported_once_not_again_at_each_reference(): void
+    {
+        // The action fails its own check (no leading "/"); the prop that refers
+        // to it would only repeat that, so a model sees one fault, not two.
+        $doc = self::tree();
+        $doc['actions'] = ['go' => ['kind' => 'navigate', 'to' => 'orders']];
+        $doc['nodes']['page']['props']['variant'] = ['$action' => 'go'];
+
+        self::assertSame(['tree.action_target'], self::codes($this->validator->check($doc)));
+    }
+
     /**
      * A link prop an agent can fill (a button's href, a list item's href) is a
      * path on this site, however it is written: literally, bound with $data,
