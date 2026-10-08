@@ -850,6 +850,31 @@ final class FormSubmitDispatchTest extends TestCase
     }
 
     #[Test]
+    public function a_form_with_no_signed_fields_hands_its_action_no_values(): void
+    {
+        // A form whose fields were never signed (no autoFields, no `fields`)
+        // validates nothing. Its action must not receive values no rule
+        // checked: a crafted snapshot would otherwise reach it as is.
+        $seen = new \ArrayObject();
+        $capture = new class ($seen) implements \Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionInterface {
+            public function __construct(private \ArrayObject $seen) {}
+            public function name(): string { return 'test.capture-values'; }
+            public function handle(\Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitActionContext $context): \Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitActionResult
+            {
+                $this->seen['values'] = $context->values;
+                return \Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitActionResult::accepted('Captured.');
+            }
+        };
+        UiFormSubmitActionRegistry::setDiscovered(['test.capture-values' => $capture]);
+
+        $resp = $this->post($this->submitCtxWithAction('test.capture-values', []), ['form' => ['values' => ['email' => 'not-an-email', 'role' => 'admin']]]);
+        self::assertSame(200, $resp->getStatusCode());
+
+        self::assertArrayHasKey('values', $seen, 'the action ran');
+        self::assertSame([], $seen['values']);
+    }
+
+    #[Test]
     public function invalid_submit_with_signed_action_does_NOT_invoke_action(): void
     {
         $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME), [

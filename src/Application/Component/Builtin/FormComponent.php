@@ -137,7 +137,10 @@ final class FormComponent implements UsesUiFieldRuleRegistry
         $registry = $this->ruleRegistry ?? UiFieldRuleRegistry::getActive();
         $parser   = new UiFieldRuleParser($registry);
         $validator = new UiFieldValidator();
-        $formValues = $event->formValues;
+        // A confirmation form (no signed fields) validates nothing, so it
+        // passes nothing on: a form whose fields were never signed (a missing
+        // `autoFields: true`) must not hand its action values no rule checked.
+        $formValues = $config->isEmpty() ? [] : $event->formValues;
 
         $perField = [];
         /** @var list<array{def: \Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitFieldDefinition, result: \Semitexa\PlatformUi\Domain\Model\Event\UiFieldValidationResult}> $fieldOutcomes */

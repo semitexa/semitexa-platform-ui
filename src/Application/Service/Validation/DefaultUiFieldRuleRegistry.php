@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Validation;
 
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
+use Semitexa\PlatformUi\Application\Service\Validation\Rule\DateRule;
+use Semitexa\PlatformUi\Application\Service\Validation\Rule\DatetimeRule;
 use Semitexa\PlatformUi\Application\Service\Validation\Rule\EmailRule;
 use Semitexa\PlatformUi\Application\Service\Validation\Rule\InRule;
 use Semitexa\PlatformUi\Application\Service\Validation\Rule\IntegerRule;
@@ -95,6 +97,8 @@ final class DefaultUiFieldRuleRegistry implements UiFieldRuleRegistryInterface
         MaxRule::NAME         => [1, 1],
         SlugRule::NAME        => [0, 0],
         InRule::NAME          => [1, 500],
+        DateRule::NAME        => [0, 0],
+        DatetimeRule::NAME    => [0, 0],
     ];
 
     /** Same shape as SameAsFieldRule::SAFE_IDENTIFIER — kept here to avoid coupling. */
@@ -118,6 +122,8 @@ final class DefaultUiFieldRuleRegistry implements UiFieldRuleRegistryInterface
                 MaxRule::NAME         => new MaxRule($this->numParam($spec, 0)),
                 SlugRule::NAME        => new SlugRule(),
                 InRule::NAME          => new InRule($this->scalarParams($spec)),
+                DateRule::NAME        => new DateRule(),
+                DatetimeRule::NAME    => new DatetimeRule(),
             };
         } catch (\InvalidArgumentException $e) {
             // Rule constructor rejected its parameters. Wrap as a typed

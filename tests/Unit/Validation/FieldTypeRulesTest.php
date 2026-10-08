@@ -52,6 +52,17 @@ final class FieldTypeRulesTest extends TestCase
         yield 'in list one bad' => ['in', ['a', 'b'], ['a', 'x'], false];
         yield 'in list nested' => ['in', ['a'], [['a']], false];
         yield 'in int values' => ['in', [1, 2], '2', true];
+        yield 'date ok' => ['date', [], '2026-10-08', true];
+        yield 'date empty' => ['date', [], '', true];
+        yield 'date not a day' => ['date', [], '2026-02-30', false];
+        yield 'date words' => ['date', [], 'tomorrow', false];
+        yield 'date with time' => ['date', [], '2026-10-08T10:00', false];
+        yield 'datetime ok' => ['datetime', [], '2026-10-08T14:30', true];
+        yield 'datetime seconds' => ['datetime', [], '2026-10-08T14:30:59', true];
+        yield 'datetime words' => ['datetime', [], 'now', false];
+        yield 'datetime relative' => ['datetime', [], '+1 day', false];
+        yield 'datetime not a day' => ['datetime', [], '2026-02-30T10:00', false];
+        yield 'datetime hour 24' => ['datetime', [], '2026-10-08T24:00', false];
     }
 
     #[Test]
