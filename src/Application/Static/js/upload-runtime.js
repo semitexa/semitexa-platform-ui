@@ -114,8 +114,10 @@ function connect(fileInput) {
         const file = fileInput.files && fileInput.files[0];
         if (file) { send(file); return; }
         // Selection cleared mid-upload: that upload must not land a ticket.
-        if (xhr) { xhr.abort(); finish(); }
+        // The value is cleared before finish(): its ui-upload:end releases
+        // waiting submits, which read the form's values at once.
         settle('', '');
+        if (xhr) { xhr.abort(); finish(); }
     };
     fileInput.addEventListener('change', onChange);
     // A form reset clears the chosen file; the ticket goes with it.
