@@ -22,9 +22,30 @@ use Semitexa\PlatformUi\Application\Service\Access\UiPermissions;
  */
 final class UiPermissionsTest extends TestCase
 {
+    /**
+     * UiPermissions keeps its check in two process-global statics. A boot or an
+     * earlier test may have installed one, so the test starts from nothing and
+     * puts back exactly what it found, never just null.
+     *
+     * @var array<string, mixed>
+     */
+    private array $saved = [];
+
+    protected function setUp(): void
+    {
+        $class = new \ReflectionClass(UiPermissions::class);
+        foreach (['auth', 'authorizer'] as $name) {
+            $this->saved[$name] = $class->getProperty($name)->getValue();
+        }
+        UiPermissions::reset();
+    }
+
     protected function tearDown(): void
     {
-        UiPermissions::reset();
+        $class = new \ReflectionClass(UiPermissions::class);
+        foreach ($this->saved as $name => $value) {
+            $class->getProperty($name)->setValue(null, $value);
+        }
     }
 
     #[Test]
