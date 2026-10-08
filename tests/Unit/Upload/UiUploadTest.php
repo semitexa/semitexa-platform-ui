@@ -77,6 +77,24 @@ final class UiUploadTest extends TestCase
     }
 
     #[Test]
+    public function a_wildcard_does_not_admit_a_type_the_browser_runs_as_a_document(): void
+    {
+        // An SVG is image/svg+xml to finfo, and carries script: opened from
+        // this origin it is stored XSS. `image/*` means a picture.
+        $svg = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>';
+        [$status, $body] = (new PlatformUiHugUploadReceiver())->receive($this->claims(['image/*']), $this->file($svg, 'logo.svg', 'image/svg+xml'));
+        self::assertSame(422, $status);
+        self::assertSame('upload_type_refused', $body['reason']);
+
+        [$status] = (new PlatformUiHugUploadReceiver())->receive($this->claims(['text/*']), $this->file('<html><body>x</body></html>', 'a.html'));
+        self::assertSame(422, $status, 'text/* does not admit HTML');
+
+        [$status] = (new PlatformUiHugUploadReceiver())->receive($this->claims(['image/svg+xml']), $this->file($svg, 'logo.svg'));
+        self::assertSame(200, $status, 'a field that lists the type exactly still takes it');
+        self::assertTrue(UiUploadTickets::typeAllowed('image/png', ['image/*']));
+    }
+
+    #[Test]
     public function the_signed_size_limit_holds(): void
     {
         [$status, $body] = (new PlatformUiHugUploadReceiver())->receive($this->claims(['text/plain'], 10), $this->file(str_repeat('a', 11), 'a.txt'));

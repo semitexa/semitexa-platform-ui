@@ -117,11 +117,23 @@ final class UiUploadTickets
         return null;
     }
 
+    /**
+     * Types a browser runs as a document when the file is opened from this
+     * origin. `image/*` means "a picture", and an SVG is a picture that carries
+     * script, so a wildcard never reaches these: a field takes one only by
+     * listing it exactly.
+     */
+    private const ACTIVE_CONTENT_TYPES = [
+        'image/svg+xml', 'text/html', 'text/xml', 'text/javascript', 'text/xsl',
+        'application/xhtml+xml', 'application/xml', 'application/javascript',
+    ];
+
     /** @param list<string> $patterns */
     public static function typeAllowed(string $mime, array $patterns): bool
     {
+        $active = in_array($mime, self::ACTIVE_CONTENT_TYPES, true);
         foreach ($patterns as $pattern) {
-            if ($pattern === $mime || (str_ends_with($pattern, '/*') && str_starts_with($mime, substr($pattern, 0, -1)))) {
+            if ($pattern === $mime || (!$active && str_ends_with($pattern, '/*') && str_starts_with($mime, substr($pattern, 0, -1)))) {
                 return true;
             }
         }
