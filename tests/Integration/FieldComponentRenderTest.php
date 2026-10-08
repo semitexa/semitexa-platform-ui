@@ -34,6 +34,14 @@ final class FieldComponentRenderTest extends TestCase
     private TwigEnvironment $twig;
     private ?string $previousSecret = null;
     private ?string $previousEnv = null;
+    /** @var array<string, mixed> process-wide registries as the test found them */
+    private array $registriesBefore = [];
+
+    private const REGISTRIES = [
+        UiPrimitiveRegistry::class => 'catalog',
+        UiComponentRegistry::class => 'catalog',
+        AssetCollectorStore::class => 'staticFallback',
+    ];
 
     protected function setUp(): void
     {
@@ -46,9 +54,11 @@ final class FieldComponentRenderTest extends TestCase
         putenv('APP_SECRET=platform-ui-test-secret');
         putenv('APP_ENV=dev');
 
-        UiPrimitiveRegistry::reset();
-        UiComponentRegistry::reset();
-        AssetCollectorStore::reset();
+        // Swap in fresh registries instead of reset(): reset() empties the
+        // shared objects in place, losing what other tests registered.
+        foreach (self::REGISTRIES as $class => $property) {
+            $this->registriesBefore[$class] = self::swap($class, $property, null);
+        }
 
         UiPrimitiveRegistry::register(
             (new UiPrimitiveMetadataFactory())->fromClass(InputPrimitive::class),
@@ -260,9 +270,9 @@ final class FieldComponentRenderTest extends TestCase
 
     protected function tearDown(): void
     {
-        UiPrimitiveRegistry::reset();
-        UiComponentRegistry::reset();
-        AssetCollectorStore::reset();
+        foreach (self::REGISTRIES as $class => $property) {
+            self::swap($class, $property, $this->registriesBefore[$class] ?? null);
+        }
 
         if ($this->previousSecret === null) {
             putenv('APP_SECRET');
@@ -274,6 +284,16 @@ final class FieldComponentRenderTest extends TestCase
         } else {
             putenv('APP_ENV=' . $this->previousEnv);
         }
+    }
+
+    /** @param class-string $class */
+    private static function swap(string $class, string $property, mixed $value): mixed
+    {
+        $reflection = new \ReflectionProperty($class, $property);
+        $previous = $reflection->getValue();
+        $reflection->setValue(null, $value);
+
+        return $previous;
     }
 
     /**
@@ -939,8 +959,8 @@ final class FieldComponentRenderTest extends TestCase
         self::assertMatchesRegularExpression('#<fieldset data-ui-part="input" [^>]* id="plan" disabled aria-describedby="plan-error">#', $radios);
         self::assertSame(2, substr_count($radios, ' aria-invalid="true"'));
 
-        $segmented = $this->renderField(['label' => 'View', 'name' => 'view', 'control' => 'segmented', 'options' => $options, 'disabled' => true]);
-        self::assertMatchesRegularExpression('#<fieldset ui="segmented" [^>]* aria-label="View" disabled>#', $segmented);
+        $segmented = $this->renderField(['label' => 'View', 'name' => 'view', 'control' => 'segmented', 'options' => $options, 'disabled' => true, 'error' => 'Pick a view.']);
+        self::assertMatchesRegularExpression('#<fieldset ui="segmented" [^>]* aria-label="View" disabled aria-invalid="true" aria-describedby="view-error">#', $segmented);
 
         $file = $this->renderField(['label' => 'Avatar', 'name' => 'avatar', 'control' => 'file', 'disabled' => true, 'error' => 'Too large.']);
         self::assertMatchesRegularExpression('#<input type="file" [^>]* id="avatar" disabled aria-invalid="true" aria-describedby="avatar-error">#', $file);
@@ -971,5 +991,26 @@ final class FieldComponentRenderTest extends TestCase
 
         self::assertStringNotContainsString('for="plan"', $radios);
         self::assertMatchesRegularExpression('#<fieldset data-ui-part="input"[^>]*>\s*<legend ui-text="label"[^>]*>Plan <span aria-hidden="true"[^>]*>\*</span></legend>#', $radios);
+    }
+
+    #[Test]
+    public function a_multiple_select_field_takes_its_values_from_input_props(): void
+    {
+        $this->registerControlPrimitives();
+        $options = [['value' => 'a'], ['value' => 'b'], ['value' => 'c']];
+
+        $html = $this->renderField(['label' => 'Tags', 'name' => 'tags', 'control' => 'select', 'multiple' => true, 'options' => $options, 'inputProps' => ['values' => ['a', 'c']]]);
+        self::assertSame(['a', 'c'], self::selectedOptions($html));
+
+        $fallback = $this->renderField(['label' => 'Tags', 'name' => 'tags', 'control' => 'select', 'multiple' => true, 'options' => $options, 'value' => ['b']]);
+        self::assertSame(['b'], self::selectedOptions($fallback), 'a list in value still works');
+    }
+
+    /** @return list<string> */
+    private static function selectedOptions(string $html): array
+    {
+        preg_match_all('#<option value="([^"]*)" selected>#', $html, $m);
+
+        return $m[1];
     }
 }
