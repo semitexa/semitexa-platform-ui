@@ -1,5 +1,5 @@
 @layer platform-ui.primitives {
-    [ui="input"] {
+    :is([ui="input"], [ui="textarea"], [ui="select"]) {
         --_height: var(--ui-control-height-md);
 
         display: block;
@@ -18,34 +18,35 @@
             border-color var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease),
             box-shadow   var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease);
     }
-    textarea[ui="input"] { min-height: calc(var(--_height) * 2.5); resize: vertical; }
+    textarea[ui="input"], [ui="textarea"] { min-height: calc(var(--_height) * 2.5); resize: vertical; }
 
-    [ui="input"][ui-size="sm"] { --_height: var(--ui-control-height-sm); padding: var(--ui-space-1) var(--ui-space-2-5); font-size: var(--ui-text-xs); }
-    [ui="input"][ui-size="lg"] { --_height: var(--ui-control-height-lg); padding: var(--ui-space-2) var(--ui-space-3-5); font-size: var(--ui-text-base); }
+    :is([ui="input"], [ui="textarea"], [ui="select"])[ui-size="sm"] { --_height: var(--ui-control-height-sm); padding: var(--ui-space-1) var(--ui-space-2-5); font-size: var(--ui-text-xs); }
+    :is([ui="input"], [ui="textarea"], [ui="select"])[ui-size="lg"] { --_height: var(--ui-control-height-lg); padding: var(--ui-space-2) var(--ui-space-3-5); font-size: var(--ui-text-base); }
 
-    [ui="input"]::placeholder { color: var(--ui-text-muted); opacity: 0.8; }
+    :is([ui="input"], [ui="textarea"], [ui="select"])::placeholder { color: var(--ui-text-muted); opacity: 0.8; }
 
-    [ui="input"]:hover:not(:disabled, :focus) { border-color: var(--ui-border-strong); }
+    :is([ui="input"], [ui="textarea"], [ui="select"]):hover:not(:disabled, :focus) { border-color: var(--ui-border-strong); }
 
-    [ui="input"]:focus,
-    [ui="input"]:focus-visible {
+    :is([ui="input"], [ui="textarea"], [ui="select"]):focus,
+    :is([ui="input"], [ui="textarea"], [ui="select"]):focus-visible {
         outline: none;
         border-color: var(--ui-focus-ring);
         box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-focus-ring) 22%, transparent);
     }
 
-    [ui="input"][ui-state="invalid"],
-    [ui="input"][aria-invalid="true"] { border-color: var(--ui-state-danger); }
-    [ui="input"][ui-state="invalid"]:focus,
-    [ui="input"][aria-invalid="true"]:focus {
+    :is([ui="input"], [ui="textarea"], [ui="select"])[ui-state="invalid"],
+    :is([ui="input"], [ui="textarea"], [ui="select"])[aria-invalid="true"] { border-color: var(--ui-state-danger); }
+    :is([ui="input"], [ui="textarea"], [ui="select"])[ui-state="invalid"]:focus,
+    :is([ui="input"], [ui="textarea"], [ui="select"])[aria-invalid="true"]:focus {
         box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-state-danger) 22%, transparent);
     }
 
-    [ui="input"]:disabled {
+    :is([ui="input"], [ui="textarea"], [ui="select"]):disabled {
         background: var(--ui-surface-sunken);
         color: var(--ui-text-muted);
         box-shadow: none;
         cursor: not-allowed;
     }
-    [ui="input"]:read-only:not(:disabled) { background: var(--ui-surface-panel); }
+    /* A select always matches :read-only (it is not a text control). */
+    :is([ui="input"], [ui="textarea"]):read-only:not(:disabled) { background: var(--ui-surface-panel); }
 }

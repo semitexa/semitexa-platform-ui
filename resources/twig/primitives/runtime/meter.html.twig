@@ -1,0 +1,10 @@
+{#- platform.meter — value, min, max, low, high, optimum, label. -#}
+<div ui="{{ _primitive.ui }}" data-ui-primitive="{{ _primitive.name }}">
+{%- if label|default(null) %}<div ui-progress-caption><span>{{ label }}</span></div>{% endif -%}
+<meter value="{{ value|default(0) }}" min="{{ min|default(0) }}" max="{{ max|default(1) }}"
+{%- if low is defined and low is not null %} low="{{ low }}"{% endif -%}
+{%- if high is defined and high is not null %} high="{{ high }}"{% endif -%}
+{%- if optimum is defined and optimum is not null %} optimum="{{ optimum }}"{% endif -%}
+{%- if label|default(null) %} aria-label="{{ label }}"{% endif -%}
+></meter>
+</div>

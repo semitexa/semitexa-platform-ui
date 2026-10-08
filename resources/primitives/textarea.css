@@ -1,0 +1,4 @@
+@layer platform-ui.primitives {
+    /* The shared control look lives in input.css. */
+    [ui="textarea"] { display: block; field-sizing: content; max-height: 24lh; }
+}

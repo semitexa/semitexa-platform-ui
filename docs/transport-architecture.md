@@ -1,5 +1,30 @@
 # ADR-0001 — Semitexa UI Transport Unification
 
+> **AMENDMENT 2026-10-04 — operator decision: KISS and HUG are the whole
+> transport.** The framework was designed with two doors: KISS
+> (`GET /__semitexa_kiss`, the one SSE stream per page, server → browser) and
+> HUG (`/__semitexa_hug`, browser → server). This ADR unified the outbound half
+> on KISS but chose `POST /__ui/event` as the canonical *inbound*, which kept a
+> third door alive next to `/__ui/dispatch` and `/__semitexa_component_event`.
+> That choice is reversed: the canonical inbound is **`POST /__semitexa_hug`**
+> (`HugEventPayload` → `HugEventHandler` → `UiResponseDispatcherInterface`), and
+> `/__ui/event`, `/__ui/dispatch` and `/__semitexa_component_event` are
+> deleted. Since 2026-10-05 there is ONE component model on top of the two
+> doors: a component's events are its `#[UiOn]` methods on the canonical
+> envelope, answered with one effect vocabulary (`UiResponsePatch`: morph via
+> `rerender`, small ops, redirect/toast/dispatch) that rides the HUG reply or
+> the KISS push alike; domain events are `UiInteractionResult::dispatching()`.
+> The separate `{"componentEvent"}` body and its signed manifest are gone
+> (`var/docs/one-component-model-design.md`). Feeds — the collaborative-form document
+> included — are HUG-controlled subscriptions on KISS: the browser posts
+> `{"stream": {op, feed, params, session, subscriptionId}}` to HUG with the
+> feed's route NAME, and frames arrive only on KISS. No feed opens a stream of
+> its own, feed routes are GET-only (the plain-pull fallback), and the
+> form-document feed has no path at all (`exposure: Hug`), so `/__ui/form-doc`
+> is gone too. A feature that
+> needs a verb HUG lacks extends HUG; it does not add a route. Below, read every
+> "`/__ui/event`" as `POST /__semitexa_hug`.
+
 > **STATUS UPDATE — IMPLEMENTED / SUPERSEDED.** The unification this ADR proposed
 > is done. All UI streaming now rides the single canonical stream
 > `GET /__semitexa_kiss` (`AsyncResourceSseServer`). The duplicate transports this
@@ -12,7 +37,7 @@
 
 **Status**: ~~Proposed~~ → **Implemented (streaming unified on `/__semitexa_kiss`; `/__ui/stream` + `/sse` retired)**.
 **Owners**: framework (semitexa-ssr) + platform-ui (semitexa-platform-ui).
-**Companion docs**: the hub pages `rendering/ui-composition` and `rendering/ui-events` (component-side details), `vendor/semitexa/ssr/src/Application/Handler/PayloadHandler/UiEventEndpointHandler.php` (foundation handler docblock — "Step-1 scope … later steps").
+**Companion docs**: the hub pages `rendering/ui-composition` and `rendering/ui-events` (component-side details), `vendor/semitexa/ssr/src/Application/Handler/PayloadHandler/HugEventHandler.php` (HUG, the single inbound door — the former `UiEventEndpointHandler` is gone; the tables below are the history that led there).
 **Supersedes (eventually)**: every reference to `POST /__ui/dispatch` and `GET /__ui/stream` as *primary* transport in `primitives.md`. Both endpoints stay during migration but become temporary compatibility layers, never the long-term target.
 
 > Location note: this ADR lives in `packages/semitexa-platform-ui/docs/` because that's where the duplicate transports were introduced and where the platform.grid runtime + dispatcher overlay live. The framework changes the ADR proposes (handler resolution on `/__ui/event`, typed messages on `/__semitexa_kiss`) will need a mirror entry in `semitexa-ssr` once the framework slice begins.

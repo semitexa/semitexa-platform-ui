@@ -5,6 +5,12 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Server;
 
 use Semitexa\Core\Attribute\AsServerLifecycleListener;
+use Semitexa\PlatformUi\Attribute\AsFormSubmitAction;
+use Semitexa\PlatformUi\Attribute\AsGridAction;
+use Semitexa\PlatformUi\Attribute\AsDashboardWidget;
+use Semitexa\PlatformUi\Application\Service\Dashboard\UiDashboards;
+use Semitexa\PlatformUi\Application\Service\Grid\UiGridActions;
+use Psr\Container\ContainerInterface;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Discovery\ClassDiscovery;
 use Semitexa\Core\Server\Lifecycle\ServerLifecycleContext;
@@ -24,6 +30,18 @@ use Semitexa\PlatformUi\Application\Service\Submit\UiFormDatabaseDemoSubmissionR
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormDatabaseDemoSubmissionRepositoryInterface;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormDemoSubmissionRepository;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormDemoSubmissionRepositoryInterface;
+use Semitexa\Core\Container\RequestScopedContainer;
+use Semitexa\PlatformUi\Application\Service\Access\UiPermissions;
+use Semitexa\PlatformUi\Application\Service\Palette\UiCommandSources;
+use Semitexa\PlatformUi\Application\Service\Field\UiFieldTypes;
+use Semitexa\PlatformUi\Attribute\AsFieldType;
+use Semitexa\PlatformUi\Attribute\AsCommandSource;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionDiscovery;
+use Semitexa\PlatformUi\Application\Service\Url\UiUrlPropsOverlay;
+use Semitexa\Ssr\Application\Service\Component\ComponentPropsOverlays;
+use Semitexa\Ssr\Application\Service\Component\ComponentRenderFinishers;
+use Semitexa\PlatformUi\Application\Service\Island\UiIslandFinisher;
+use Semitexa\PlatformUi\Application\Service\State\UiComponentStates;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistry;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistryInterface;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitCsrfTokenStore;
@@ -90,6 +108,9 @@ final class BootPlatformUiRegistryListener implements ServerLifecycleListenerInt
     #[InjectAsReadonly]
     protected UiDemoSubmissionAdminAuthorizerInterface $demoSubmissionAdminAuthorizer;
 
+    #[InjectAsReadonly]
+    protected ContainerInterface $container;
+
     public function handle(ServerLifecycleContext $context): void
     {
         UiPrimitiveRegistry::setCatalog($this->primitiveCatalog);
@@ -118,6 +139,46 @@ final class BootPlatformUiRegistryListener implements ServerLifecycleListenerInt
         // helper and FormComponent::onSubmit() both read from the
         // static holder.
         UiFormSubmitActionRegistry::setActive($this->formSubmitActionRegistry);
+        // Command palette: #[AsCommandSource] services, resolved per request,
+        // and the permission check for their commands (the visitor's grants,
+        // the same check every screen's buttons and nav use).
+        UiCommandSources::discover(
+            $this->classDiscovery->findClassesWithAttribute(AsCommandSource::class),
+            fn (string $class): object => RequestScopedContainer::forCurrentExecution($this->container)->get($class),
+        );
+        UiPermissions::resolveFrom($this->container);
+        // Component state (#[UiState], large props) lives in the shared store.
+        UiComponentStates::resolveFrom($this->container);
+        UiCommandSources::checkPermissionsWith(UiPermissions::allows(...));
+
+        // #[UiUrl] props are restored from the page's query string at render.
+        ComponentPropsOverlays::register(new UiUrlPropsOverlay());
+        // An island's root gets its signed token, and the page its live feed.
+        ComponentRenderFinishers::register(new UiIslandFinisher());
+
+        // Field types: the built-ins and the project's #[AsFieldType] classes
+        // (a duplicate name fails boot rather than shadowing).
+        UiFieldTypes::discover($this->classDiscovery->findClassesWithAttribute(AsFieldType::class));
+
+        // …and the actions that registered themselves with #[AsFormSubmitAction],
+        // resolved first, so an application never replaces the registry.
+        UiFormSubmitActionRegistry::setDiscovered(UiFormSubmitActionDiscovery::fromClasses(
+            $this->classDiscovery->findClassesWithAttribute(AsFormSubmitAction::class),
+            fn (string $class): object => RequestScopedContainer::forCurrentExecution($this->container)->get($class),
+        ));
+
+        // Dashboard widgets (#[AsDashboardWidget]), resolved per page view.
+        UiDashboards::discover(
+            $this->classDiscovery->findClassesWithAttribute(AsDashboardWidget::class),
+            fn (string $class): object => RequestScopedContainer::forCurrentExecution($this->container)->get($class),
+        );
+
+        // …and the server side of grid actions (#[AsGridAction]), resolved
+        // per call the same way.
+        UiGridActions::discover(
+            $this->classDiscovery->findClassesWithAttribute(AsGridAction::class),
+            fn (string $class): object => RequestScopedContainer::forCurrentExecution($this->container)->get($class),
+        );
 
         // FormComponent submit action authorizer + security policy —
         // both stashed in their own static holders so the submit

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Payload\Request;
 
 use Semitexa\Core\Attribute\AsPublicPayload;
+use Semitexa\Core\Attribute\RouteExposure;
 use Semitexa\Core\Attribute\SseGateModel;
 use Semitexa\Core\Attribute\TransportType;
 use Semitexa\Core\Request;
@@ -17,31 +18,34 @@ use Semitexa\Ssr\Domain\Contract\SseDocumentFeedPayloadInterface;
 use Semitexa\Ssr\Domain\Model\FormDocumentScope;
 
 /**
- * Collaborative Form Data · Phase 3 (Shared mode) — `GET|POST /__ui/form-doc`,
- * the held-open SSE READ feed for ONE collaborative document. The object-valued
+ * Collaborative Form Data · Phase 3 (Shared mode) — `platform-ui.form-doc`, the
+ * live READ feed for ONE collaborative document. It has no path: it is reached
+ * only by name, subscribed through HUG onto the page's KISS stream
+ * (`exposure: Hug`). The object-valued
  * sibling of the pings collection feed: where that serves `{data:[...], meta}`
  * keyed by a static table scope, this serves `{data:{...}, meta}` keyed by the
  * per-record `formdoc:{formKey}:{recordId}` scope, re-projecting the live shared
  * draft + presence roster every time the inbound handler touches the document.
  *
- * TRUST BOUNDARY — the symmetric READ half of the `/__ui/event` write trust
+ * TRUST BOUNDARY — the symmetric READ half of the HUG (`POST /__semitexa_hug`) write trust
  * model. The watched document scope (and its mode) MUST NOT come from a
  * spoofable query param, or any client could subscribe to any document's draft.
  * They ride a SIGNED context token (`?ctx=sc1.…`, the same {@see SignedContext}
  * blob the form component mints for its write events), verified HMAC-side here;
  * the trusted `cfg.scope` / `cfg.mode` claims are the only source of the watched
  * scope. A missing / forged / expired token resolves to NO cfg → an empty
- * dynamic scope (no live subscription) and the handler denies the connect.
+ * dynamic scope (no live subscription) and the handler denies the subscription.
  *
  * A document feed has NO view-change surface (no `q`/`sort`/`filter`/paging — a
  * record is not a list), so it declares no `#[LiveFilterParam]` fields and an
- * empty {@see toViewParams()}: the stream simply lives and re-projects on scope
- * touch. `streamId` / `httpRequest` are transport metadata only, exactly as on
- * the collection feed.
+ * empty {@see toViewParams()}: the subscription simply lives and re-projects on
+ * scope touch. `streamId` / `httpRequest` are transport metadata only, exactly
+ * as on the collection feed.
  */
 #[AsPublicPayload(
-    path: '/__ui/form-doc',
-    methods: ['GET', 'POST'],
+    name: 'platform-ui.form-doc',
+    methods: ['GET'],
+    exposure: RouteExposure::Hug,
     responseWith: JsonResourceResponse::class,
     renderProfile: RenderProfile::Json,
     transport: TransportType::Sse,

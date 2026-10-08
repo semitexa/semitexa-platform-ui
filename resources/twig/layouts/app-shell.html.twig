@@ -1,0 +1,106 @@
+{#
+ # @platform-ui/layouts/app-shell.html.twig — the sidebar application shell.
+ #
+ #   {% extends '@platform-ui/layouts/app-shell.html.twig' %}
+ #   {% set appNav = [{label: 'Content', items: [{label: 'Articles', href: '/admin/articles', icon: 'file-text', match: 'prefix'}]}] %}
+ #   {% block main %} … {% endblock %}
+ #
+ # Variables (set them in a module layout that extends this one):
+ #   appName      — brand text (default "Semitexa")
+ #   appHome      — brand link (default "/")
+ #   appNav       — [{label, items: [{label, href, icon?, badge?, match?: 'exact'|'prefix', permission?}]}]
+ #                  (an item with a permission is listed only for a visitor who holds it)
+ #   appPalette   — render the Ctrl+K command palette in the top bar (default true)
+ #   appShellSwap — mark <main> as the app-shell region (navigation swaps only it)
+ #   appViewTransitions — cross-fade navigations between this app's pages (every
+ #                  page under appHome must use this layout; links outside it skip)
+ # Blocks: title, head_extra, brand, topbar_end, sidebar, sidebar_footer, breadcrumbs, main, footer.
+ #
+ # Native platform: on a narrow container the sidebar is a popover drawer
+ # (the menu button opens it with popovertarget); groups are <details name> so one
+ # is open at a time; layout follows a container query, not the window;
+ # navigations cross-fade with cross-document view transitions; styles are
+ # @scope'd to the shell.
+ #}
+{%- set _path = current_url()|split('?')|first -%}
+{#- An item with a `permission` is listed only for a visitor who holds it
+    (can()); a group left with no items is not listed at all. -#}
+{%- set _nav = [] -%}
+{%- for group in appNav|default([]) -%}
+    {%- set _visible = group.items|default([])|filter(i => i.permission is not defined or can(i.permission)) -%}
+    {%- if _visible|length > 0 -%}{%- set _nav = _nav|merge([group|merge({items: _visible})]) -%}{%- endif -%}
+{%- endfor -%}
+{#- The group holding the current page opens; else the first. -#}
+{%- set _open_group = 0 -%}
+{%- for group in _nav|reverse -%}
+    {%- for item in group.items|default([]) -%}
+        {%- if item.href == _path or (item.match|default('exact') == 'prefix' and _path starts with item.href) %}{% set _open_group = _nav|length - loop.parent.loop.index %}{% endif -%}
+    {%- endfor -%}
+{%- endfor -%}
+<!doctype html>
+<html lang="{{ locale()|default('en')|e('html_attr') }}" data-theme="{{ theme_info().theme|default('') }}" data-skin="{{ theme_info().skin|default('') }}">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}{{ page_title()|default(title|default(appName|default('Semitexa'))) }}{% endblock %}</title>
+    {{ asset_require('platform-ui:css:app-shell') }}{{ asset_require('platform-ui:js:app-shell') }}
+    {# Before paint: light or dark (semitexa_skin_mode), then the sidebar width. #}
+    {% include '@project-layouts-theme-base/partials/head/theme-switcher.html.twig' ignore missing %}
+    <script{{ csp_nonce_attr() }}>try{if(localStorage.getItem('sx-app-sidebar')==='collapsed')document.documentElement.setAttribute('data-app-sidebar','collapsed');}catch(e){}</script>
+    {{ semantic_head() }}
+    {{ asset_head() }}
+    <link rel="stylesheet" href="{{ theme_skin_css() }}">
+    {{ inject_scripts('head') }}
+    {% include '@platform-ui/layouts/_view-transitions.html.twig' %}
+    {% block head_extra %}{{ layout_slot('head_extra') }}{% endblock %}
+</head>
+<body ui-app-shell data-app-home="{{ appHome|default('/') }}"{% if appViewTransitions|default(false) %} data-app-view-transitions{% endif %}{{ __ssr_handle_attr|default('')|raw }}>
+    <a href="#app-main" ui-app-skip>Skip to content</a>
+    {#- <body> is the size container; the grid is this frame (a container
+        query styles a container's descendants, never the container). -#}
+    <div ui-app-frame>
+    <header ui-app-topbar>
+        <button type="button" ui-app-menu popovertarget="app-sidebar" aria-label="Open navigation">{{ icon('menu', {size: 20}) }}</button>
+        {% block brand %}<a href="{{ appHome|default('/') }}" ui-app-brand>{{ appName|default('Semitexa') }}</a>{% endblock %}
+        <div ui-app-topbar-center>
+            {%- if appPalette ?? true %}{{ component('platform.command-palette', {}) }}{% endif -%}
+        </div>
+        <div ui-app-topbar-end>{% block topbar_end %}{{ layout_slot('topbar_end') }}{% endblock %}</div>
+    </header>
+
+    <nav id="app-sidebar" ui-app-sidebar popover="auto" aria-label="Main">
+        {% block sidebar %}
+            {% for group in _nav %}
+                {%- set _items = group.items|default([]) -%}
+                <details name="app-nav" ui-app-nav-group{% if loop.index0 == _open_group %} open{% endif %}>
+                    <summary>{{ group.label }}</summary>
+                    <ul role="list">
+                        {% for item in _items %}
+                            {%- set _current = item.href == _path or (item.match|default('exact') == 'prefix' and _path starts with item.href) -%}
+                            <li><a href="{{ item.href }}" ui-app-nav-link data-match="{{ item.match|default('exact') }}"{% if _current %} aria-current="page"{% endif %} title="{{ item.label }}">
+                                {{- icon(item.icon|default('circle'), {size: 18}) -}}
+                                <span ui-app-nav-label>{{ item.label }}</span>
+                                {%- if item.badge|default(null) %}{{ primitive('badge', {text: item.badge, size: 'sm'}) }}{% endif -%}
+                            </a></li>
+                        {% endfor %}
+                    </ul>
+                </details>
+            {% endfor %}
+        {% endblock %}
+        <div ui-app-sidebar-footer>
+            {% block sidebar_footer %}{{ layout_slot('sidebar_footer') }}{% endblock %}
+            <button type="button" ui-app-collapse aria-pressed="false" title="Collapse the sidebar">{{ icon('panel-left-close', {size: 18}) }}<span ui-app-nav-label>Collapse</span></button>
+        </div>
+    </nav>
+
+    <main id="app-main" ui-app-main tabindex="-1"{% if appShellSwap|default(false) %}{{ shell_region('main') }}{% endif %}>
+        {% block breadcrumbs %}{{ layout_slot('breadcrumbs') }}{% endblock %}
+        {% block main %}{{ layout_slot('main_before') }}{{ main|default(content|default(''))|raw }}{{ layout_slot('main_after') }}{% endblock %}
+        <footer ui-app-footer>{% block footer %}{{ layout_slot('footer') }}{% endblock %}</footer>
+    </main>
+    </div>
+
+    {{ asset_body() }}
+    {{ inject_scripts('body') }}
+</body>
+</html>

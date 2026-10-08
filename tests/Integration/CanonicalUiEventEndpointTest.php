@@ -18,8 +18,8 @@ use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveMetadataFactory
 use Semitexa\PlatformUi\Application\Service\Primitive\UiPrimitiveRegistry;
 use Semitexa\PlatformUi\Application\Service\Submit\SignedContextOnlyUiFormSubmitSecurityPolicy;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitSecurityPolicy;
-use Semitexa\Ssr\Application\Handler\PayloadHandler\UiEventEndpointHandler;
-use Semitexa\Ssr\Application\Payload\Request\UiEventEnvelopePayload;
+use Semitexa\Ssr\Application\Handler\PayloadHandler\HugEventHandler;
+use Semitexa\Ssr\Application\Payload\Request\HugEventPayload;
 use Semitexa\Ssr\Application\Service\UiEvent\CanonicalUiMessagePublisherInterface;
 use Semitexa\Ssr\Application\Service\UiEvent\SignedContext;
 use Semitexa\Ssr\Application\Service\UiEvent\UiEventEnvelope;
@@ -30,12 +30,12 @@ use Semitexa\Ssr\Application\Service\UiEvent\UiSseMessageInterface;
  * End-to-end test for the canonical inbound transport.
  *
  * Drives a real `UiEventEnvelope` JSON body — the exact shape
- * `event-runtime.js` now ships for the default `/__ui/event` endpoint —
- * through the framework's {@see UiEventEndpointHandler} into the
+ * `event-runtime.js` now ships for the HUG endpoint (`POST /__semitexa_hug`) —
+ * through the framework's {@see HugEventHandler} into the
  * platform-ui {@see PlatformUiResponseDispatcher} and the legacy
  * {@see UiInteractionDispatcher}. Asserts the wire response carries
  * the canonical envelope keys and a safe success body, matching what
- * the legacy `/__ui/dispatch` path produces for an equivalent input.
+ * the legacy HUG (`POST /__semitexa_hug`) path produces for an equivalent input.
  *
  * Bridges the JavaScript-side wire-shape pin (`EventRuntimeAssetTest::
  * transport_canonical_wire_body_matches_ui_event_envelope_shape`) and
@@ -257,7 +257,7 @@ final class CanonicalUiEventEndpointTest extends TestCase
 
         $request = new Request(
             method:  'POST',
-            uri:     '/__ui/event',
+            uri:     '/__semitexa_hug',
             headers: ['Content-Type' => 'application/json'],
             query:   [],
             post:    [],
@@ -275,12 +275,12 @@ final class CanonicalUiEventEndpointTest extends TestCase
             $adapter = $adapter->withPublisher($publisher);
         }
 
-        $handler = (new UiEventEndpointHandler())
+        $handler = (new HugEventHandler())
             ->withRequest($request)
             ->withDispatcher($adapter);
 
         try {
-            return $handler->handle(new UiEventEnvelopePayload(), new ResourceResponse());
+            return $handler->handle(new HugEventPayload(), new ResourceResponse());
         } catch (\Semitexa\Core\Exception\ValidationException $e) {
             // The framework endpoint maps malformed envelopes / tampered
             // signed contexts to ValidationException. Convert to a 422

@@ -89,7 +89,7 @@ final class CatalogCommand extends Command
                 'primitives' => array_map(static fn (PrimitiveMetadata $p): array => $p->toArray(), $primitives),
                 'components' => array_map(self::componentToArray(...), $components),
                 'behaviors' => array_map(static fn (BehaviorMetadata $b): array => $b->toArray(), $behaviors),
-            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), OutputInterface::OUTPUT_RAW);
 
             return Command::SUCCESS;
         }
@@ -147,11 +147,11 @@ final class CatalogCommand extends Command
                 is_string($name) ? $name : null,
             );
         } catch (\InvalidArgumentException $e) {
-            $output->writeln(json_encode(['error' => $e->getMessage()], JSON_THROW_ON_ERROR));
+            $output->writeln(json_encode(['error' => $e->getMessage()], JSON_THROW_ON_ERROR), OutputInterface::OUTPUT_RAW);
             return Command::INVALID;
         }
         if ($input->getOption('json')) {
-            $output->writeln(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+            $output->writeln(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), OutputInterface::OUTPUT_RAW);
             return Command::SUCCESS;
         }
         foreach ($result['entries'] as $entry) {

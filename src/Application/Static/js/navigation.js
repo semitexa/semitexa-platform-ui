@@ -634,12 +634,40 @@ function applyPage(url, payload, token, opts) {
     if (token !== navigationToken) return false;
 
     const mode = opts.history === false ? 'none' : (opts.replace === true ? 'replace' : 'push');
-    const region = commit(payload, mode);
 
-    if (region === null) {
-        fallback(url, opts.replace === true);
-        return false;
+    // A same-document view transition where the app opted in (the app-shell
+    // layout's appViewTransitions → <body data-app-view-transitions>) and the
+    // browser has one: the old region cross-fades into the new. An app that did
+    // not opt in keeps the plain, immediate swap. commit() stays ONE synchronous block
+    // (history and DOM together) — it just runs inside the transition's
+    // update callback, a frame later, so the token is checked again there.
+    return commitWithTransition(payload, mode, token).then((region) => {
+        if (token !== navigationToken) return false;
+        if (region === null) {
+            fallback(url, opts.replace === true);
+            return false;
+        }
+        return settlePage(region, payload, opts, url);
+    });
+}
+
+function commitWithTransition(payload, mode, token) {
+    const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const optedIn = document.body !== null && document.body.hasAttribute('data-app-view-transitions');
+    if (!optedIn || typeof document.startViewTransition !== 'function' || reduce) {
+        return Promise.resolve(commit(payload, mode));
     }
+    let region = null;
+    const transition = document.startViewTransition(() => {
+        if (token === navigationToken) region = commit(payload, mode);
+    });
+    // A skipped transition rejects these; the swap itself does not depend on them.
+    transition.ready.catch(() => {});
+    transition.finished.catch(() => {});
+    return transition.updateCallbackDone.then(() => region, () => region);
+}
+
+function settlePage(region, payload, opts, url) {
 
     // The swap itself is done and history already matches it, so the scroll
     // and the focus move now; only the ANNOUNCEMENT waits for the region's own
@@ -763,8 +791,26 @@ function boot() {
     window.addEventListener('popstate', onPopState);
 }
 
+/**
+ * A URL the page already shows — a component wrote its state into the query
+ * string (#[UiUrl]). Recorded as the committed URL, so Back to the previous
+ * entry is a real page move instead of "already here".
+ */
+export function recordUrl(url, options) {
+    const target = toPathAndQuery(url);
+    if (target === committedUrl) return;
+    const state = { semitexaShell: true, url: target, scroll: window.scrollY };
+    if (options && options.replace === true) {
+        window.history.replaceState(state, '', target);
+    } else {
+        window.history.pushState(state, '', target);
+    }
+    committedUrl = target;
+}
+
 export const SemitexaNavigation = {
     navigate,
+    recordUrl,
     registerRegion,
     isShellPage,
     get committedUrl() {

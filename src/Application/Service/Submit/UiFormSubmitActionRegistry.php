@@ -29,6 +29,9 @@ final class UiFormSubmitActionRegistry
 {
     private static ?UiFormSubmitActionRegistryInterface $active = null;
 
+    /** @var array<string, UiFormSubmitActionInterface> actions registered with #[AsFormSubmitAction] */
+    private static array $discovered = [];
+
     /**
      * Resolve the active registry. Lazy-defaults to a fresh
      * DefaultUiFormSubmitActionRegistry when neither the boot
@@ -41,7 +44,15 @@ final class UiFormSubmitActionRegistry
         if (self::$active === null) {
             self::$active = new DefaultUiFormSubmitActionRegistry();
         }
-        return self::$active;
+        return self::$discovered === []
+            ? self::$active
+            : new DiscoveredFirstUiFormSubmitActionRegistry(self::$discovered, self::$active);
+    }
+
+    /** @param array<string, UiFormSubmitActionInterface|\Closure(): UiFormSubmitActionInterface> $actions */
+    public static function setDiscovered(array $actions): void
+    {
+        self::$discovered = $actions;
     }
 
     public static function setActive(?UiFormSubmitActionRegistryInterface $registry): void
@@ -52,5 +63,6 @@ final class UiFormSubmitActionRegistry
     public static function reset(): void
     {
         self::$active = null;
+        self::$discovered = [];
     }
 }

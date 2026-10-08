@@ -1,0 +1,15 @@
+{#
+ # platform.dashboard — the widgets of dashboard `name` the visitor may see.
+ # Props: name, emptyMessage. Each widget is drawn by platform.dashboard-widget.
+ #}
+{%- set _widgets = ui_dashboard_entries(name) -%}
+{#- An island (DashboardComponent::watches): live for a signed-in visitor. -#}
+<section data-ui-component="platform.dashboard" ui-component="dashboard" data-ui-dashboard="{{ name }}">
+    {%- for entry in _widgets -%}
+        <article ui-dashboard="widget" data-ui-widget="{{ entry.id }}"{% if entry.wide %} ui-dashboard-wide{% endif %}>
+            {{ component('platform.dashboard-widget', {dashboard: name, widget: entry.id}) }}
+        </article>
+    {%- else -%}
+        <p ui-text="muted" ui-dashboard="empty">{{ emptyMessage|default('Nothing to show here yet.') }}</p>
+    {%- endfor -%}
+</section>

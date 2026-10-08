@@ -149,7 +149,7 @@
         color: transparent !important;
         pointer-events: none;
     }
-    [ui="button"][ui-state="loading"]::after {
+    [ui="button"]:is([ui-state="loading"], [data-loading])::after {
         content: "";
         position: absolute;
         inset: 0;
@@ -161,10 +161,24 @@
         border-right-color: transparent;
         animation: ui-button-spin 0.7s linear infinite;
     }
-    [ui="button"]:is([ui-variant="soft"], [ui-variant="outline"], [ui-variant="ghost"], [ui-variant="link"])[ui-state="loading"]::after {
+    [ui="button"]:is([ui-variant="soft"], [ui-variant="outline"], [ui-variant="ghost"], [ui-variant="link"]):is([ui-state="loading"], [data-loading])::after {
         border-color: var(--_tone);
         border-right-color: transparent;
     }
+
+    /* An action in flight from this button (the event runtime sets
+       data-loading): the same ring, after a short grace period so a fast
+       answer never flickers. */
+    [ui="button"][data-loading] {
+        pointer-events: none;
+        animation: ui-button-busy 0s linear 150ms forwards;
+    }
+    [ui="button"][data-loading]::after {
+        opacity: 0;
+        animation: ui-button-spin 0.7s linear infinite, ui-button-appear 0s linear 150ms forwards;
+    }
+    @keyframes ui-button-busy { to { color: transparent; } }
+    @keyframes ui-button-appear { to { opacity: 1; } }
 
     /* Icons inside buttons size with the text. */
     [ui="button"] > .sx-icon { width: 1.15em; height: 1.15em; flex: none; }

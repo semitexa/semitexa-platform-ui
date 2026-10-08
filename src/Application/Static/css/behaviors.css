@@ -9,7 +9,7 @@
  */
 @layer platform-ui.primitives {
   /* ---- shared floating surface (dropdown panel, popover-like content) ---- */
-  [ui-behavior~="dropdown"] > [ui-behavior-content] {
+  :is([ui-behavior~="dropdown"], [ui-behavior~="menu"]) > [ui-behavior-content] {
     position: fixed;
     z-index: var(--ui-z-dropdown);
     min-width: 12rem;
@@ -27,13 +27,68 @@
       opacity var(--ui-motion-duration-fast) var(--ui-motion-easing-standard),
       transform var(--ui-motion-duration-fast) var(--ui-motion-easing-standard);
   }
-  [ui-behavior~="dropdown"] > [ui-behavior-content].sx-open {
+  :is([ui-behavior~="dropdown"], [ui-behavior~="menu"]) > [ui-behavior-content].sx-open {
     opacity: 1;
     transform: none;
   }
+  /* As a native popover (top layer): reset the UA's centred box — the anchor
+     places it — and animate in with @starting-style, out with allow-discrete. */
+  :is([ui-behavior~="dropdown"], [ui-behavior~="menu"]) > [ui-behavior-content][popover] {
+    inset: auto;
+    margin: 0;
+    border: 0;
+    overflow: visible;
+    transition:
+      opacity var(--ui-motion-duration-fast) var(--ui-motion-easing-standard),
+      transform var(--ui-motion-duration-fast) var(--ui-motion-easing-standard),
+      overlay var(--ui-motion-duration-fast) allow-discrete,
+      display var(--ui-motion-duration-fast) allow-discrete;
+  }
+  :is([ui-behavior~="dropdown"], [ui-behavior~="menu"]) > [ui-behavior-content][popover]:popover-open {
+    opacity: 1;
+    transform: none;
+  }
+  @starting-style {
+    :is([ui-behavior~="dropdown"], [ui-behavior~="menu"]) > [ui-behavior-content][popover]:popover-open {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.98);
+    }
+  }
+  /* A submenu sits beside its item. */
+  [ui-behavior~="menu"] [ui-behavior~="menu"] > [ui-behavior-content] { transform-origin: left top; }
+  [ui-behavior~="menu"] [ui-behavior~="menu"] > [ui-behavior-toggle]::after {
+    content: "";
+    margin-inline-start: auto;
+    width: 0.4rem;
+    height: 0.4rem;
+    border-top: 1.5px solid currentColor;
+    border-right: 1.5px solid currentColor;
+    rotate: 45deg;
+    opacity: 0.6;
+  }
+  /* Checkable items: a check mark / a dot in a fixed slot, so labels align. */
+  [ui-behavior~="menu"] :is([role="menuitemcheckbox"], [role="menuitemradio"])::before {
+    content: "";
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+    display: inline-block;
+  }
+  [ui-behavior~="menu"] [role="menuitemcheckbox"][aria-checked="true"]::before {
+    background: currentColor;
+    clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+    scale: 0.65;
+  }
+  [ui-behavior~="menu"] [role="menuitemradio"][aria-checked="true"]::before {
+    background: radial-gradient(circle, currentColor 0 28%, transparent 30%);
+  }
+  [ui-behavior~="menu"] [role="group"] { display: block; }
+  @media (prefers-reduced-motion: reduce) {
+    :is([ui-behavior~="dropdown"], [ui-behavior~="menu"]) > [ui-behavior-content][popover] { transition: none; }
+  }
 
   /* Menu items. */
-  [ui-behavior~="dropdown"] [ui-behavior-item] {
+  :is([ui-behavior~="dropdown"], [ui-behavior~="menu"]) [ui-behavior-item] {
     display: flex;
     align-items: center;
     gap: var(--ui-space-2);
@@ -50,29 +105,29 @@
     cursor: pointer;
     outline: none;
   }
-  [ui-behavior~="dropdown"] [ui-behavior-item] > .sx-icon { width: 1rem; height: 1rem; color: var(--ui-text-muted); }
-  [ui-behavior~="dropdown"] [ui-behavior-item]:is(:hover, :focus-visible, :focus) {
+  :is([ui-behavior~="dropdown"], [ui-behavior~="menu"]) [ui-behavior-item] > .sx-icon { width: 1rem; height: 1rem; color: var(--ui-text-muted); }
+  :is([ui-behavior~="dropdown"], [ui-behavior~="menu"]) [ui-behavior-item]:is(:hover, :focus-visible, :focus) {
     background: var(--ui-surface-panel);
   }
-  [ui-behavior~="dropdown"] [ui-behavior-item][ui-tone="danger"] { color: var(--ui-state-danger); }
-  [ui-behavior~="dropdown"] [ui-behavior-item][ui-tone="danger"]:is(:hover, :focus) {
+  :is([ui-behavior~="dropdown"], [ui-behavior~="menu"]) [ui-behavior-item][ui-tone="danger"] { color: var(--ui-state-danger); }
+  :is([ui-behavior~="dropdown"], [ui-behavior~="menu"]) [ui-behavior-item][ui-tone="danger"]:is(:hover, :focus) {
     background: color-mix(in oklab, var(--ui-state-danger) 10%, var(--ui-surface-raised));
   }
-  [ui-behavior~="dropdown"] [ui-behavior-item]:is([disabled], [aria-disabled="true"]) { opacity: 0.45; pointer-events: none; }
+  :is([ui-behavior~="dropdown"], [ui-behavior~="menu"]) [ui-behavior-item]:is([disabled], [aria-disabled="true"]) { opacity: 0.45; pointer-events: none; }
   /* Grouping inside a menu: <hr> separator and a quiet group label. */
-  [ui-behavior~="dropdown"] [ui-behavior-content] hr {
+  :is([ui-behavior~="dropdown"], [ui-behavior~="menu"]) [ui-behavior-content] hr {
     height: 1px;
     margin: var(--ui-space-1) calc(var(--ui-space-1) * -1);
     border: 0;
     background: var(--ui-border-subtle);
   }
-  [ui-behavior~="dropdown"] [ui-menu="label"] {
+  :is([ui-behavior~="dropdown"], [ui-behavior~="menu"]) [ui-menu="label"] {
     padding: var(--ui-space-1-5) var(--ui-space-2-5) var(--ui-space-1);
     font-size: var(--ui-text-xs);
     font-weight: var(--ui-font-weight-medium);
     color: var(--ui-text-muted);
   }
-  [ui-behavior~="dropdown"] [ui-menu="shortcut"] {
+  :is([ui-behavior~="dropdown"], [ui-behavior~="menu"]) [ui-menu="shortcut"] {
     margin-inline-start: auto;
     font-size: var(--ui-text-xs);
     color: var(--ui-text-muted);
@@ -304,7 +359,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    [ui-behavior~="dropdown"] > [ui-behavior-content],
+    :is([ui-behavior~="dropdown"], [ui-behavior~="menu"]) > [ui-behavior-content],
     [role="tooltip"],
     dialog[ui-behavior~="modal"],
     [ui-behavior~="tabs"] [ui-behavior-tab]::after,

@@ -9,8 +9,7 @@ use PHPUnit\Framework\TestCase;
 use Semitexa\Core\Request;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\PlatformUi\Application\Component\Builtin\FormComponent;
-use Semitexa\PlatformUi\Application\Handler\PayloadHandler\UiDispatchHandler;
-use Semitexa\PlatformUi\Application\Payload\Request\UiDispatchPayload;
+use Semitexa\PlatformUi\Tests\Support\HugDispatch;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentMetadataFactory;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
 use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\FormRootPrimitive;
@@ -162,20 +161,7 @@ final class FormSubmitDispatchTest extends TestCase
             'payload'    => $payload,
         ], JSON_THROW_ON_ERROR);
 
-        $request = new Request(
-            method: 'POST',
-            uri: '/__ui/dispatch',
-            headers: [],
-            query: [],
-            post: [],
-            server: [],
-            cookies: [],
-            content: $body,
-            files: [],
-        );
-        $handler  = (new UiDispatchHandler())->withRequest($request);
-        $resource = new ResourceResponse();
-        return $handler->handle(new UiDispatchPayload(), $resource);
+        return (new HugDispatch())->sendLegacy($body);
     }
 
     /** @return array<string, mixed> */
@@ -206,16 +192,21 @@ final class FormSubmitDispatchTest extends TestCase
         ]);
         self::assertSame(200, $resp->getStatusCode());
         $data = $this->decode($resp);
-        self::assertSame('platform.form', $data['component']);
-        self::assertSame('form', $data['part']);
-        self::assertSame('submit', $data['event']);
+        // Routed to the form's submit handler: HUG accepted it and the
+        // submit summary came back.
+        // verify:accept-test-change the removed /__ui/dispatch door echoed the component/part/event claims; HUG does not echo them, and debug.submit below proves which handler ran
+        self::assertSame('accepted', $data['status']);
         self::assertFalse($data['debug']['submit']['valid']);
         self::assertSame(2, $data['debug']['submit']['totalCount']);
         self::assertSame(0, $data['debug']['submit']['validCount']);
         self::assertSame(2, $data['debug']['submit']['invalidCount']);
         self::assertSame('2 fields need attention.', $data['debug']['submit']['message']);
-        // Patches: setText form-status + setAttribute ui-state.
-        self::assertCount(2, $data['patches']);
+        // Patches: setText form-status + setAttribute ui-state, then the
+        // `ui-form:invalid` lifecycle event.
+        // verify:accept-test-change a failed submit now also announces ui-form:invalid on the form root (tk-la-form-lifecycle)
+        self::assertCount(3, $data['patches']);
+        self::assertSame('dispatch', $data['patches'][2]['op']);
+        self::assertSame('ui-form:invalid', $data['patches'][2]['value']);
         self::assertSame('setText', $data['patches'][0]['op']);
         self::assertSame('form-status', $data['patches'][0]['target']['name']);
         self::assertSame('2 fields need attention.', $data['patches'][0]['value']);
@@ -331,13 +322,13 @@ final class FormSubmitDispatchTest extends TestCase
     }
 
     #[Test]
-    public function tampered_submit_ctx_returns_403(): void
+    public function tampered_submit_ctx_is_refused_at_hug(): void
     {
         $resp = $this->post($this->submitCtx() . 'xx', [
             'form' => ['values' => ['access_code' => 'abcd']],
         ]);
-        self::assertSame(403, $resp->getStatusCode());
-        self::assertSame('invalid_signed_ctx', $this->decode($resp)['reason']);
+        self::assertSame(422, $resp->getStatusCode());
+        self::assertArrayHasKey('signedContext', $this->decode($resp)['context']['errors'], 'HUG refuses the tampered signed context');
     }
 
     #[Test]
@@ -349,10 +340,9 @@ final class FormSubmitDispatchTest extends TestCase
             'dispatchId' => 'ui_evt_replay_test_01_padding_padding00',
             'payload'    => ['form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']]],
         ], JSON_THROW_ON_ERROR);
-        $req = new Request('POST', '/__ui/dispatch', [], [], [], [], [], $body, []);
-        $handler = (new UiDispatchHandler())->withRequest($req);
-        $first  = $handler->handle(new UiDispatchPayload(), new ResourceResponse());
-        $second = $handler->handle(new UiDispatchPayload(), new ResourceResponse());
+        $hug = new HugDispatch();
+        $first  = $hug->sendLegacy($body);
+        $second = $hug->sendLegacy($body);
         self::assertSame(200, $first->getStatusCode());
         self::assertSame(409, $second->getStatusCode());
         self::assertSame('duplicate_dispatch', json_decode($second->getContent(), true)['reason']);
@@ -491,8 +481,10 @@ final class FormSubmitDispatchTest extends TestCase
         self::assertSame('validation-message', $accessPatches[2]['target']['name']);
         self::assertSame('This field is required.', $confirmPatches[2]['value']);
 
-        // Form-level summary still last.
-        self::assertCount(2, $formPatches);
+        // Form-level summary, then the `ui-form:invalid` event.
+        // verify:accept-test-change a failed submit now also announces ui-form:invalid on the form root (tk-la-form-lifecycle)
+        self::assertCount(3, $formPatches);
+        self::assertSame('ui-form:invalid', $formPatches[2]['value']);
         self::assertSame('2 fields need attention.', $formPatches[0]['value']);
         self::assertSame('invalid', $formPatches[1]['value']);
     }
@@ -511,10 +503,11 @@ final class FormSubmitDispatchTest extends TestCase
         $access  = $this->patchesForInstance($data, self::FIELD_INSTANCE_ACCESS);
         $confirm = $this->patchesForInstance($data, self::FIELD_INSTANCE_CONFIRM);
 
-        // access_code passes → aria-invalid removed (null) + ui-state valid + "Looks good." setText.
+        // access_code passes → aria-invalid removed (null) + ui-state valid + its message cleared:
+        // a submit clears an earlier error and praises nothing ("Looks good." is the change event's).
         self::assertNull($access[0]['value']);
         self::assertSame('valid', $access[1]['value']);
-        self::assertSame('Looks good.', $access[2]['value']);
+        self::assertSame('', $access[2]['value']);
 
         // confirm_access_code fails sameAsField → custom message.
         self::assertSame('true', $confirm[0]['value']);
@@ -600,13 +593,13 @@ final class FormSubmitDispatchTest extends TestCase
     }
 
     #[Test]
-    public function tampered_field_instance_id_in_ctx_returns_403(): void
+    public function tampered_field_instance_id_in_ctx_is_refused_at_hug(): void
     {
         $resp = $this->post($this->submitCtxWithFieldIds() . 'xx', [
             'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
         ]);
-        self::assertSame(403, $resp->getStatusCode());
-        self::assertSame('invalid_signed_ctx', $this->decode($resp)['reason']);
+        self::assertSame(422, $resp->getStatusCode());
+        self::assertArrayHasKey('signedContext', $this->decode($resp)['context']['errors'], 'HUG refuses the tampered signed context');
     }
 
     #[Test]
@@ -728,7 +721,7 @@ final class FormSubmitDispatchTest extends TestCase
     }
 
     #[Test]
-    public function autofields_derived_ctx_tampered_signature_returns_403(): void
+    public function autofields_derived_ctx_tampered_signature_is_refused_at_hug(): void
     {
         $ctx = $this->autoDerivedSubmitCtx([
             [
@@ -738,8 +731,8 @@ final class FormSubmitDispatchTest extends TestCase
             ],
         ]);
         $resp = $this->post($ctx . 'xx', ['form' => ['values' => ['access_code' => 'abcd']]]);
-        self::assertSame(403, $resp->getStatusCode());
-        self::assertSame('invalid_signed_ctx', $this->decode($resp)['reason']);
+        self::assertSame(422, $resp->getStatusCode());
+        self::assertArrayHasKey('signedContext', $this->decode($resp)['context']['errors'], 'HUG refuses the tampered signed context');
     }
 
     #[Test]
@@ -842,6 +835,21 @@ final class FormSubmitDispatchTest extends TestCase
     }
 
     #[Test]
+    public function a_form_with_no_fields_but_a_signed_action_runs_the_action(): void
+    {
+        // A confirmation — the delete button of an edit dialog — has nothing
+        // to validate; it used to stop at "Form has no fields." and never
+        // reach its action.
+        $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME, []), ['form' => ['values' => []]]);
+        self::assertSame(200, $resp->getStatusCode());
+        $data = $this->decode($resp);
+
+        self::assertSame(PlatformDemoAcceptAction::NAME, $data['debug']['action']['name']);
+        self::assertTrue($data['debug']['action']['accepted']);
+        self::assertContains(PlatformDemoAcceptAction::MESSAGE, array_column($data['patches'], 'value'));
+    }
+
+    #[Test]
     public function invalid_submit_with_signed_action_does_NOT_invoke_action(): void
     {
         $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME), [
@@ -909,13 +917,13 @@ final class FormSubmitDispatchTest extends TestCase
     }
 
     #[Test]
-    public function tampered_cfg_a_returns_403(): void
+    public function tampered_cfg_a_is_refused_at_hug(): void
     {
         $resp = $this->post($this->submitCtxWithAction(PlatformDemoAcceptAction::NAME) . 'xx', [
             'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
         ]);
-        self::assertSame(403, $resp->getStatusCode());
-        self::assertSame('invalid_signed_ctx', $this->decode($resp)['reason']);
+        self::assertSame(422, $resp->getStatusCode());
+        self::assertArrayHasKey('signedContext', $this->decode($resp)['context']['errors'], 'HUG refuses the tampered signed context');
     }
 
     #[Test]
@@ -1004,10 +1012,9 @@ final class FormSubmitDispatchTest extends TestCase
             'dispatchId' => 'ui_evt_action_replay_test_padding_pad',
             'payload'    => ['form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']]],
         ], JSON_THROW_ON_ERROR);
-        $req = new Request('POST', '/__ui/dispatch', [], [], [], [], [], $body, []);
-        $handler = (new UiDispatchHandler())->withRequest($req);
-        $first  = $handler->handle(new UiDispatchPayload(), new ResourceResponse());
-        $second = $handler->handle(new UiDispatchPayload(), new ResourceResponse());
+        $hug = new HugDispatch();
+        $first  = $hug->sendLegacy($body);
+        $second = $hug->sendLegacy($body);
         self::assertSame(200, $first->getStatusCode());
         self::assertSame(409, $second->getStatusCode());
     }
@@ -1026,10 +1033,16 @@ final class FormSubmitDispatchTest extends TestCase
         ]);
         $data = $this->decode($resp);
         $totalCount = count($data['patches']);
-        // First patches target the field instance, last patches target
-        // the form instance and carry the action message + ui-state.
+        // First patches target the field instance, then the form instance's
+        // action message + ui-state; the lifecycle effects come after them.
+        // verify:accept-test-change the action outcome is now followed by its ui-form:accepted event (tk-la-form-lifecycle)
         self::assertSame('uci_action_field_pin', $data['patches'][0]['target']['instance']);
-        $lastTwo = array_slice($data['patches'], -2);
+        $ops = array_column($data['patches'], 'op');
+        $statusAt = array_search('form-status', array_map(static fn (array $p): ?string => $p['target']['name'] ?? null, $data['patches']), true);
+        self::assertIsInt($statusAt);
+        self::assertSame('dispatch', $ops[$statusAt + 2]);
+        self::assertSame('ui-form:accepted', $data['patches'][$statusAt + 2]['value']);
+        $lastTwo = array_slice($data['patches'], $statusAt, 2);
         self::assertSame(self::FORM_INSTANCE, $lastTwo[0]['target']['instance']);
         self::assertSame('form-status', $lastTwo[0]['target']['name']);
         self::assertSame(PlatformDemoAcceptAction::MESSAGE, $lastTwo[0]['value']);
@@ -1465,14 +1478,14 @@ final class FormSubmitDispatchTest extends TestCase
     }
 
     #[Test]
-    public function tampered_signed_ctx_still_returns_403_before_csrf_check(): void
+    public function tampered_signed_ctx_is_refused_at_hug_before_csrf_check(): void
     {
         $h = $this->installCsrfPolicyAndIssueToken();
         $resp = $this->post($this->submitCtxWithCsrf($h) . 'xx', [
             'form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']],
         ]);
-        self::assertSame(403, $resp->getStatusCode());
-        self::assertSame('invalid_signed_ctx', $this->decode($resp)['reason']);
+        self::assertSame(422, $resp->getStatusCode());
+        self::assertArrayHasKey('signedContext', $this->decode($resp)['context']['errors'], 'HUG refuses the tampered signed context');
     }
 
     #[Test]
@@ -1485,10 +1498,9 @@ final class FormSubmitDispatchTest extends TestCase
             'dispatchId' => 'ui_evt_csrf_replay_test_padding_pad',
             'payload'    => ['form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']]],
         ], JSON_THROW_ON_ERROR);
-        $req = new Request('POST', '/__ui/dispatch', [], [], [], [], [], $body, []);
-        $handler = (new UiDispatchHandler())->withRequest($req);
-        $first  = $handler->handle(new UiDispatchPayload(), new ResourceResponse());
-        $second = $handler->handle(new UiDispatchPayload(), new ResourceResponse());
+        $hug = new HugDispatch();
+        $first  = $hug->sendLegacy($body);
+        $second = $hug->sendLegacy($body);
         self::assertSame(200, $first->getStatusCode());
         self::assertSame(409, $second->getStatusCode());
     }
@@ -1700,7 +1712,7 @@ final class FormSubmitDispatchTest extends TestCase
         $resp = $this->post($this->persistentSubmitCtx($h) . 'xx', [
             'form' => ['values' => ['contact_name' => 'Ada', 'contact_message' => 'Hello.']],
         ]);
-        self::assertSame(403, $resp->getStatusCode());
+        self::assertSame(422, $resp->getStatusCode());
         self::assertSame(0, $repo->count(), 'Tampered ctx MUST NOT persist.');
     }
 
@@ -1713,7 +1725,9 @@ final class FormSubmitDispatchTest extends TestCase
                 $key => 'evil',
                 'form' => ['values' => ['contact_name' => 'Ada', 'contact_message' => 'Hello.']],
             ]);
-            self::assertSame(400, $resp->getStatusCode());
+            // HUG refuses envelope-level smuggling (422); the dispatcher refuses the rest (400).
+            // verify:accept-test-change two layers now refuse smuggled keys (HUG envelope 422, dispatcher 400); the store-count assertion below still proves nothing persisted
+            self::assertContains($resp->getStatusCode(), [400, 422]);
         }
         self::assertSame(0, $repo->count(), 'Payload-smuggled requests MUST NOT persist.');
     }
@@ -1728,10 +1742,9 @@ final class FormSubmitDispatchTest extends TestCase
             'dispatchId' => 'ui_evt_persist_replay_padding_padding00',
             'payload'    => ['form' => ['values' => ['contact_name' => 'Ada', 'contact_message' => 'Hello from replay test.']]],
         ], JSON_THROW_ON_ERROR);
-        $req = new Request('POST', '/__ui/dispatch', [], [], [], [], [], $body, []);
-        $handler = (new UiDispatchHandler())->withRequest($req);
-        $first  = $handler->handle(new UiDispatchPayload(), new ResourceResponse());
-        $second = $handler->handle(new UiDispatchPayload(), new ResourceResponse());
+        $hug = new HugDispatch();
+        $first  = $hug->sendLegacy($body);
+        $second = $hug->sendLegacy($body);
         self::assertSame(200, $first->getStatusCode());
         self::assertSame(409, $second->getStatusCode());
         self::assertSame(1, $repo->count(), 'Replay MUST NOT persist a second record.');
@@ -1910,7 +1923,7 @@ final class FormSubmitDispatchTest extends TestCase
         $resp = $this->post($this->dbSubmitCtx($h) . 'xx', [
             'form' => ['values' => ['contact_name' => 'Ada', 'contact_message' => 'Hello.']],
         ]);
-        self::assertSame(403, $resp->getStatusCode());
+        self::assertSame(422, $resp->getStatusCode());
         self::assertSame(0, $repo->count(), 'Tampered ctx MUST NOT persist.');
     }
 
@@ -1923,7 +1936,9 @@ final class FormSubmitDispatchTest extends TestCase
                 $key => 'evil',
                 'form' => ['values' => ['contact_name' => 'Ada', 'contact_message' => 'Hello.']],
             ]);
-            self::assertSame(400, $resp->getStatusCode(), "payload.$key must be rejected");
+            // HUG refuses envelope-level smuggling (422); the dispatcher refuses the rest (400).
+            // verify:accept-test-change two layers now refuse smuggled keys (HUG envelope 422, dispatcher 400); the store-count assertion below still proves nothing persisted
+            self::assertContains($resp->getStatusCode(), [400, 422], "payload.$key must be rejected");
         }
         self::assertSame(0, $repo->count(), 'Payload-smuggled requests MUST NOT persist.');
     }
@@ -1938,10 +1953,9 @@ final class FormSubmitDispatchTest extends TestCase
             'dispatchId' => 'ui_evt_db_replay_padding_padding00',
             'payload'    => ['form' => ['values' => ['contact_name' => 'Ada', 'contact_message' => 'Hello from replay test.']]],
         ], JSON_THROW_ON_ERROR);
-        $req = new Request('POST', '/__ui/dispatch', [], [], [], [], [], $body, []);
-        $handler = (new UiDispatchHandler())->withRequest($req);
-        $first  = $handler->handle(new UiDispatchPayload(), new ResourceResponse());
-        $second = $handler->handle(new UiDispatchPayload(), new ResourceResponse());
+        $hug = new HugDispatch();
+        $first  = $hug->sendLegacy($body);
+        $second = $hug->sendLegacy($body);
         self::assertSame(200, $first->getStatusCode());
         self::assertSame(409, $second->getStatusCode());
         self::assertSame(1, $repo->count(), 'Replay MUST NOT persist a second DB record.');

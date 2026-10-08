@@ -23,6 +23,10 @@ final readonly class UiContract
         array $props = [],
         array $examples = [],
         public bool $previewSafe = false,
+        /** Open to an agent composing a screen. */
+        public bool $agent = false,
+        /** The permission a screen containing it needs; null: none. */
+        public ?string $permission = null,
     ) {
         $this->props = UiProp::index($props);
         $indexed = [];

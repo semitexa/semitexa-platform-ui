@@ -73,7 +73,7 @@ final class ExplainPromptCommand extends Command
                 'prompt' => $prompt,
                 'resolved' => $result->params->toArray(),
                 'llm' => $result->toLlmMetadata(),
-            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), OutputInterface::OUTPUT_RAW);
             return Command::SUCCESS;
         }
 

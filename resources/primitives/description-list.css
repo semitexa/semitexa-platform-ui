@@ -1,0 +1,17 @@
+@layer platform-ui.primitives {
+    /* Side by side where the container has room, stacked where it has not —
+       a container query, so it adapts to the column it sits in, not the window. */
+    [ui="description-list"] { container-type: inline-size; margin: 0; display: grid; gap: 0; }
+    [ui="description-list"] > div {
+        display: grid;
+        gap: var(--ui-space-1);
+        padding: var(--ui-space-2-5) 0;
+        border-top: 1px solid var(--ui-border-subtle);
+    }
+    [ui="description-list"] > div:first-child { border-top: 0; }
+    [ui="description-list"] dt { font-size: var(--ui-text-sm); color: var(--ui-text-muted); font-weight: var(--ui-font-weight-medium); }
+    [ui="description-list"] dd { margin: 0; font-size: var(--ui-text-sm); color: var(--ui-text-primary); }
+    @container (min-width: 28rem) {
+        [ui="description-list"][ui-layout="inline"] > div { grid-template-columns: minmax(8rem, 1fr) 2fr; gap: var(--ui-space-4); }
+    }
+}

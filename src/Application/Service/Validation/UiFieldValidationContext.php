@@ -39,6 +39,15 @@ final readonly class UiFieldValidationContext
         public ?string $label = null,
         public bool    $required = false,
         public array   $formValues = [],
+        /**
+         * The submitted values when the control sends a list (a checkbox
+         * group, a multi-select); null for a single value. Rules see the
+         * value joined into one string; a rule about each value (`in`) reads
+         * this instead of splitting that string.
+         *
+         * @var list<string>|null
+         */
+        public ?array  $submittedList = null,
     ) {}
 
     /**

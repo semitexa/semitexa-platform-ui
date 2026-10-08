@@ -56,6 +56,67 @@ final class PrimitiveRegistry
                 sizes: ['sm', 'md', 'lg'],
             ),
             new Primitive(
+                id: 'select',
+                cssPath: $base . '/primitives/select.css',
+                twigPath: $base . '/twig/primitives/runtime/select.html.twig',
+                states: ['default', 'invalid'],
+                sizes: ['sm', 'md', 'lg'],
+            ),
+            new Primitive(
+                id: 'textarea',
+                cssPath: $base . '/primitives/textarea.css',
+                twigPath: $base . '/twig/primitives/runtime/textarea.html.twig',
+                states: ['default', 'invalid'],
+                sizes: ['sm', 'md', 'lg'],
+            ),
+            // checkbox · radio · switch share one stylesheet.
+            new Primitive(
+                id: 'choice',
+                cssPath: $base . '/primitives/choice.css',
+                twigPath: $base . '/twig/primitives/runtime/checkbox.html.twig',
+                states: ['default', 'invalid'],
+            ),
+            // progress.css also styles platform.meter.
+            new Primitive(
+                id: 'progress',
+                cssPath: $base . '/primitives/progress.css',
+                twigPath: $base . '/twig/primitives/runtime/progress.html.twig',
+                tones: ['neutral', 'brand', 'info', 'success', 'warning', 'danger'],
+                sizes: ['sm', 'md', 'lg'],
+            ),
+            new Primitive(
+                id: 'skeleton',
+                cssPath: $base . '/primitives/skeleton.css',
+                twigPath: $base . '/twig/primitives/runtime/skeleton.html.twig',
+            ),
+            new Primitive(
+                id: 'divider',
+                cssPath: $base . '/primitives/divider.css',
+                twigPath: $base . '/twig/primitives/runtime/divider.html.twig',
+            ),
+            new Primitive(
+                id: 'description-list',
+                cssPath: $base . '/primitives/description-list.css',
+                twigPath: $base . '/twig/primitives/runtime/description-list.html.twig',
+            ),
+            new Primitive(
+                id: 'tag',
+                cssPath: $base . '/primitives/tag.css',
+                twigPath: $base . '/twig/primitives/runtime/tag.html.twig',
+                tones: ['neutral', 'brand', 'info', 'success', 'warning', 'danger'],
+            ),
+            new Primitive(
+                id: 'segmented',
+                cssPath: $base . '/primitives/segmented.css',
+                twigPath: $base . '/twig/primitives/runtime/segmented.html.twig',
+                sizes: ['sm', 'md'],
+            ),
+            new Primitive(
+                id: 'kbd',
+                cssPath: $base . '/primitives/kbd.css',
+                twigPath: $base . '/twig/primitives/runtime/kbd.html.twig',
+            ),
+            new Primitive(
                 id: 'label',
                 cssPath: $base . '/primitives/label.css',
                 twigPath: $base . '/twig/primitives/label.twig',
