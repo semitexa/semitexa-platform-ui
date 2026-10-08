@@ -95,6 +95,7 @@ final class UiCommandPaletteTest extends TestCase
         self::assertSame(UiResponsePatch::OP_REPLACE, $result->patches[0]->op);
         self::assertSame('server-results', $result->patches[0]->targetName);
         self::assertStringContainsString('data-query="art"', (string) $result->patches[0]->value);
+        self::assertStringContainsString('Public page', (string) $result->patches[0]->value, 'the source\'s results are in the patch');
     }
 
     #[Test]
