@@ -21,7 +21,10 @@ use Semitexa\Core\Attribute\Capability;
  *     {{ component('platform.dashboard', {name: 'admin'}) }}
  *
  * A widget with a permission is shown only to a visitor who holds it, and is
- * not even computed for anyone else. `wide` spans two columns.
+ * not even computed for anyone else. A widget without one is shown to any
+ * signed-in visitor, as `can(null)` and a screen declared without a permission
+ * are; a guest sees it only when it says `public: true` (and names no
+ * permission). `wide` spans two columns.
  */
 #[Capability(
     id: 'ui.dashboard-widget',
@@ -42,9 +45,13 @@ final class AsDashboardWidget
         public int $order = 100,
         public ?string $permission = null,
         public bool $wide = false,
+        public bool $public = false,
     ) {
         if (preg_match('/\A[a-z][a-z0-9_.-]{0,63}\z/', $dashboard) !== 1) {
             throw new \InvalidArgumentException(sprintf('A dashboard name is a lowercase word, not "%s".', $dashboard));
+        }
+        if ($public && $permission !== null) {
+            throw new \InvalidArgumentException(sprintf('A public widget names no permission, not "%s".', $permission));
         }
     }
 }
