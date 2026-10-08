@@ -36,7 +36,8 @@
         "semitexa": {
             "floors": {
                 "semitexa/core": "next",
-                "semitexa/ssr": "next"
+                "semitexa/ssr": "next",
+                "semitexa/llm": "next"
             }
         },
         "semitexa-module": {
