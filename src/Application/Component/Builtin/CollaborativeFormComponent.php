@@ -19,14 +19,14 @@ use Semitexa\Ssr\Attribute\AsComponent;
  * The component itself is a thin DECLARATION — it renders a form root, a
  * presence host, and a status host, then emits the signed collab manifest
  * (`ui_collab_manifest()`), which `form-collab-runtime.js` picks up to open the
- * `/__ui/form-doc` feed and relay edits. The actual command handling lives in
+ * form-document feed (`platform-ui.form-doc`, over KISS) and relay edits. The actual command handling lives in
  * {@see \Semitexa\PlatformUi\Application\Service\Collaboration\FormCollaborationEventHandler},
  * bound to this component's parts via `#[HandlesUiEvent]`.
  *
  * Parts exist as the binding anchors the dispatcher validates a signed event's
  * `(component, part, event)` against — `field`/`presence`/`lock` are declared
  * as slots (no rendered primitive) precisely because the interaction arrives
- * over the canonical `/__ui/event` write path keyed by the signed claim, not by
+ * over the canonical HUG (`POST /__semitexa_hug`) write path keyed by the signed claim, not by
  * DOM part rendering. `content` is the caller's field markup (inputs tagged
  * `data-ui-field-name`).
  */

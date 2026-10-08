@@ -1,0 +1,17 @@
+{#- platform.block-features — props: title, lead, items [{title, text, icon, href}]. -#}
+{{- asset_require('platform-ui:css:blocks') -}}
+<section data-ui-component="platform.block-features" ui-block="features">
+    <div ui-block-inner>
+        {{ include('@platform-ui/components/runtime/blocks/_head.html.twig', {title: title ?? '', lead: lead ?? ''}, with_context = false) }}
+        <ul ui-features-list role="list">
+            {%- for item in items ?? [] %}
+            {%- set _href = ui_href(item.href ?? '') %}
+            <li ui-feature>
+                {%- if (item.icon ?? '') != '' %}<span ui-feature-icon>{{ icon(item.icon, {size: 22}) }}</span>{% endif %}
+                <h3 ui-feature-title>{% if _href %}<a href="{{ _href }}">{{ item.title }}</a>{% else %}{{ item.title }}{% endif %}</h3>
+                {%- if (item.text ?? '') != '' %}<p ui-feature-text>{{ item.text }}</p>{% endif %}
+            </li>
+            {%- endfor %}
+        </ul>
+    </div>
+</section>

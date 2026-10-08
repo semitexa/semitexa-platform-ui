@@ -191,7 +191,7 @@ final class RefineSkinCommand extends Command
                 'rationale' => $rationale,
                 'knobs_after' => $newKnobs,
                 'target' => $targetDir,
-            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), OutputInterface::OUTPUT_RAW);
         } else {
             $verb = $write ? '<info>Refined</info>' : '<comment>Dry-run</comment>';
             $output->writeln("{$verb} '{$slug}'" . ($targetSlug !== $slug ? " → <info>{$targetSlug}</info>" : ''));
@@ -251,7 +251,7 @@ final class RefineSkinCommand extends Command
                 'artifact' => 'semitexa.skins-base.skin-refine/v1',
                 'status' => 'error',
                 'error' => $message,
-            ], JSON_PRETTY_PRINT));
+            ], JSON_PRETTY_PRINT), OutputInterface::OUTPUT_RAW);
         } else {
             $output->writeln("<error>{$message}</error>");
         }

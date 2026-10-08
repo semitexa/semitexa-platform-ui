@@ -2,15 +2,24 @@
  # platform.table — data-driven table. No events.
  #
  # Props: columns (list of { key, label?, align? }), rows (list of assoc
- # arrays keyed by column key), caption (optional string).
+ # arrays keyed by column key), caption (optional string), density
+ # (compact|comfortable), striped (bool), hover (bool, default true),
+ # variant (plain drops the frame).
  # Slots: toolbar (above the table), empty (shown when rows is empty).
  #}
 {%- set _columns = columns|default([]) -%}
 {%- set _rows = rows|default([]) -%}
 {%- set _toolbar = slot('toolbar')|trim -%}
 {%- set _empty = slot('empty')|trim -%}
-<div data-ui-component="platform.table" ui-component="table">
+<div data-ui-component="platform.table" ui-component="table"
+{%- if density|default(null) %} ui-density="{{ density }}"{% endif -%}
+{%- if variant|default(null) %} ui-variant="{{ variant }}"{% endif -%}
+{%- if striped|default(false) %} ui-striped{% endif -%}
+{%- if hover is defined and hover is same as(false) %} ui-hover="false"{% endif -%}
+>
 {%- if _toolbar %}<div ui-table="toolbar">{{ _toolbar|raw }}</div>{% endif -%}
+    {#- A keyboard-reachable scroll region: wide tables scroll inside their frame. -#}
+    <div ui-table="scroll" tabindex="0" role="region" aria-label="{{ caption|default('Table') }}">
     <table ui-table="grid">
         {%- if caption|default(null) %}<caption>{{ caption }}</caption>{% endif -%}
         <thead>
@@ -34,4 +43,5 @@
             {%- endif -%}
         </tbody>
     </table>
+    </div>
 </div>

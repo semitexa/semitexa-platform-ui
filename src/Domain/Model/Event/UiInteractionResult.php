@@ -39,7 +39,21 @@ final readonly class UiInteractionResult
         public string $kind,
         public array $debug,
         public array $patches,
+        /**
+         * Domain events to dispatch once the interaction succeeded — how a
+         * component tells the rest of the application something happened
+         * (they reach ordinary #[AsEventListener]s). The browser never sees them.
+         *
+         * @var list<object>
+         */
+        public array $domainEvents = [],
     ) {}
+
+    /** The same result, plus domain events for the server's own listeners. */
+    public function dispatching(object ...$events): self
+    {
+        return new self($this->kind, $this->debug, $this->patches, [...$this->domainEvents, ...array_values($events)]);
+    }
 
     /**
      * @param array<string, mixed> $debug

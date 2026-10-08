@@ -24,6 +24,7 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
     script: 'platform-ui:js:behaviors',
     options: [
         new UiBehaviorOption('message', UiOptionType::String, description: 'Toast text (defaults to the trigger text).'),
+        new UiBehaviorOption('title', UiOptionType::String, description: 'Optional bold first line above the message.'),
         new UiBehaviorOption('status', UiOptionType::Enum, default: 'info', values: ['info', 'success', 'warning', 'danger'], description: 'Semantic tone.'),
         new UiBehaviorOption('pos', UiOptionType::Enum, default: 'top-end', values: ['top-end', 'top-start', 'bottom-end', 'bottom-start'], description: 'Corner.'),
         new UiBehaviorOption('timeout', UiOptionType::Number, default: 4000, description: 'Auto-dismiss ms (0 = sticky).'),

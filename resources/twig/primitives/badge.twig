@@ -2,8 +2,11 @@
 {% macro render(text, options = {}) %}
     {%- set variant = options.variant|default(null) -%}
     {%- set tone = options.tone|default(null) -%}
+    {%- set size = options.size|default(null) -%}
 <span ui="badge"
     {%- if variant %} ui-variant="{{ variant }}"{% endif -%}
     {%- if tone %} ui-tone="{{ tone }}"{% endif -%}
+    {%- if size %} ui-size="{{ size }}"{% endif -%}
+    {%- if options.dot|default(false) %} ui-dot{% endif -%}
 >{{ text }}</span>
 {% endmacro %}

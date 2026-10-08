@@ -1,0 +1,74 @@
+@layer platform-ui.primitives {
+    /* progress · meter — native elements, drawn from tokens. */
+    :is([ui="progress"], [ui="meter"]) {
+        --_tone: var(--ui-accent-brand);
+        --_track: color-mix(in oklab, var(--ui-text-muted) 18%, var(--ui-surface-raised));
+        --_height: 0.5rem;
+        display: grid;
+        gap: var(--ui-space-1);
+        width: 100%;
+    }
+    [ui="progress"][ui-size="sm"] { --_height: 0.25rem; }
+    [ui="progress"][ui-size="lg"] { --_height: 0.75rem; }
+    [ui="progress"][ui-tone="neutral"] { --_tone: var(--ui-text-muted); }
+    [ui="progress"][ui-tone="info"]    { --_tone: var(--ui-state-info); }
+    [ui="progress"][ui-tone="success"] { --_tone: var(--ui-state-success); }
+    [ui="progress"][ui-tone="warning"] { --_tone: var(--ui-state-warning); }
+    [ui="progress"][ui-tone="danger"]  { --_tone: var(--ui-state-danger); }
+
+    [ui-progress-caption] {
+        display: flex;
+        justify-content: space-between;
+        gap: var(--ui-space-2);
+        font-size: var(--ui-text-sm);
+        color: var(--ui-text-primary);
+    }
+    [ui-progress-value] { color: var(--ui-text-muted); font-variant-numeric: tabular-nums; }
+
+    :is([ui="progress"] > progress, [ui="meter"] > meter) {
+        appearance: none;
+        display: block;
+        width: 100%;
+        height: var(--_height);
+        border: 0;
+        border-radius: 999px;
+        overflow: hidden;
+        background: var(--_track);
+    }
+    [ui="progress"] > progress::-webkit-progress-bar { background: var(--_track); border-radius: 999px; }
+    [ui="progress"] > progress::-webkit-progress-value {
+        background: var(--_tone);
+        border-radius: 999px;
+        transition: inline-size var(--ui-motion-duration-base, 200ms) var(--ui-motion-easing-standard, ease);
+    }
+    [ui="progress"] > progress::-moz-progress-bar { background: var(--_tone); border-radius: 999px; }
+
+    /* Indeterminate: a band sweeping across the track. */
+    [ui="progress"] > progress:indeterminate {
+        background:
+            linear-gradient(90deg, transparent, var(--_tone), transparent) no-repeat,
+            var(--_track);
+        background-size: 40% 100%, auto;
+        animation: ui-progress-sweep 1.2s var(--ui-motion-easing-standard, ease-in-out) infinite;
+    }
+    [ui="progress"] > progress:indeterminate::-webkit-progress-bar { background: transparent; }
+    [ui="progress"] > progress:indeterminate::-moz-progress-bar { background: transparent; }
+    @keyframes ui-progress-sweep {
+        from { background-position: -40% 0, 0 0; }
+        to   { background-position: 140% 0, 0 0; }
+    }
+
+    /* meter: the browser picks the segment; we colour it. */
+    [ui="meter"] > meter::-webkit-meter-bar { background: var(--_track); border: 0; border-radius: 999px; height: var(--_height); }
+    [ui="meter"] > meter::-webkit-meter-optimum-value { background: var(--ui-state-success); border-radius: 999px; }
+    [ui="meter"] > meter::-webkit-meter-suboptimum-value { background: var(--ui-state-warning); border-radius: 999px; }
+    [ui="meter"] > meter::-webkit-meter-even-less-good-value { background: var(--ui-state-danger); border-radius: 999px; }
+    [ui="meter"] > meter:-moz-meter-optimum::-moz-meter-bar { background: var(--ui-state-success); }
+    [ui="meter"] > meter:-moz-meter-sub-optimum::-moz-meter-bar { background: var(--ui-state-warning); }
+    [ui="meter"] > meter:-moz-meter-sub-sub-optimum::-moz-meter-bar { background: var(--ui-state-danger); }
+
+    @media (prefers-reduced-motion: reduce) {
+        [ui="progress"] > progress:indeterminate { animation: none; background-position: 50% 0, 0 0; }
+        [ui="progress"] > progress::-webkit-progress-value { transition: none; }
+    }
+}

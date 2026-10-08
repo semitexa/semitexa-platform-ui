@@ -7,7 +7,7 @@
 // ES module: every shared helper arrives through the import map
 // ('platform-ui/*' → fingerprinted URLs); import order guarantees both
 // modules are initialized before this runs.
-import { esc } from 'platform-ui/core';
+import { esc, mount } from 'platform-ui/core';
 import * as D from 'platform-ui/dates';
 
 (function () {
@@ -16,29 +16,9 @@ import * as D from 'platform-ui/dates';
   if (window.SemitexaUi.dateField) return;
   window.SemitexaUi.dateField = { version: 1 };
 
-  var booted = [];
-
-  function boot() {
-    var nodes = document.querySelectorAll('[data-ui-date-field]');
-    for (var i = 0; i < nodes.length; i++) init(nodes[i]);
-  }
-
-  /**
-   * Same lifecycle as the calendar's, and here the leak is the sharper half:
-   * each field puts TWO listeners on `document`, so re-booting after every
-   * swap without releasing the fields that left accumulates a pair per
-   * arrival — each one closing a popover that no longer exists, on a root no
-   * longer in the page.
-   */
-  function onNavigationCommitted() {
-    booted = booted.filter(function (entry) {
-      if (document.contains(entry.root)) return true;
-      try { entry.release(); } catch (e) { /* a teardown must not block the next one */ }
-      return false;
-    });
-
-    boot();
-  }
+  // Teardown per root; the one element lifecycle (core.mount) calls it when
+  // the root leaves the page — a navigation swap, a morph, a removal.
+  var releaseOf = new WeakMap();
 
   function init(root) {
     if (root.__dfBooted) return;
@@ -64,13 +44,10 @@ import * as D from 'platform-ui/dates';
     document.addEventListener('mousedown', onDocumentMouseDown);
     document.addEventListener('keydown', onDocumentKeyDown);
 
-    booted.push({
-      root: root,
-      release: function () {
-        close();
-        document.removeEventListener('mousedown', onDocumentMouseDown);
-        document.removeEventListener('keydown', onDocumentKeyDown);
-      }
+    releaseOf.set(root, function () {
+      close();
+      document.removeEventListener('mousedown', onDocumentMouseDown);
+      document.removeEventListener('keydown', onDocumentKeyDown);
     });
 
     function toggle() { pop ? close() : open(); }
@@ -175,8 +152,16 @@ import * as D from 'platform-ui/dates';
     }
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-  else boot();
-
-  document.addEventListener('semitexa:navigation:committed', onNavigationCommitted);
+  mount('[data-ui-date-field]', {
+    connect: function (root) {
+      init(root);
+      var release = releaseOf.get(root);
+      return {
+        destroy: function () {
+          root.__dfBooted = false;
+          if (release) { try { release(); } catch (e) { /* a teardown must not block the next one */ } }
+        }
+      };
+    }
+  });
 })();

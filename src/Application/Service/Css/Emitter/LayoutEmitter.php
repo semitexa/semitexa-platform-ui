@@ -9,7 +9,7 @@ use Semitexa\PlatformUi\Application\Service\Css\Slice\Slice;
 
 final class LayoutEmitter implements SliceEmitterInterface
 {
-    private const VALUES = ['stack', 'cluster', 'grid', 'frame'];
+    private const VALUES = ['stack', 'cluster', 'grid', 'frame', 'container'];
 
     public function attribute(): string
     {
@@ -26,8 +26,12 @@ final class LayoutEmitter implements SliceEmitterInterface
         $css = match ($value) {
             'stack' => "[sx-layout=\"stack\"] { display: flex; flex-direction: column; }",
             'cluster' => "[sx-layout=\"cluster\"] { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; }",
-            'grid' => "[sx-layout=\"grid\"] { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }",
+            // Columns wrap once a column would be narrower than --ui-grid-min
+            // (set it inline to tune; the older inline --grid-min still wins). minmax(0, 1fr) never wrapped: every
+            // child was squeezed into one row at any width.
+            'grid' => "[sx-layout=\"grid\"] { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--grid-min, var(--ui-grid-min, 16rem)), 100%), 1fr)); }",
             'frame' => "[sx-layout=\"frame\"] { display: block; }",
+            'container' => "[sx-layout=\"container\"] { display: block; width: 100%; max-width: var(--ui-container-max); margin-inline: auto; padding-inline: var(--ui-space-4); }",
             default => throw new \OutOfBoundsException("Invalid sx-layout value: {$value}"),
         };
 

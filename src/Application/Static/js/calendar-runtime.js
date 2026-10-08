@@ -1,16 +1,17 @@
 /*
  * platform.calendar runtime.
  *
- * Discovers `[data-ui-calendar]` shells, opens a held-open EventSource on the
- * events feed for the visible month range (first frame = initial events, later
- * frames = live re-runs the ORM auto-publishes on any create/update/delete),
+ * Mounts every `[data-ui-calendar]` shell (core.mount), subscribes the events
+ * feed for the visible month on the page's KISS stream (first frame = initial
+ * events, later frames = live re-runs the ORM auto-publishes on any
+ * create/update/delete),
  * and renders a month grid + selected-day agenda + a create/edit editor.
  * Mutations POST to the save/delete routes. Month-start = Monday.
  */
 // ES module: shared helpers arrive through the import map ('platform-ui/*'
 // -> fingerprinted URLs) — import order guarantees both are initialized
 // before this executes; no manual load-order contract to uphold.
-import { esc, fetchJson, openFeedChannel } from 'platform-ui/core';
+import { esc, fetchJson, openFeedChannel, mount } from 'platform-ui/core';
 import {
   WEEKDAYS, MONTHS, ymd, hm, startOfDay, addDays, startOfMonth,
   mondayIndex, gridDays, localDatetimeValue
@@ -22,34 +23,9 @@ import {
   if (window.SemitexaUi.calendar) return;
   window.SemitexaUi.calendar = { version: 1 };
 
-  // Every calendar this module has booted, so the ones a navigation removed
-  // can be let go of. See onNavigationCommitted() below.
-  var booted = [];
-
-  function boot() {
-    var nodes = document.querySelectorAll('[data-ui-calendar]');
-    for (var i = 0; i < nodes.length; i++) initCalendar(nodes[i]);
-  }
-
-  /**
-   * A shell navigation replaces a region's markup, and this module has already
-   * run: its module script will not execute again, and boot() only ever fired
-   * on DOMContentLoaded. So a calendar that ARRIVES by swap was never
-   * initialised — an inert grid with no events in it — while the calendar that
-   * LEFT kept its feed channel open against a node no longer in the document.
-   *
-   * boot() is idempotent (the per-element flag), so the whole lifecycle is:
-   * release what has detached, then boot what is here.
-   */
-  function onNavigationCommitted() {
-    booted = booted.filter(function (entry) {
-      if (document.contains(entry.root)) return true;
-      try { entry.release(); } catch (e) { /* a teardown must not block the next one */ }
-      return false;
-    });
-
-    boot();
-  }
+  // Teardown per root; the one element lifecycle (core.mount) calls it when
+  // the root leaves the page — a navigation swap, a morph, a removal.
+  var releaseOf = new WeakMap();
 
   function initCalendar(root) {
     if (root.__uicalBooted) return;
@@ -72,17 +48,14 @@ import {
     root.classList.add('uical');
     root.addEventListener('click', onClick);
     root.addEventListener('submit', onSubmit);
-    booted.push({
-      root: root,
-      release: function () {
-        // The FLAG, not just the close. An in-flight fetchJson can resolve
-        // after this calendar has been detached and released, and its
-        // continuation calls load() — which opens a NEW channel on a root
-        // nobody holds a registry entry for any more, so no later navigation
-        // can ever close it.
-        S.released = true;
-        if (S.channel) { S.channel.close(); S.channel = null; }
-      }
+    releaseOf.set(root, function () {
+      // The FLAG, not just the close. An in-flight fetchJson can resolve
+      // after this calendar has been detached and released, and its
+      // continuation calls load() — which opens a NEW channel on a root
+      // nobody holds a registry entry for any more, so no later navigation
+      // can ever close it.
+      S.released = true;
+      if (S.channel) { S.channel.close(); S.channel = null; }
     });
     render();
     load();
@@ -122,14 +95,9 @@ import {
         .catch(function () { /* leave the last render standing */ });
     }
 
-    // The transport is openFeedChannel's, not this file's. It used to hand-roll
-    // a dedicated EventSource with a `gotData` flag and a one-shot fallback, and
-    // no reconnect at all — so a stream dropped by a server restart left the
-    // calendar frozen on its last frame with no way back. openFeedChannel
-    // prefers the page's shared KISS connection, degrades to a dedicated stream
-    // with backoff, and re-reads `params` on every reopen, which is what makes
-    // the CURRENT month ride a reconnect instead of the one that was visible
-    // when the stream first opened.
+    // The transport is openFeedChannel's, not this file's: the feed rides the
+    // page's KISS stream, subscribed through HUG by name with the CURRENT
+    // month as its params; a page without a KISS session pulls once.
     function load() {
       // A released calendar opens nothing. An in-flight write can resolve
       // after this root was detached and let go of, and its continuation calls
@@ -137,28 +105,28 @@ import {
       // any more, so nothing could ever close it again.
       if (S.released) { return; }
 
+      // A month change is a view change on the live subscription.
+      if (S.channel && S.channel.mode() === 'shared') {
+        S.channel.view(rangeParamsObject());
+        return;
+      }
       if (S.channel) { try { S.channel.close(); } catch (e) { /* already gone */ } S.channel = null; }
 
-      // `data-ui-calendar-live="0"` opts out of the held-open stream and just
-      // pulls events once (used by the single-user OS calendar, where the SSE
-      // held-open loop's blocking Redis read can deadlock a Swoole worker).
-      if (root.getAttribute('data-ui-calendar-live') === '0' || typeof window.EventSource === 'undefined') {
+      // `data-ui-calendar-live="0"` opts out of the live feed and just pulls
+      // events once (the single-user OS calendar).
+      if (root.getAttribute('data-ui-calendar-live') === '0') {
         pullOnce();
         return;
       }
 
       S.channel = openFeedChannel({
-        url: endpoint,
+        feed: root.getAttribute('data-ui-calendar-feed') || 'platform-ui.calendar.events',
         params: rangeParamsObject,
         dataEvent: 'ui.collection.data',
         errorEvent: 'ui.collection.error',
         onData: applyEnvelope,
-        // A stream that errors before EVER delivering a frame cannot stream in
-        // this context (no SSE session) — pull once and stop. That is exactly
-        // what the old `gotData` flag expressed, now the channel's own
-        // vocabulary rather than a local reimplementation of it.
-        permanentPullDegrade: true,
-        onPermanentDegrade: pullOnce
+        onError: function () { /* leave the last render standing */ },
+        onPull: pullOnce
       });
     }
 
@@ -356,8 +324,16 @@ import {
     }
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-  else boot();
-
-  document.addEventListener('semitexa:navigation:committed', onNavigationCommitted);
+  mount('[data-ui-calendar]', {
+    connect: function (root) {
+      initCalendar(root);
+      var release = releaseOf.get(root);
+      return {
+        destroy: function () {
+          root.__uicalBooted = false;
+          if (release) { try { release(); } catch (e) { /* a teardown must not block the next one */ } }
+        }
+      };
+    }
+  });
 })();

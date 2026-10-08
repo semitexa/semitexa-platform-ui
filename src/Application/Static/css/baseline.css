@@ -37,6 +37,152 @@
          */
         --ui-z-component-popover: 40;
         --ui-z-component-overlay: 20;
+        /* A sticky header row inside a scrolling table: above its own cells only. */
+        --ui-z-component-sticky: 1;
+    }
+}
+
+
+/*
+ * Foundation tokens — the scales every primitive and component is built on.
+ *
+ * A skin owns colour, radius, shadow and motion (semitexa/theme TokenContract).
+ * It does not own rhythm: spacing, type scale and control heights are the same
+ * under every skin, the way a grid is the same under every paint job. Those
+ * live here.
+ *
+ * The second half derives the names components reach for (elevation, scrim,
+ * inverse surface, tone tints) from skin tokens, so one skin change restyles
+ * every overlay. Before this file existed, behaviors.css asked for
+ * --ui-elevation-*, --ui-space-*, --ui-overlay-scrim and friends that no skin
+ * defined, fell back to 26 hard-coded colours, and no skin could reach them.
+ *
+ * Everything sits in @layer platform-ui.tokens. A skin's :root is unlayered,
+ * so a skin that does define one of these names always wins.
+ */
+@layer platform-ui.tokens {
+    :root {
+        /* Spacing — a 4px grid. */
+        --ui-space-0: 0;
+        --ui-space-px: 1px;
+        --ui-space-0-5: 0.125rem;
+        --ui-space-1: 0.25rem;
+        --ui-space-1-5: 0.375rem;
+        --ui-space-2: 0.5rem;
+        --ui-space-2-5: 0.625rem;
+        --ui-space-3: 0.75rem;
+        --ui-space-3-5: 0.875rem;
+        --ui-space-4: 1rem;
+        --ui-space-5: 1.25rem;
+        --ui-space-6: 1.5rem;
+        --ui-space-8: 2rem;
+        --ui-space-10: 2.5rem;
+        --ui-space-12: 3rem;
+        --ui-space-16: 4rem;
+        --ui-space-20: 5rem;
+        --ui-space-24: 6rem;
+
+        /* Type scale — size / line-height pairs, tighter tracking as size grows. */
+        --ui-text-xs: 0.75rem;
+        --ui-text-xs-leading: 1rem;
+        --ui-text-sm: 0.875rem;
+        --ui-text-sm-leading: 1.25rem;
+        --ui-text-base: 1rem;
+        --ui-text-base-leading: 1.5rem;
+        --ui-text-lg: 1.125rem;
+        --ui-text-lg-leading: 1.75rem;
+        --ui-text-xl: 1.25rem;
+        --ui-text-xl-leading: 1.75rem;
+        --ui-text-2xl: 1.5rem;
+        --ui-text-2xl-leading: 2rem;
+        --ui-text-3xl: 1.875rem;
+        --ui-text-3xl-leading: 2.25rem;
+        --ui-text-4xl: 2.25rem;
+        --ui-text-4xl-leading: 2.5rem;
+        --ui-text-5xl: 3rem;
+        --ui-text-5xl-leading: 1.1;
+        --ui-text-6xl: 3.75rem;
+        --ui-text-6xl-leading: 1.05;
+
+        --ui-tracking-tight: -0.015em;
+        --ui-tracking-tighter: -0.025em;
+        --ui-tracking-wide: 0.04em;
+
+        --ui-font-weight-regular: 400;
+        --ui-font-weight-medium: 500;
+        --ui-font-weight-semibold: 600;
+        --ui-font-weight-bold: 700;
+
+        /* Controls — one height per size, shared by buttons, inputs, selects. */
+        --ui-control-height-sm: 2rem;
+        --ui-control-height-md: 2.375rem;
+        --ui-control-height-lg: 2.75rem;
+        --ui-control-padding-sm: 0.625rem;
+        --ui-control-padding-md: 0.875rem;
+        --ui-control-padding-lg: 1.125rem;
+
+        /* Layout. */
+        --ui-container-sm: 40rem;
+        --ui-container-md: 48rem;
+        --ui-container-lg: 64rem;
+        --ui-container-xl: 80rem;
+        --ui-container-max: var(--ui-container-lg);
+        --ui-grid-min: 16rem;
+        --ui-table-max-height: none;
+
+        /* Focus. */
+        --ui-focus-ring-width: 2px;
+        --ui-focus-ring-offset: 2px;
+
+        /* ---- Derived from the skin ---------------------------------------- */
+
+        /* Elevation — named by intent, mapped onto the skin's shadow scale. */
+        --ui-elevation-0: none;
+        --ui-elevation-1: var(--ui-shadow-sm);
+        --ui-elevation-2: var(--ui-shadow-md);
+        --ui-elevation-3: var(--ui-shadow-lg);
+
+        /* A hairline drawn as a shadow composes with elevation in one declaration. */
+        --ui-hairline: 0 0 0 1px var(--ui-border-subtle);
+
+        --ui-motion-duration-base: var(--ui-motion-duration-normal);
+        --ui-text-body: var(--ui-text-primary);
+
+        /* The surface a toast or tooltip sits on: the text colour, inverted. */
+        --ui-surface-inverse: var(--ui-text-primary);
+        --ui-text-on-inverse: var(--ui-surface-page);
+
+        /* Dims the page behind a modal; dark in both modes, deeper in dark. */
+        --ui-overlay-scrim: light-dark(rgb(15 17 26 / 0.45), rgb(0 0 0 / 0.62));
+
+        /* Tone tints for soft variants: the tone over the raised surface. */
+        --ui-tint-weak: 10%;
+        --ui-tint-strong: 18%;
+    }
+}
+
+/*
+ * Density — one intent knob instead of a hundred overrides. Put
+ * ui-density="compact" (dense admin tables, toolbars) or "comfortable" (touch,
+ * marketing) on any container; every control, card and table inside rescales
+ * because they size from these tokens, not from literals.
+ */
+@layer platform-ui.tokens {
+    [ui-density="compact"] {
+        --ui-control-height-sm: 1.75rem;
+        --ui-control-height-md: 2rem;
+        --ui-control-height-lg: 2.375rem;
+        --ui-control-padding-sm: 0.5rem;
+        --ui-control-padding-md: 0.625rem;
+        --ui-control-padding-lg: 0.875rem;
+    }
+    [ui-density="comfortable"] {
+        --ui-control-height-sm: 2.25rem;
+        --ui-control-height-md: 2.75rem;
+        --ui-control-height-lg: 3.25rem;
+        --ui-control-padding-sm: 0.75rem;
+        --ui-control-padding-md: 1rem;
+        --ui-control-padding-lg: 1.375rem;
     }
 }
 
@@ -114,4 +260,27 @@
         color: var(--ui-accent-brand, currentColor);
         text-decoration-skip-ink: auto;
     }
+
+    /*
+     * Headings get a scale. The reset zeroes their margins; until now nothing
+     * sized them, so every page fell back to user-agent defaults and had no
+     * hierarchy to speak of. :where() keeps the specificity at zero — any
+     * project rule wins.
+     */
+    /* No colour here: a heading inherits from its container (a solid alert, a hero). */
+    :where(h1, h2, h3, h4, h5, h6) {
+        font-weight: var(--ui-font-weight-semibold);
+        text-wrap: balance;
+    }
+    :where(h1) { font-size: var(--ui-text-4xl); line-height: var(--ui-text-4xl-leading); letter-spacing: var(--ui-tracking-tighter); }
+    :where(h2) { font-size: var(--ui-text-3xl); line-height: var(--ui-text-3xl-leading); letter-spacing: var(--ui-tracking-tighter); }
+    :where(h3) { font-size: var(--ui-text-2xl); line-height: var(--ui-text-2xl-leading); letter-spacing: var(--ui-tracking-tight); }
+    :where(h4) { font-size: var(--ui-text-xl); line-height: var(--ui-text-xl-leading); letter-spacing: var(--ui-tracking-tight); }
+    :where(h5) { font-size: var(--ui-text-lg); line-height: var(--ui-text-lg-leading); }
+    :where(h6) { font-size: var(--ui-text-base); line-height: var(--ui-text-base-leading); }
+
+    :where(p) { text-wrap: pretty; }
+
+    /* Figures line up in tables and stats. */
+    :where(table, [ui-component="stat"], [ui-component="table"]) { font-variant-numeric: tabular-nums; }
 }

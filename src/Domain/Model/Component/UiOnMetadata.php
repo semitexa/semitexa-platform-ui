@@ -24,6 +24,10 @@ final readonly class UiOnMetadata
         /** Final updates path: either explicit or inferred from part bind. */
         public ?UiValuePath $updatesPath,
         public string $methodName,
+        /** Client timing: wait for a pause of this many ms before sending. */
+        public ?int $debounceMs = null,
+        /** Client timing: send at most once per this many ms. */
+        public ?int $throttleMs = null,
     ) {}
 
     /** Stable composite key used to index events within one component. */

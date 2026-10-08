@@ -202,6 +202,11 @@ final class FieldComponentRenderTest extends TestCase
             ['needs_context' => true, 'is_safe' => ['html']],
         ));
 
+        // The `control: 'file'` branch (tk-la-uploads) compiles with the rest
+        // of the template: its upload context and its runtime script.
+        $this->twig->addFunction(new TwigFunction('ui_upload_context', static fn (): string => 'sc1.stub'));
+        $this->twig->addFunction(new TwigFunction('asset_require', static fn (): string => ''));
+
         // Validation rule helper used by the field template's signed
         // manifest. In the harness we wire a minimal pass-through to
         // the real parser so the render tests exercise the same code
@@ -878,4 +883,26 @@ final class FieldComponentRenderTest extends TestCase
         self::assertStringNotContainsString('FieldComponent', $json);
         self::assertStringNotContainsString('Validator', $json);
     }
+
+    #[Test]
+    public function controls_render_through_the_form_primitives_and_keep_the_input_part(): void
+    {
+        $factory = new UiPrimitiveMetadataFactory();
+        foreach ([\Semitexa\PlatformUi\Application\Service\Primitive\Builtin\SwitchPrimitive::class, \Semitexa\PlatformUi\Application\Service\Primitive\Builtin\SelectPrimitive::class, \Semitexa\PlatformUi\Application\Service\Primitive\Builtin\RadioPrimitive::class] as $class) {
+            UiPrimitiveRegistry::register($factory->fromClass($class));
+        }
+
+        $switch = $this->renderField(['label' => 'Alerts', 'name' => 'alerts', 'control' => 'switch', 'value' => '1']);
+        self::assertStringContainsString('ui="switch"', $switch);
+        self::assertMatchesRegularExpression('#<input type="checkbox" role="switch" value="1" data-ui-part="input" name="alerts"[^>]* checked#', $switch);
+
+        $select = $this->renderField(['label' => 'Status', 'name' => 'status', 'control' => 'select', 'value' => 'b', 'options' => [['value' => 'a'], ['value' => 'b']]]);
+        self::assertStringContainsString('<select ui="select" data-ui-primitive="platform.select" data-ui-part="input" name="status"', $select);
+
+        $radios = $this->renderField(['label' => 'Plan', 'name' => 'plan', 'control' => 'radio', 'value' => 'pro', 'options' => [['value' => 'free'], ['value' => 'pro']]]);
+        self::assertStringContainsString('<fieldset data-ui-part="input"', $radios);
+        self::assertSame(2, substr_count($radios, 'ui="radio"'));
+        self::assertStringContainsString('<input type="radio" value="pro" name="plan" checked>', $radios);
+    }
 }
+

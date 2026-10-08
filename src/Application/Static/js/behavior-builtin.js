@@ -1,5 +1,5 @@
 /**
- * Semitexa Platform UI — built-in behaviors: `toggle` + `dropdown`.
+ * Semitexa Platform UI — built-in behaviors (toggle, dropdown, menu, modal, …).
  *
  * The flagship proof of the behavior tier. Each registers a definition with the
  * runtime and composes the shared composables — zero bespoke focus/positioning
@@ -17,7 +17,21 @@ import {
     useDismiss,
     useInView,
     useScrollLock,
+    usePopoverPanel,
+    useMenuKeys,
 } from 'platform-ui/behaviors';
+
+// ARIA wiring: the server markup names the parts (ui-behavior-tab, -panel, …);
+// the runtime fills in the roles and id references the author would otherwise
+// have to write by hand. An attribute the author already set is never replaced.
+let sxUid = 0;
+function ensureId(node, prefix) {
+    if (!node.id) node.id = prefix + '-' + (++sxUid).toString(36) + Math.random().toString(36).slice(2, 6);
+    return node.id;
+}
+function setIfMissing(node, name, value) {
+    if (!node.hasAttribute(name)) node.setAttribute(name, value);
+}
 
 // -----------------------------------------------------------------------------
 // toggle — generic show/hide from a trigger.
@@ -67,53 +81,185 @@ registerBehavior({
         const content = ctx.role('content');
         if (!content) return {};
 
-        const togglable = useTogglable(content, { trigger, openClass: 'sx-open' });
-        let floating = null;
-        // Always return focus to the trigger on close (robust regardless of what
-        // was focused when the panel opened — e.g. a programmatic open).
-        const focus = useFocusTrap(content, { returnTo: trigger });
-        const dismiss = useDismiss(el, { onDismiss: () => close(), esc: true, outside: true });
-
-        function open() {
-            if (togglable.isOpen()) return;
-            // Reveal, position, and wire interaction SYNCHRONOUSLY — dismissal,
-            // focus trap and positioning must be live the instant the panel
-            // appears, never gated behind the reveal transition.
-            content.hidden = false;
-            floating = useFloating(trigger, content, { pos: opts.pos, offset: opts.offset, flip: opts.flip });
-            dismiss.activate();
-            focus.activate();
-            ctx.emit('open', {});
-            togglable.show(); // aria-expanded + open flag + reveal transition (fire-and-forget)
+        // A panel of [ui-behavior-item]s is a menu (WAI-ARIA menu button). Any
+        // other panel (a form, a picker) keeps its own semantics. Items of a
+        // behavior nested in the panel (an accordion) are not this menu's.
+        const ownItems = () => ctx.roles('item').filter((i) => i.closest('[ui-behavior]') === el);
+        const isMenu = ownItems().length > 0;
+        if (isMenu) {
+            setIfMissing(trigger, 'aria-haspopup', 'menu');
+            setIfMissing(content, 'role', 'menu');
+            for (const item of ownItems()) {
+                setIfMissing(item, 'role', 'menuitem');
+                setIfMissing(item, 'tabindex', '-1');
+            }
         }
-        function close() {
-            if (!togglable.isOpen()) return;
-            dismiss.release();
-            focus.release();
-            if (floating) { floating.destroy(); floating = null; }
-            ctx.emit('close', {});
-            togglable.hide(); // reverse transition, then hidden (fire-and-forget)
-        }
+        const visibleItems = () => ownItems().filter((i) => i.offsetParent !== null && !i.hasAttribute('disabled') && i.getAttribute('aria-disabled') !== 'true');
 
-        if (opts.mode === 'hover') {
-            ctx.on(el, 'mouseenter', open);
-            ctx.on(el, 'mouseleave', close);
-        } else {
-            ctx.on(trigger, 'click', (e) => { e.preventDefault(); togglable.isOpen() ? close() : open(); });
-        }
-
-        // arrow-nav: move focus among menu items inside the open panel.
-        ctx.on(content, 'keydown', (e) => {
-            if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-            const items = ctx.roles('item').filter((i) => i.offsetParent !== null);
-            if (items.length === 0) return;
-            e.preventDefault();
-            const i = items.indexOf(document.activeElement);
-            const next = e.key === 'ArrowDown' ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
-            items[next].focus();
+        // The panel is a native popover (top layer, light dismiss, Esc),
+        // anchored to the trigger; see usePopoverPanel.
+        let focusLast = false;
+        const keys = isMenu ? useMenuKeys(content, { items: visibleItems, onTab: () => panel.hide(), signal: ctx.signal }) : null;
+        const panel = usePopoverPanel(trigger, content, {
+            pos: opts.pos, offset: opts.offset, flip: opts.flip, signal: ctx.signal,
+            invoke: opts.mode === 'hover' ? 'show' : 'toggle',
+            onOpen: () => {
+                ctx.emit('open', {});
+                if (keys) { if (focusLast) keys.focusLast(); else keys.focusFirst(); }
+                focusLast = false;
+            },
+            onClose: () => {
+                ctx.emit('close', {});
+                // Focus never stays on a hidden panel or falls to <body>.
+                if (content.contains(document.activeElement) || document.activeElement === document.body) trigger.focus();
+            },
         });
 
-        return { destroy() { dismiss.release(); focus.release(); if (floating) floating.destroy(); } };
+        if (opts.mode === 'hover') {
+            ctx.on(el, 'mouseenter', () => panel.show());
+            ctx.on(el, 'mouseleave', () => panel.hide());
+        }
+        ctx.on(trigger, 'keydown', (e) => {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); focusLast = e.key === 'ArrowUp'; panel.show(); }
+        });
+        if (isMenu) {
+            ctx.on(content, 'click', (e) => {
+                const item = e.target.closest('[ui-behavior-item]');
+                if (item && content.contains(item)) panel.hide();
+            });
+        }
+
+        return { open: () => panel.show(), close: () => panel.hide(), destroy: () => panel.destroy() };
+    },
+});
+
+// -----------------------------------------------------------------------------
+// menu — a menu button on the native platform (popover + commandfor + CSS
+// anchor positioning), with submenus and checkable items.
+//
+//   <div ui-behavior="menu">
+//     <button ui-behavior-toggle>Actions</button>
+//     <div ui-behavior-content>
+//       <button ui-behavior-item>Edit</button>
+//       <button ui-behavior-item role="menuitemcheckbox" aria-checked="false">Pinned</button>
+//       <div role="group" aria-label="Sort">
+//         <button ui-behavior-item role="menuitemradio" aria-checked="true" data-value="new">Newest</button> …
+//       </div>
+//       <div ui-behavior="menu">                       ← a submenu
+//         <button ui-behavior-item ui-behavior-toggle>Share</button>
+//         <div ui-behavior-content> … </div>
+//       </div>
+//     </div>
+//   </div>
+//
+// Choosing an item emits `sx:menu:select` {value, checked, item} and closes
+// the whole menu (a checkable item keeps it open). An item that is a
+// component part (data-ui-part) also reaches its #[UiOn] handler through HUG.
+// -----------------------------------------------------------------------------
+const MENU = '[ui-behavior~="menu"]';
+function parentMenu(menuEl) {
+    return menuEl.parentElement ? menuEl.parentElement.closest(MENU) : null;
+}
+function rootMenu(menuEl) {
+    let root = menuEl;
+    for (let up = parentMenu(root); up; up = parentMenu(root)) root = up;
+    return root;
+}
+function menuApi(menuEl) {
+    const behaviors = window.SemitexaUi && window.SemitexaUi.behaviors;
+    const inst = behaviors && behaviors.instance(menuEl, 'menu');
+    return inst && inst.api ? inst.api : null;
+}
+
+registerBehavior({
+    name: 'platform.menu',
+    ui: 'menu',
+    options: [
+        { name: 'pos', type: 'enum', default: 'bottom-start', values: ['bottom-start', 'bottom-end', 'top-start', 'top-end', 'left', 'right'] },
+        { name: 'offset', type: 'number', default: 4 },
+    ],
+    connect(el, opts, ctx) {
+        const trigger = el.querySelector(':scope > [ui-behavior-toggle]');
+        const content = el.querySelector(':scope > [ui-behavior-content]');
+        if (!trigger || !content) return {};
+        const nested = parentMenu(el) !== null;
+
+        // An item belongs to the menu whose panel lists it; a submenu's trigger
+        // is an item of the menu around it.
+        const owner = (item) => {
+            const w = item.closest(MENU);
+            return item.hasAttribute('ui-behavior-toggle') && w !== null ? parentMenu(w) : w;
+        };
+        const ownItems = () => Array.prototype.filter.call(content.querySelectorAll('[ui-behavior-item]'), (i) => owner(i) === el);
+        const visibleItems = () => ownItems().filter((i) => !i.hasAttribute('disabled') && i.getAttribute('aria-disabled') !== 'true');
+
+        setIfMissing(trigger, 'aria-haspopup', 'menu');
+        setIfMissing(content, 'role', 'menu');
+        for (const item of ownItems()) {
+            setIfMissing(item, 'role', 'menuitem');
+            setIfMissing(item, 'tabindex', '-1');
+        }
+
+        let focusLast = false;
+        const keys = useMenuKeys(content, { items: visibleItems, onTab: () => panel.hide(), signal: ctx.signal });
+        const panel = usePopoverPanel(trigger, content, {
+            pos: nested && opts.pos === 'bottom-start' ? 'right' : opts.pos,
+            offset: opts.offset,
+            signal: ctx.signal,
+            onOpen: () => {
+                ctx.emit('open', {});
+                if (focusLast) keys.focusLast(); else keys.focusFirst();
+                focusLast = false;
+            },
+            onClose: () => {
+                ctx.emit('close', {});
+                if (content.contains(document.activeElement) || document.activeElement === document.body) trigger.focus();
+            },
+        });
+
+        ctx.on(trigger, 'keydown', (e) => {
+            const opensDown = !nested && (e.key === 'ArrowDown' || e.key === 'ArrowUp');
+            const opensSide = nested && (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ');
+            if (!opensDown && !opensSide) return;
+            e.preventDefault();
+            e.stopPropagation();
+            focusLast = e.key === 'ArrowUp';
+            panel.show();
+        });
+        if (nested) {
+            // ArrowLeft in a submenu goes back to its item in the parent.
+            ctx.on(content, 'keydown', (e) => {
+                if (e.key !== 'ArrowLeft') return;
+                e.preventDefault();
+                e.stopPropagation();
+                panel.hide();
+                trigger.focus();
+            });
+        }
+
+        ctx.on(content, 'click', (e) => {
+            const item = e.target.closest('[ui-behavior-item]');
+            if (!item || owner(item) !== el || item.hasAttribute('ui-behavior-toggle')) return;
+            if (item.hasAttribute('disabled') || item.getAttribute('aria-disabled') === 'true') return;
+            const role = item.getAttribute('role');
+            let checked = null;
+            if (role === 'menuitemcheckbox') {
+                checked = item.getAttribute('aria-checked') !== 'true';
+                item.setAttribute('aria-checked', String(checked));
+            } else if (role === 'menuitemradio') {
+                const group = item.closest('[role="group"]') || content;
+                group.querySelectorAll('[role="menuitemradio"]').forEach((r) => { if (owner(r) === el) r.setAttribute('aria-checked', 'false'); });
+                item.setAttribute('aria-checked', 'true');
+                checked = true;
+            }
+            ctx.emit('select', { item, value: item.getAttribute('data-value') || item.value || (item.textContent || '').trim(), checked });
+            if (role === 'menuitem' || role === null) {
+                const root = menuApi(rootMenu(el));
+                if (root) root.close(); else panel.hide();
+            }
+        });
+
+        return { open: () => panel.show(), close: () => panel.hide(), destroy: () => panel.destroy() };
     },
 });
 
@@ -130,6 +276,12 @@ registerBehavior({
             const trigger = item.querySelector('[ui-behavior-toggle]');
             const content = item.querySelector('[ui-behavior-content]');
             if (!trigger || !content) continue;
+            ensureId(trigger, 'sx-acc-t');
+            ensureId(content, 'sx-acc-p');
+            setIfMissing(trigger, 'aria-controls', content.id);
+            setIfMissing(trigger, 'aria-expanded', content.hidden ? 'false' : 'true');
+            setIfMissing(content, 'role', 'region');
+            setIfMissing(content, 'aria-labelledby', trigger.id);
             cells.push({ trigger, t: useTogglable(content, { trigger, openClass: 'sx-open' }) });
         }
         for (const cell of cells) {
@@ -142,12 +294,17 @@ registerBehavior({
             });
         }
         ctx.on(el, 'keydown', (e) => {
-            if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
             const trigs = cells.map((c) => c.trigger);
             const i = trigs.indexOf(document.activeElement);
             if (i === -1) return;
+            let n = null;
+            if (e.key === 'ArrowDown') n = (i + 1) % trigs.length;
+            else if (e.key === 'ArrowUp') n = (i - 1 + trigs.length) % trigs.length;
+            else if (e.key === 'Home') n = 0;
+            else if (e.key === 'End') n = trigs.length - 1;
+            if (n === null) return;
             e.preventDefault();
-            trigs[e.key === 'ArrowDown' ? (i + 1) % trigs.length : (i - 1 + trigs.length) % trigs.length].focus();
+            trigs[n].focus();
         });
         return {};
     },
@@ -164,6 +321,22 @@ registerBehavior({
         const tabs = ctx.roles('tab');
         const panels = ctx.roles('panel');
         if (tabs.length === 0) return {};
+        const list = ctx.role('list') || tabs[0].parentElement;
+        if (list && list !== el) setIfMissing(list, 'role', 'tablist');
+        tabs.forEach((tab, i) => {
+            setIfMissing(tab, 'role', 'tab');
+            ensureId(tab, 'sx-tab');
+            const panel = tab.getAttribute('aria-controls') ? null : panels[i];
+            if (panel) {
+                ensureId(panel, 'sx-tabpanel');
+                tab.setAttribute('aria-controls', panel.id);
+            }
+        });
+        panels.forEach((panel, i) => {
+            setIfMissing(panel, 'role', 'tabpanel');
+            setIfMissing(panel, 'tabindex', '0');
+            if (tabs[i]) setIfMissing(panel, 'aria-labelledby', tabs[i].id);
+        });
         function panelFor(i) {
             const controls = tabs[i].getAttribute('aria-controls');
             return (controls && el.querySelector('#' + controls)) || panels[i] || null;
@@ -244,25 +417,118 @@ registerBehavior({
 });
 
 // -----------------------------------------------------------------------------
+// skin-mode — light / dark / auto, on the unified contract the theme's
+// pre-paint script reads: <html data-skin-mode>, localStorage.semitexa_skin_mode.
+// -----------------------------------------------------------------------------
+const SKIN_KEY = 'semitexa_skin_mode';
+function systemSkin() {
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+registerBehavior({
+    name: 'platform.skin-mode',
+    ui: 'skin-mode',
+    options: [],
+    connect(el, opts, ctx) {
+        let stored = null;
+        try { stored = window.localStorage.getItem(SKIN_KEY); } catch (e) { stored = null; }
+        const choice = stored === 'light' || stored === 'dark' ? stored : 'auto';
+        ctx.qa('input[type="radio"]').forEach((r) => { r.checked = r.value === choice; });
+
+        function apply(value) {
+            const mode = value === 'light' || value === 'dark' ? value : systemSkin();
+            document.documentElement.setAttribute('data-skin-mode', mode);
+            try {
+                if (value === 'light' || value === 'dark') window.localStorage.setItem(SKIN_KEY, value);
+                else window.localStorage.removeItem(SKIN_KEY);
+            } catch (e) { /* storage unavailable: this page only */ }
+            ctx.emit('change', { value, mode });
+        }
+        ctx.on(el, 'change', (e) => {
+            if (e.target instanceof HTMLInputElement && e.target.type === 'radio' && e.target.checked) apply(e.target.value);
+        });
+        // Following the system means following it live.
+        if (window.matchMedia) {
+            ctx.on(window.matchMedia('(prefers-color-scheme: dark)'), 'change', () => {
+                const current = ctx.q('input[type="radio"]:checked');
+                if (!current || current.value === 'auto') document.documentElement.setAttribute('data-skin-mode', systemSkin());
+            });
+        }
+        return {};
+    },
+});
+
+// -----------------------------------------------------------------------------
+// removable — a tag (or any element) the user can remove. The remove event is
+// cancelable; focus moves to the next removable sibling, else the previous.
+// -----------------------------------------------------------------------------
+registerBehavior({
+    name: 'platform.removable',
+    ui: 'removable',
+    options: [],
+    connect(el, opts, ctx) {
+        ctx.qa('[ui-removable-trigger]').forEach((trigger) => ctx.on(trigger, 'click', (e) => {
+            e.preventDefault();
+            const event = new CustomEvent('ui-removable:remove', { bubbles: true, cancelable: true });
+            if (!el.dispatchEvent(event)) return;
+            const siblings = el.parentElement ? Array.from(el.parentElement.querySelectorAll(':scope > [ui-behavior~="removable"]')) : [];
+            const at = siblings.indexOf(el);
+            const next = siblings[at + 1] || siblings[at - 1] || null;
+            const form = el.closest('form');
+            el.remove();
+            const focusTarget = next && next.querySelector('[ui-removable-trigger]');
+            if (focusTarget) focusTarget.focus();
+            // A hidden value left with it: the form's value changed.
+            if (form) form.dispatchEvent(new Event('input', { bubbles: true }));
+        }));
+        return {};
+    },
+});
+
+// -----------------------------------------------------------------------------
 // modal — native <dialog>.showModal() (focus trap + Esc + backdrop for free)
 // plus open triggers, scroll-lock, and animated transitions.
 // -----------------------------------------------------------------------------
 registerBehavior({
     name: 'platform.modal',
     ui: 'modal',
-    options: [{ name: 'bgClose', type: 'bool', default: true }],
+    options: [{ name: 'bgClose', type: 'bool', default: true }, { name: 'urlParam', type: 'string', default: '' }],
     connect(el, opts, ctx) {
         const isDialog = typeof el.showModal === 'function';
+        // urlParam: the dialog IS the page's `?<param>` — open on load when the
+        // address has it, add it on open, drop it on close (history entry
+        // rewritten, not pushed), follow it on back/forward. A dialog is a link.
+        const param = typeof opts.urlParam === 'string' ? opts.urlParam.trim() : '';
+        const addressHasParam = () => {
+            try { return new URL(window.location.href).searchParams.has(param); } catch (e) { return false; }
+        };
+        function syncAddress(present) {
+            if (param === '' || present === addressHasParam()) return;
+            try {
+                const url = new URL(window.location.href);
+                if (present) url.searchParams.set(param, ''); else url.searchParams.delete(param);
+                window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash);
+            } catch (e) { /* an address we cannot rewrite: the dialog still works */ }
+        }
         // Share the ref-counted scroll lock so nested overlays (a dropdown/
         // offcanvas opened from within a modal) don't unlock the page early.
         const scroll = useScrollLock();
+        // Idempotent both ways: a server effect may ask for the state the
+        // dialog is already in (showModal() on an open dialog throws, and a
+        // second lock/unlock would unbalance the shared scroll lock).
+        let isOpen = isDialog ? el.open : el.hasAttribute('open');
         function open() {
+            if (isOpen) return;
+            isOpen = true;
             if (isDialog) el.showModal(); else { el.hidden = false; el.setAttribute('open', ''); }
+            syncAddress(true);
             scroll.lock();
             requestAnimationFrame(() => el.classList.add('sx-open'));
             ctx.emit('open', {});
         }
         function close() {
+            if (!isOpen) return;
+            isOpen = false;
+            syncAddress(false);
             el.classList.remove('sx-open');
             setTimeout(() => {
                 if (isDialog) el.close(); else { el.hidden = true; el.removeAttribute('open'); }
@@ -282,8 +548,21 @@ registerBehavior({
         if (isDialog) {
             ctx.on(el, 'cancel', (e) => { e.preventDefault(); close(); }); // Esc
             if (opts.bgClose) ctx.on(el, 'click', (e) => { if (e.target === el) close(); }); // backdrop
+            // Closed natively (<form method="dialog">, dialog.close()): settle the state.
+            ctx.on(el, 'close', () => {
+                if (!isOpen) return;
+                isOpen = false;
+                syncAddress(false);
+                el.classList.remove('sx-open');
+                scroll.unlock();
+                ctx.emit('close', {});
+            });
         }
-        return { open, close, destroy() { scroll.unlock(); } };
+        if (param !== '') {
+            ctx.on(window, 'popstate', () => { if (addressHasParam()) open(); else close(); });
+            if (addressHasParam()) open();
+        }
+        return { open, close, destroy() { if (isOpen) scroll.unlock(); } };
     },
 });
 
@@ -346,27 +625,96 @@ registerBehavior({
 function ensureToastRegion(pos) {
     const id = 'sx-toast-region-' + pos;
     let region = document.getElementById(id);
+    // A modal <dialog> makes everything outside it inert — a toast there would
+    // show but its close button would not work. Host the region in the
+    // topmost open modal, else in <body>.
+    const modals = document.querySelectorAll('dialog[open]');
+    let host = document.body;
+    for (const d of modals) { if (d.matches(':modal')) host = d; }
+    if (region && region.parentNode !== host) { region.remove(); region = null; }
     if (!region) {
         region = document.createElement('div');
         region.id = id;
         region.className = 'sx-toast-region sx-toast-' + pos;
         region.setAttribute('aria-live', 'polite');
         region.setAttribute('role', 'status');
-        document.body.appendChild(region);
+        region.setAttribute('popover', 'manual');
+        host.appendChild(region);
+    }
+    // Top layer, and topmost: re-showing moves it above a dialog opened since.
+    if (typeof region.showPopover === 'function') {
+        try {
+            if (region.matches(':popover-open')) region.hidePopover();
+            region.showPopover();
+        } catch (e) { /* not connected yet, or popover unsupported: stays a fixed layer */ }
     }
     return region;
 }
+// Lucide-shaped status glyphs (static markup, never user input).
+const TOAST_ICONS = {
+    info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
+    success: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+    warning: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4M12 17h.01"/>',
+    danger: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>',
+};
 function showToast(message, o) {
     o = o || {};
+    const status = TOAST_ICONS[o.status] ? o.status : 'info';
     const region = ensureToastRegion(o.pos || 'top-end');
     const t = document.createElement('div');
-    t.className = 'sx-toast sx-toast-status-' + (o.status || 'info');
-    t.textContent = message;
+    t.className = 'sx-toast sx-toast-status-' + status;
+    t.setAttribute('ui-tone', status);
+    // Errors interrupt; everything else waits its turn in the polite region.
+    if (status === 'danger') t.setAttribute('role', 'alert');
+
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('class', 'sx-toast-icon');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML = TOAST_ICONS[status];
+
+    const body = document.createElement('div');
+    body.className = 'sx-toast-body';
+    if (o.title) {
+        const title = document.createElement('div');
+        title.className = 'sx-toast-title';
+        title.textContent = String(o.title);
+        body.appendChild(title);
+    }
+    const text = document.createElement('div');
+    text.className = 'sx-toast-message';
+    text.textContent = String(message);
+    body.appendChild(text);
+
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'sx-toast-close';
+    close.setAttribute('aria-label', o.closeLabel || 'Dismiss');
+    close.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+
+    t.append(icon, body, close);
     region.appendChild(t);
     requestAnimationFrame(() => t.classList.add('sx-open'));
-    const remove = () => { t.classList.remove('sx-open'); setTimeout(() => { if (t.parentNode) t.remove(); }, 200); };
+
+    let timer = null;
+    let hovered = false;
+    const remove = () => {
+        clearTimeout(timer);
+        t.classList.remove('sx-open');
+        setTimeout(() => { if (t.parentNode) t.remove(); }, 200);
+    };
     const timeout = (o.timeout == null) ? 4000 : o.timeout;
-    if (timeout > 0) setTimeout(remove, timeout);
+    // Reading a toast must not race its timer: it waits while hovered or focused.
+    const arm = () => {
+        clearTimeout(timer);
+        if (timeout > 0 && !hovered && !t.contains(document.activeElement)) timer = setTimeout(remove, timeout);
+    };
+    arm();
+    t.addEventListener('mouseenter', () => { hovered = true; clearTimeout(timer); });
+    t.addEventListener('mouseleave', () => { hovered = false; arm(); });
+    t.addEventListener('focusin', () => clearTimeout(timer));
+    t.addEventListener('focusout', () => setTimeout(arm, 0));
+    // Clicking the toast dismisses it, as before; the close button is the accessible way.
     t.addEventListener('click', remove);
     return remove;
 }
@@ -376,12 +724,13 @@ registerBehavior({
     ui: 'toast',
     options: [
         { name: 'message', type: 'string' },
+        { name: 'title', type: 'string' },
         { name: 'status', type: 'enum', default: 'info', values: ['info', 'success', 'warning', 'danger'] },
         { name: 'pos', type: 'enum', default: 'top-end', values: ['top-end', 'top-start', 'bottom-end', 'bottom-start'] },
         { name: 'timeout', type: 'number', default: 4000 },
     ],
     connect(el, opts, ctx) {
-        ctx.on(el, 'click', () => showToast(opts.message || (el.textContent || '').trim(), { status: opts.status, pos: opts.pos, timeout: opts.timeout }));
+        ctx.on(el, 'click', () => showToast(opts.message || (el.textContent || '').trim(), { title: opts.title, status: opts.status, pos: opts.pos, timeout: opts.timeout }));
         return {};
     },
 });

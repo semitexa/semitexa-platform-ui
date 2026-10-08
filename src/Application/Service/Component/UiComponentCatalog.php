@@ -8,6 +8,7 @@ use ReflectionClass;
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Discovery\ClassDiscovery;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
 use Semitexa\PlatformUi\Attribute\HandlesUiEvent;
 use Semitexa\PlatformUi\Attribute\UiPart;
 use Semitexa\PlatformUi\Attribute\UiSlot;
@@ -16,6 +17,7 @@ use Semitexa\PlatformUi\Domain\Exception\UiComponentRegistryException;
 use Semitexa\PlatformUi\Domain\Model\Component\UiComponentMetadata;
 use Semitexa\PlatformUi\Domain\Model\Component\UiExternalHandlerMetadata;
 use Semitexa\PlatformUi\Domain\Model\Component\UiOnMetadata;
+use Semitexa\Ssr\Attribute\AsComponent;
 
 /**
  * The Platform UI component catalog: which classes declare #[UiPart]/#[UiSlot],
@@ -104,12 +106,21 @@ final class UiComponentCatalog
     {
         $factory = $this->factory ?? new UiComponentMetadataFactory();
 
-        // A Platform UI component is any class that declares at least one
-        // #[UiPart] or #[UiSlot]. Components without parts/slots remain
-        // plain SSR components and stay out of this registry.
+        // A Platform UI component is a class that declares at least one
+        // #[UiPart] or #[UiSlot], or an #[AsUiContract] on an #[AsComponent]
+        // (a sign-in form, a page block: props only, and still in the catalog).
+        // Components with none of these remain plain SSR components and stay
+        // out of this registry. A contract also sits on primitives, so it
+        // counts only next to #[AsComponent].
+        $contracted = array_filter(
+            $this->classDiscovery->findClassesWithAttribute(AsUiContract::class),
+            static fn (string $class): bool => class_exists($class)
+                && (new ReflectionClass($class))->getAttributes(AsComponent::class) !== [],
+        );
         $candidates = array_unique(array_merge(
             $this->classDiscovery->findClassesWithAttribute(UiPart::class),
             $this->classDiscovery->findClassesWithAttribute(UiSlot::class),
+            $contracted,
         ));
 
         foreach ($candidates as $class) {

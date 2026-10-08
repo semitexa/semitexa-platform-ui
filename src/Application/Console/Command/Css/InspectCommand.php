@@ -69,7 +69,7 @@ final class InspectCommand extends Command
                     'bytes' => $bundle->byteSize(),
                     'gzip_bytes' => $bundle->gzipSize(),
                 ],
-            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), OutputInterface::OUTPUT_RAW);
             return Command::SUCCESS;
         }
 

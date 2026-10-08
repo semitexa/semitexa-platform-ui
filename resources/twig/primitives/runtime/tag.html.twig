@@ -1,0 +1,10 @@
+{#- platform.tag — text, tone, removable, name (+ value): a hidden form value that goes with the tag. -#}
+{%- set _text = text|default('') -%}
+<span ui="{{ _primitive.ui }}" data-ui-primitive="{{ _primitive.name }}"
+{%- if tone|default(null) %} ui-tone="{{ tone }}"{% endif -%}
+{%- if removable|default(false) %} ui-behavior="removable"{% endif -%}
+>
+<span ui-tag-text>{{ _text }}</span>
+{%- if name|default(null) %}<input type="hidden" name="{{ name }}[]" value="{{ value|default(_text) }}">{% endif -%}
+{%- if removable|default(false) %}<button type="button" ui-removable-trigger aria-label="Remove {{ _text }}">{{ icon('x', {size: 12}) }}</button>{% endif -%}
+</span>

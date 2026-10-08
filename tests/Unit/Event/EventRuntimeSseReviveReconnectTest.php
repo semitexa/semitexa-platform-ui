@@ -87,12 +87,11 @@ final class EventRuntimeSseReviveReconnectTest extends TestCase
             $code,
             'event-runtime.js must emit semitexa:ui-sse:reconnected when a stream re-establishes.',
         );
-        // Gated so the INITIAL connect does not emit (prevTs !== 0) and a
-        // sub-gap flap is ignored (>= SSE_RECONNECT_MIN_GAP_MS).
-        self::assertMatchesRegularExpression(
-            '/prevTs\s*!==\s*0\s*&&\s*\(\s*nowTs\s*-\s*prevTs\s*\)\s*>=\s*SSE_RECONNECT_MIN_GAP_MS/',
-            $code,
-            'the reconnect signal must skip the initial connect and sub-gap flaps.',
-        );
+        // Gated only so the INITIAL connect does not emit (prevTs !== 0). It
+        // used to skip a reconnect within two seconds of the previous connect
+        // too, but the server drops a connection's feed subscriptions with it,
+        // so a quick flap left every feed unsubscribed (tk-ls-replay).
+        self::assertMatchesRegularExpression('/if \(prevTs !== 0\) \{/', $code, 'every later connect is a reconnect.');
+        self::assertStringNotContainsString('SSE_RECONNECT_MIN_GAP_MS', $code);
     }
 }

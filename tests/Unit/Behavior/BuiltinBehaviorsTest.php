@@ -8,7 +8,9 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\AccordionBehavior;
 use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\DropdownBehavior;
+use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\MenuBehavior;
 use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\ModalBehavior;
+use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\RemovableBehavior;
 use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\OffcanvasBehavior;
 use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\ScrollspyBehavior;
 use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\StickyBehavior;
@@ -56,8 +58,32 @@ final class BuiltinBehaviorsTest extends TestCase
         self::assertSame(4, $offset->default);
 
         // The a11y capability manifest the showcase will assert against.
-        self::assertTrue($dropdown->declaresA11y('focus-trap'));
+        // A menu is not a focus trap (WAI-ARIA menu button): Tab leaves it.
+        self::assertFalse($dropdown->declaresA11y('focus-trap'));
+        self::assertTrue($dropdown->declaresA11y('menu-roles'));
         self::assertTrue($dropdown->declaresA11y('esc-dismiss'));
+    }
+
+    #[Test]
+    public function menu_and_removable_declare_their_identity_and_a11y(): void
+    {
+        $factory = new UiBehaviorMetadataFactory();
+        UiBehaviorRegistry::register($factory->fromClass(MenuBehavior::class));
+        UiBehaviorRegistry::register($factory->fromClass(RemovableBehavior::class));
+
+        $menu = UiBehaviorRegistry::getByUi('menu');
+        self::assertNotNull($menu);
+        self::assertSame('platform.menu', $menu->name);
+        self::assertSame('bottom-start', $menu->option('pos')?->default);
+        // A menu, like the dropdown, is not a focus trap: Tab leaves it.
+        self::assertFalse($menu->declaresA11y('focus-trap'));
+        foreach (['menu-roles', 'arrow-nav', 'typeahead', 'esc-dismiss', 'focus-return'] as $capability) {
+            self::assertTrue($menu->declaresA11y($capability), $capability);
+        }
+
+        $removable = UiBehaviorRegistry::getByUi('removable');
+        self::assertNotNull($removable);
+        self::assertTrue($removable->declaresA11y('focus-management'));
     }
 
     #[Test]

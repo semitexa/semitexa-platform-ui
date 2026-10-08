@@ -411,6 +411,25 @@ final class UiComponentMetadataFactory
                 ));
             }
 
+            foreach (['debounce' => $on->debounce, 'throttle' => $on->throttle] as $option => $ms) {
+                if ($ms !== null && ($ms < 1 || $ms > 10000)) {
+                    throw new UiComponentRegistryException(sprintf(
+                        'Component %s method %s declares #[UiOn(%s: %d)]; expected 1..10000 ms.',
+                        $class,
+                        $method->getName(),
+                        $option,
+                        $ms,
+                    ));
+                }
+            }
+            if ($on->debounce !== null && $on->throttle !== null) {
+                throw new UiComponentRegistryException(sprintf(
+                    'Component %s method %s declares both debounce and throttle; choose one.',
+                    $class,
+                    $method->getName(),
+                ));
+            }
+
             $events[$key] = new UiOnMetadata(
                 componentName: $componentName,
                 class: $class,
@@ -418,6 +437,8 @@ final class UiComponentMetadataFactory
                 eventName: $eventName,
                 updatesPath: $updatesPath,
                 methodName: $method->getName(),
+                debounceMs: $on->debounce,
+                throttleMs: $on->throttle,
             );
         }
 

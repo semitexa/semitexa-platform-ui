@@ -186,29 +186,43 @@ final class UiCoreAssetTest extends TestCase
     }
 
     #[Test]
-    public function feed_consumers_never_open_their_own_event_source(): void
+    public function no_feed_opens_its_own_event_source(): void
     {
-        // The feed transport (shared KISS subscribe → dedicated EventSource
-        // degrade with backoff) lives ONLY in core.openFeedChannel. The two
-        // feed consumers must never grow a private copy back. (event-runtime
-        // owns the shared KISS connection itself and calendar-runtime's
-        // reopen-per-range stream predates the canonical envelope — both are
-        // pinned by their own tests.)
+        // verify:accept-test-change ui-core no longer owns a dedicated EventSource at all: every feed rides the page's one KISS stream (feeds design step 6)
+        // Frames travel only on KISS, the page's one stream, which
+        // event-runtime owns. A feed runtime — or the shared channel itself —
+        // that opens a stream of its own is a second door.
         $jsDir = \dirname(self::CORE_PATH);
-        foreach (['grid-runtime-v2.js', 'form-collab-runtime.js'] as $file) {
-            $source = (string) file_get_contents($jsDir . '/' . $file);
+        foreach (['ui-core.js', 'grid-runtime-v2.js', 'form-collab-runtime.js', 'calendar-runtime.js'] as $file) {
             self::assertStringNotContainsString(
                 'new EventSource(',
-                $source,
-                "{$file} must open live feeds via SemitexaUi.core.openFeedChannel only.",
+                (string) file_get_contents($jsDir . '/' . $file),
+                "{$file} must take live feeds from SemitexaUi.core.openFeedChannel, which rides KISS.",
             );
         }
+        self::assertStringContainsString('mgr.subscribe({ feed: opts.feed, patches:', self::coreSource());
+    }
 
-        self::assertSame(
-            1,
-            substr_count(self::coreSource(), 'new EventSource('),
-            'ui-core.js must construct the dedicated EventSource in exactly one place (openFeedChannel).',
-        );
+    #[Test]
+    public function every_feature_runtime_boots_through_the_one_element_lifecycle(): void
+    {
+        // tk-cm-client-core: one MutationObserver, one boot, one teardown rule.
+        // Each runtime used to carry its own (five observers, three different
+        // re-scan events), so a deferred block booted a grid but not a calendar.
+        self::assertSame(1, substr_count(self::coreSource(), 'new MutationObserver('));
+        $jsDir = \dirname(self::CORE_PATH);
+        foreach ([
+            'grid-runtime-v2.js' => "mount('[data-ui-grid-v2]'",
+            'form-collab-runtime.js' => 'mount(MANIFEST_SELECTOR',
+            'calendar-runtime.js' => "mount('[data-ui-calendar]'",
+            'date-field-runtime.js' => "mount('[data-ui-date-field]'",
+            'event-runtime.js' => "mount('script[type=\"application/json\"][data-ui-event-manifest]'",
+        ] as $file => $mountCall) {
+            $source = (string) file_get_contents($jsDir . '/' . $file);
+            self::assertStringContainsString($mountCall, $source, "{$file} must boot through core.mount");
+            self::assertStringNotContainsString('new MutationObserver(', $source, "{$file} must not observe the DOM itself");
+            self::assertStringNotContainsString('semitexa:navigation:committed', $source, "{$file} must not re-scan on its own events");
+        }
     }
 
     #[Test]

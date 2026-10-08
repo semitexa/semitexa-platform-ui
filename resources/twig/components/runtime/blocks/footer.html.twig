@@ -1,0 +1,30 @@
+{#- platform.block-footer — props: brand, tagline, columns [{title, links [{label, href}]}], legal, links. -#}
+{{- asset_require('platform-ui:css:blocks') -}}
+<footer data-ui-component="platform.block-footer" ui-block="footer">
+    <div ui-block-inner>
+        {%- if (brand ?? '') != '' or (tagline ?? '') != '' %}
+        <div ui-footer-brand>
+            {%- if (brand ?? '') != '' %}<p ui-footer-name>{{ brand }}</p>{% endif %}
+            {%- if (tagline ?? '') != '' %}<p ui-footer-tagline>{{ tagline }}</p>{% endif %}
+        </div>
+        {%- endif %}
+        {%- for column in columns ?? [] %}
+        <nav ui-footer-column aria-label="{{ column.title }}">
+            <h2 ui-footer-heading>{{ column.title }}</h2>
+            <ul role="list">
+                {%- for link in column.links ?? [] %}{% set _href = ui_href(link.href ?? '') %}{% if _href %}<li><a href="{{ _href }}">{{ link.label }}</a></li>{% endif %}{% endfor %}
+            </ul>
+        </nav>
+        {%- endfor %}
+        {%- if (legal ?? '') != '' or (links ?? [])|length > 0 %}
+        <div ui-footer-bottom>
+            {%- if (legal ?? '') != '' %}<p ui-footer-legal>{{ legal }}</p>{% endif %}
+            {%- if (links ?? [])|length > 0 %}
+            <ul ui-footer-links role="list">
+                {%- for link in links %}{% set _href = ui_href(link.href ?? '') %}{% if _href %}<li><a href="{{ _href }}">{{ link.label }}</a></li>{% endif %}{% endfor %}
+            </ul>
+            {%- endif %}
+        </div>
+        {%- endif %}
+    </div>
+</footer>

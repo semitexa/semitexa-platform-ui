@@ -1,0 +1,40 @@
+@layer platform-ui.primitives {
+    /* The badge's tone mechanics, as a chip that can be removed. */
+    [ui="tag"] {
+        --_tone: var(--ui-text-muted);
+        display: inline-flex;
+        align-items: center;
+        gap: var(--ui-space-1);
+        min-height: 1.625rem;
+        padding: 0 var(--ui-space-2-5);
+        border-radius: var(--ui-radius-md, 0.5rem);
+        font-size: var(--ui-text-xs);
+        font-weight: var(--ui-font-weight-medium);
+        line-height: 1;
+        white-space: nowrap;
+        background: color-mix(in oklab, var(--_tone) 12%, var(--ui-surface-raised));
+        color: color-mix(in oklab, var(--_tone) 80%, var(--ui-text-primary));
+        border: 1px solid color-mix(in oklab, var(--_tone) 22%, transparent);
+    }
+    [ui="tag"][ui-tone="brand"]   { --_tone: var(--ui-accent-brand); }
+    [ui="tag"][ui-tone="info"]    { --_tone: var(--ui-state-info); }
+    [ui="tag"][ui-tone="success"] { --_tone: var(--ui-state-success); }
+    [ui="tag"][ui-tone="warning"] { --_tone: var(--ui-state-warning); }
+    [ui="tag"][ui-tone="danger"]  { --_tone: var(--ui-state-danger); }
+    [ui="tag"] > [ui-removable-trigger] {
+        display: inline-grid;
+        place-items: center;
+        width: 1.125rem;
+        height: 1.125rem;
+        margin-inline-end: calc(var(--ui-space-1) * -1);
+        padding: 0;
+        border: 0;
+        border-radius: 50%;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        opacity: 0.7;
+    }
+    [ui="tag"] > [ui-removable-trigger]:hover { opacity: 1; background: color-mix(in oklab, var(--_tone) 18%, transparent); }
+    [ui="tag"] > [ui-removable-trigger]:focus-visible { outline: none; opacity: 1; box-shadow: 0 0 0 2px var(--ui-focus-ring); }
+}

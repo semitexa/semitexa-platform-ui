@@ -91,7 +91,7 @@ final class RebuildSkinCommand extends Command
                     'slug' => $slug,
                     'manifest' => $manifestPath,
                     'bytes' => strlen($css),
-                ], JSON_PRETTY_PRINT));
+                ], JSON_PRETTY_PRINT), OutputInterface::OUTPUT_RAW);
             } else {
                 $output->writeln("<comment>Dry-run rebuild of '{$slug}'. Pass --write to persist.</comment>");
                 $output->writeln('');
@@ -112,7 +112,7 @@ final class RebuildSkinCommand extends Command
                 'slug' => $slug,
                 'tokens_css' => $tokensPath,
                 'bytes' => strlen($css),
-            ], JSON_PRETTY_PRINT));
+            ], JSON_PRETTY_PRINT), OutputInterface::OUTPUT_RAW);
         } else {
             $output->writeln("<info>Rebuilt '{$slug}'</info> → {$tokensPath} (" . strlen($css) . ' bytes)');
         }
@@ -124,7 +124,7 @@ final class RebuildSkinCommand extends Command
         $slugs = $discovery->availableSlugs();
         if ($slugs === []) {
             if ($asJson) {
-                $output->writeln((string) json_encode(['artifact' => 'semitexa.skins-base.skin-rebuild/v1', 'status' => 'noop', 'slugs' => []], JSON_PRETTY_PRINT));
+                $output->writeln((string) json_encode(['artifact' => 'semitexa.skins-base.skin-rebuild/v1', 'status' => 'noop', 'slugs' => []], JSON_PRETTY_PRINT), OutputInterface::OUTPUT_RAW);
             } else {
                 $output->writeln('<comment>No skins discovered.</comment>');
             }
@@ -166,7 +166,7 @@ final class RebuildSkinCommand extends Command
                 'status' => $failures === 0 ? ($write ? 'written' : 'dry-run') : 'partial',
                 'failures' => $failures,
                 'results' => $results,
-            ], JSON_PRETTY_PRINT));
+            ], JSON_PRETTY_PRINT), OutputInterface::OUTPUT_RAW);
         } else {
             foreach ($results as $slug => $r) {
                 $verb = match ($r['status']) {
@@ -194,7 +194,7 @@ final class RebuildSkinCommand extends Command
                 'artifact' => 'semitexa.skins-base.skin-rebuild/v1',
                 'status' => 'error',
                 'error' => $message,
-            ], JSON_PRETTY_PRINT));
+            ], JSON_PRETTY_PRINT), OutputInterface::OUTPUT_RAW);
         } else {
             $output->writeln("<error>{$message}</error>");
         }

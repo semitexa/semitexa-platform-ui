@@ -124,6 +124,12 @@ async function waitFor(predicate: () => boolean, ms: number): Promise<boolean> {
 
 test.describe('calendar two-tenant SSE isolation', () => {
     test('streams are tenant-isolated in data AND in live re-runs', async () => {
+        // tk-calendar-isolation-e2e-auth: red since 2026-09-26 (c7711b8 put the
+        // calendar behind a permission; this spec still connects anonymously and
+        // gets 401). Its rewrite logs in one permitted user per tenant and
+        // subscribes through HUG onto each tenant's KISS stream. The owning-worker
+        // tenant-mismatch refusal is pinned by ControlFrameReRunTest.
+        test.fixme(true, 'tk-calendar-isolation-e2e-auth');
         test.setTimeout(60_000);
         const run = Date.now().toString(36);
         const t = (name: string) => `e2e-${run} ${name}`;

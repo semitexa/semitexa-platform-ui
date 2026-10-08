@@ -1,0 +1,20 @@
+{#- platform.block-faq — props: title, lead, items [{question, answer}], exclusive, group, open (1-based).
+    Native <details name>: the browser keeps one open; find-in-page opens a match. -#}
+{{- asset_require('platform-ui:css:blocks') -}}
+{%- set _exclusive = exclusive ?? true -%}
+{%- set _group = (group ?? '') != '' ? group : 'faq' -%}
+<section data-ui-component="platform.block-faq" ui-block="faq">
+    <div ui-block-inner>
+        {{ include('@platform-ui/components/runtime/blocks/_head.html.twig', {title: title ?? 'Frequently asked questions', lead: lead ?? ''}, with_context = false) }}
+        <div ui-faq-list>
+            {%- for item in items ?? [] %}
+            <details ui-faq-item{% if _exclusive %} name="{{ _group }}"{% endif %}{% if (open ?? 0) == loop.index %} open{% endif %}>
+                <summary ui-faq-question><span>{{ item.question }}</span>{{ icon('chevron-down', {size: 18, class: 'ui-faq-chevron'}) }}</summary>
+                <div ui-faq-answer>
+                    {%- for para in item.answer|replace({"\r\n": "\n"})|split("\n\n") %}{% if para|trim != '' %}<p>{{ para|trim }}</p>{% endif %}{% endfor -%}
+                </div>
+            </details>
+            {%- endfor %}
+        </div>
+    </div>
+</section>

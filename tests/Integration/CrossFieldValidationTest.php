@@ -9,8 +9,7 @@ use PHPUnit\Framework\TestCase;
 use Semitexa\Core\Request;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\PlatformUi\Application\Component\Builtin\FieldComponent;
-use Semitexa\PlatformUi\Application\Handler\PayloadHandler\UiDispatchHandler;
-use Semitexa\PlatformUi\Application\Payload\Request\UiDispatchPayload;
+use Semitexa\PlatformUi\Tests\Support\HugDispatch;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentMetadataFactory;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
 use Semitexa\Ssr\Application\Service\UiEvent\SignedContext;
@@ -108,20 +107,7 @@ final class CrossFieldValidationTest extends TestCase
             'payload'    => $payload,
         ], JSON_THROW_ON_ERROR);
 
-        $request = new Request(
-            method: 'POST',
-            uri: '/__ui/dispatch',
-            headers: [],
-            query: [],
-            post: [],
-            server: [],
-            cookies: [],
-            content: $body,
-            files: [],
-        );
-        $handler  = (new UiDispatchHandler())->withRequest($request);
-        $resource = new ResourceResponse();
-        return $handler->handle(new UiDispatchPayload(), $resource);
+        return (new HugDispatch())->sendLegacy($body);
     }
 
     /** @return array<string, mixed> */
@@ -319,13 +305,13 @@ final class CrossFieldValidationTest extends TestCase
     }
 
     #[Test]
-    public function tampered_ctx_returns_403_invalid_signed_ctx(): void
+    public function tampered_ctx_is_refused_at_hug(): void
     {
         $tampered = $this->confirmCtx() . 'xx';
         $resp = $this->post($tampered, ['value' => 'abcd']);
-        self::assertSame(403, $resp->getStatusCode());
+        self::assertSame(422, $resp->getStatusCode());
         $data = $this->decode($resp);
-        self::assertSame('invalid_signed_ctx', $data['reason']);
+        self::assertArrayHasKey('signedContext', $data['context']['errors'], 'HUG refuses the tampered signed context');
     }
 
     #[Test]

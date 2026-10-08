@@ -28,6 +28,6 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
     options: [
         new UiBehaviorOption('multiple', UiOptionType::Bool, default: false, description: 'Allow more than one section open at once.'),
     ],
-    a11y: ['aria-expanded', 'arrow-nav'],
+    a11y: ['aria-expanded', 'aria-controls', 'region-roles', 'arrow-nav'],
 )]
 final class AccordionBehavior {}

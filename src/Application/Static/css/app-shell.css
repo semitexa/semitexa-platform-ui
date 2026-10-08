@@ -1,0 +1,255 @@
+/*
+ * @platform-ui/layouts/app-shell — tokens only, light and dark.
+ * The shell answers to its own width (a container query on <body>), so the
+ * same layout works in a full window, a split view or an embedded frame.
+ */
+
+/* Cross-document view transitions are opted into by the layout
+   (appViewTransitions), not here: both documents must opt in, and a page that
+   links outside the app would otherwise end in a skipped transition. */
+
+@layer platform-ui.primitives {
+    @scope ([ui-app-shell]) {
+        :scope {
+            --app-topbar-height: 3.5rem;
+            --app-sidebar-width: 16rem;
+            --app-rail-width: 3.75rem;
+            container: app / inline-size;
+            margin: 0;
+            min-height: 100dvh;
+            background: var(--ui-surface-page);
+            color: var(--ui-text-primary);
+        }
+        [ui-app-frame] {
+            min-height: 100dvh;
+            display: grid;
+            grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);
+            grid-template-rows: var(--app-topbar-height) minmax(0, 1fr);
+            grid-template-areas: "topbar topbar" "sidebar main";
+        }
+        :root[data-app-sidebar="collapsed"] & [ui-app-frame] { grid-template-columns: var(--app-rail-width) minmax(0, 1fr); }
+
+        [ui-app-skip] {
+            position: absolute;
+            inset-inline-start: var(--ui-space-3);
+            top: -3rem;
+            z-index: var(--ui-z-tooltip);
+            padding: var(--ui-space-2) var(--ui-space-3);
+            background: var(--ui-surface-raised);
+            border-radius: var(--ui-radius-md, 0.5rem);
+            box-shadow: var(--ui-elevation-2);
+        }
+        [ui-app-skip]:focus { top: var(--ui-space-2); }
+
+        /* ---- top bar ---- */
+        [ui-app-topbar] {
+            grid-area: topbar;
+            position: sticky;
+            top: 0;
+            z-index: var(--ui-z-component-overlay);
+            display: flex;
+            align-items: center;
+            gap: var(--ui-space-3);
+            padding: 0 var(--ui-space-4);
+            background: var(--ui-surface-raised);
+            border-bottom: 1px solid var(--ui-border-subtle);
+            view-transition-name: app-topbar;
+        }
+        [ui-app-brand] { font-weight: 600; letter-spacing: -0.01em; color: var(--ui-text-primary); text-decoration: none; white-space: nowrap; }
+        [ui-app-topbar-center] { flex: 1; display: flex; justify-content: center; min-width: 0; }
+        [ui-app-topbar-end] { display: flex; align-items: center; gap: var(--ui-space-2); }
+        [ui-app-menu] {
+            display: none;
+            place-items: center;
+            width: 2.25rem;
+            height: 2.25rem;
+            padding: 0;
+            border: 0;
+            border-radius: var(--ui-radius-md, 0.5rem);
+            background: transparent;
+            color: inherit;
+            cursor: pointer;
+        }
+        [ui-app-menu]:hover { background: var(--ui-surface-panel); }
+
+        /* ---- sidebar: a static column on a wide shell (the popover attribute
+           is overridden), a drawer on a narrow one ---- */
+        [ui-app-sidebar] {
+            grid-area: sidebar;
+            position: sticky;
+            top: var(--app-topbar-height);
+            height: calc(100dvh - var(--app-topbar-height));
+            inset: auto;
+            margin: 0;
+            width: auto;
+            display: flex;
+            flex-direction: column;
+            gap: var(--ui-space-1);
+            padding: var(--ui-space-3) var(--ui-space-2);
+            overflow-y: auto;
+            color: inherit;
+            background: var(--ui-surface-raised);
+            border: 0;
+            border-inline-end: 1px solid var(--ui-border-subtle);
+            view-transition-name: app-sidebar;
+        }
+        [ui-app-nav-group] > summary {
+            list-style: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: var(--ui-space-2) var(--ui-space-2-5) var(--ui-space-1);
+            font-size: var(--ui-text-xs);
+            font-weight: var(--ui-font-weight-medium);
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--ui-text-muted);
+            cursor: pointer;
+            border-radius: var(--ui-radius-sm, 0.25rem);
+        }
+        [ui-app-nav-group] > summary::-webkit-details-marker { display: none; }
+        [ui-app-nav-group] > summary::after {
+            content: "";
+            width: 0.375rem;
+            height: 0.375rem;
+            border-right: 1.5px solid currentColor;
+            border-bottom: 1.5px solid currentColor;
+            rotate: -45deg;
+            transition: rotate var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease);
+        }
+        [ui-app-nav-group][open] > summary::after { rotate: 45deg; }
+        [ui-app-nav-group] > summary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ui-focus-ring); }
+        [ui-app-nav-group] ul { list-style: none; margin: 0 0 var(--ui-space-2); padding: 0; display: grid; gap: 1px; }
+
+        [ui-app-nav-link] {
+            display: flex;
+            align-items: center;
+            gap: var(--ui-space-2-5);
+            min-height: 2.25rem;
+            padding: 0 var(--ui-space-2-5);
+            border-radius: var(--ui-radius-md, 0.5rem);
+            color: var(--ui-text-primary);
+            text-decoration: none;
+            font-size: var(--ui-text-sm);
+        }
+        [ui-app-nav-link] > .sx-icon { flex: none; color: var(--ui-text-muted); }
+        [ui-app-nav-link]:hover { background: var(--ui-surface-panel); }
+        [ui-app-nav-link]:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ui-focus-ring); }
+        [ui-app-nav-link][aria-current="page"] {
+            background: color-mix(in oklab, var(--ui-accent-brand) 12%, var(--ui-surface-raised));
+            color: color-mix(in oklab, var(--ui-accent-brand) 75%, var(--ui-text-primary));
+            font-weight: var(--ui-font-weight-medium);
+        }
+        [ui-app-nav-link][aria-current="page"] > .sx-icon { color: currentColor; }
+        [ui-app-nav-label] { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        [ui-app-sidebar-footer] { margin-top: auto; padding-top: var(--ui-space-2); border-top: 1px solid var(--ui-border-subtle); display: grid; gap: var(--ui-space-1); }
+        [ui-app-collapse] {
+            display: flex;
+            align-items: center;
+            gap: var(--ui-space-2-5);
+            min-height: 2.25rem;
+            padding: 0 var(--ui-space-2-5);
+            border: 0;
+            border-radius: var(--ui-radius-md, 0.5rem);
+            background: transparent;
+            color: var(--ui-text-muted);
+            font: inherit;
+            font-size: var(--ui-text-sm);
+            text-align: start;
+            cursor: pointer;
+        }
+        [ui-app-collapse]:hover { background: var(--ui-surface-panel); color: var(--ui-text-primary); }
+
+        /* ---- the collapsed rail: icons only, labels stay for assistive tech ---- */
+        :root[data-app-sidebar="collapsed"] & [ui-app-sidebar] { padding-inline: var(--ui-space-1-5); }
+        :root[data-app-sidebar="collapsed"] & :is([ui-app-nav-label], [ui-app-nav-group] > summary, [ui-app-nav-link] [ui="badge"]) {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            clip-path: inset(50%);
+            white-space: nowrap;
+        }
+        /* The rail shows every item: a closed group's content is shown too. */
+        :root[data-app-sidebar="collapsed"] & [ui-app-nav-group]::details-content { content-visibility: visible; block-size: auto; }
+        :root[data-app-sidebar="collapsed"] & :is([ui-app-nav-link], [ui-app-collapse]) { justify-content: center; padding: 0; }
+        :root[data-app-sidebar="collapsed"] & [ui-app-collapse] > .sx-icon { rotate: 180deg; }
+
+        /* ---- main ---- */
+        [ui-app-main] {
+            grid-area: main;
+            min-width: 0;
+            padding: var(--ui-space-6);
+            display: flex;
+            flex-direction: column;
+            gap: var(--ui-space-6);
+            outline: none;
+        }
+        [ui-app-footer]:empty { display: none; }
+        [ui-app-footer] { margin-top: auto; color: var(--ui-text-muted); font-size: var(--ui-text-xs); }
+
+        /* ---- narrow shell: the sidebar becomes a drawer ---- */
+        @container app (width < 56rem) {
+            [ui-app-frame], :root[data-app-sidebar="collapsed"] & [ui-app-frame] { grid-template-columns: minmax(0, 1fr); grid-template-areas: "topbar" "main"; }
+            [ui-app-menu] { display: grid; }
+            [ui-app-collapse] { display: none; }
+            [ui-app-sidebar]:not(:popover-open) { display: none; }
+            [ui-app-sidebar]:popover-open {
+                position: fixed;
+                inset: 0 auto 0 0;
+                height: 100dvh;
+                width: min(18rem, 85vw);
+                box-shadow: var(--ui-elevation-3, var(--ui-elevation-2));
+                border-inline-end: 1px solid var(--ui-border-subtle);
+            }
+            [ui-app-sidebar]::backdrop { background: color-mix(in oklab, var(--ui-text-primary) 30%, transparent); }
+            /* The drawer shows the full labels even when the rail was chosen. */
+            :root[data-app-sidebar="collapsed"] & [ui-app-sidebar]:popover-open :is([ui-app-nav-label], [ui-app-nav-group] > summary) {
+                position: static; width: auto; height: auto; clip-path: none;
+            }
+            :root[data-app-sidebar="collapsed"] & [ui-app-sidebar]:popover-open [ui-app-nav-link] { justify-content: flex-start; padding: 0 var(--ui-space-2-5); }
+            [ui-app-main] { padding: var(--ui-space-4); }
+        }
+    }
+}
+
+/* @platform-ui/pages/settings — section links beside the section; on a narrow
+   container the links become a scrolling row above it. */
+@layer platform-ui.primitives {
+    @scope ([ui-settings]) {
+        :scope { container: settings / inline-size; }
+        [ui-settings-body] { display: grid; grid-template-columns: 13rem minmax(0, 1fr); gap: var(--ui-space-6); align-items: start; }
+        [ui-settings-nav] { display: grid; gap: 1px; position: sticky; top: calc(var(--app-topbar-height, 3.5rem) + var(--ui-space-4)); }
+        [ui-settings-nav] a {
+            display: flex;
+            align-items: center;
+            gap: var(--ui-space-2-5);
+            min-height: 2.25rem;
+            padding: 0 var(--ui-space-2-5);
+            border-radius: var(--ui-radius-md, 0.5rem);
+            color: var(--ui-text-primary);
+            text-decoration: none;
+            font-size: var(--ui-text-sm);
+        }
+        [ui-settings-nav] a > .sx-icon { color: var(--ui-text-muted); }
+        [ui-settings-nav] a:hover { background: var(--ui-surface-panel); }
+        [ui-settings-nav] a:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--ui-focus-ring); }
+        [ui-settings-nav] a[aria-current="page"] {
+            background: color-mix(in oklab, var(--ui-accent-brand) 12%, var(--ui-surface-raised));
+            color: color-mix(in oklab, var(--ui-accent-brand) 75%, var(--ui-text-primary));
+            font-weight: var(--ui-font-weight-medium);
+        }
+        [ui-settings-content] > * {
+            padding: var(--ui-space-5);
+            background: var(--ui-surface-raised);
+            border-radius: var(--ui-radius-lg, 0.75rem);
+            box-shadow: var(--ui-hairline);
+        }
+        @container settings (width < 44rem) {
+            [ui-settings-body] { grid-template-columns: minmax(0, 1fr); }
+            [ui-settings-nav] { position: static; display: flex; overflow-x: auto; gap: var(--ui-space-1); }
+            [ui-settings-nav] a { flex: none; }
+        }
+    }
+}

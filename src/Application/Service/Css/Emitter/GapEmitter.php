@@ -11,12 +11,12 @@ final class GapEmitter implements SliceEmitterInterface
 {
     public const SCALE = [
         '0' => '0',
-        '1' => '0.25rem',
-        '2' => '0.5rem',
-        '3' => '0.75rem',
-        '4' => '1rem',
-        '6' => '1.5rem',
-        '8' => '2rem',
+        '1' => 'var(--ui-space-1)',
+        '2' => 'var(--ui-space-2)',
+        '3' => 'var(--ui-space-3)',
+        '4' => 'var(--ui-space-4)',
+        '6' => 'var(--ui-space-6)',
+        '8' => 'var(--ui-space-8)',
     ];
 
     public function attribute(): string

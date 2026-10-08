@@ -9,14 +9,23 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiBehaviorOption;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
 
 /**
- * A floating panel anchored to a trigger, positioned via CSS Anchor Positioning
- * (JS fallback). Composes useTogglable + useFloating + useFocusTrap + useDismiss,
- * so it gets a real focus trap, Esc/outside dismissal, and aria-expanded for
- * free — the composables fix UIkit's uneven a11y once, for every behavior.
+ * A floating panel anchored to a trigger. The panel is a native popover (top
+ * layer, light dismiss, Esc), invoked with commandfor where buttons support it,
+ * positioned via CSS Anchor Positioning (JS fallback). Composes
+ * usePopoverPanel + useMenuKeys — the same base as platform.menu.
+ *
+ * A panel of [ui-behavior-item]s is a WAI-ARIA menu button: the runtime adds
+ * aria-haspopup/aria-controls on the trigger and role=menu/menuitem on the
+ * panel, focuses the first item on open (ArrowUp on the trigger: the last),
+ * moves with arrows/Home/End/typeahead, and Tab closes the menu and lets focus
+ * move on — a menu is not a focus trap. Esc, outside click and choosing an item
+ * close it with focus back on the trigger.
  *
  *   <div ui-behavior="dropdown" ui-dropdown="mode: click; pos: bottom-start">
- *     <button ui="button" ui-behavior-toggle aria-expanded="false">Menu</button>
- *     <div ui-behavior-content hidden> … </div>
+ *     <button ui="button" ui-behavior-toggle>Menu</button>
+ *     <div ui-behavior-content hidden>
+ *       <a ui-behavior-item href="/edit">Edit</a>
+ *     </div>
  *   </div>
  *
  * Passive server declaration; the interaction lives in js/behavior-builtin.js.
@@ -33,6 +42,6 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
         new UiBehaviorOption('offset', UiOptionType::Number, default: 4, description: 'Gap between trigger and panel, in px.'),
         new UiBehaviorOption('flip', UiOptionType::Bool, default: true, description: 'Flip to the opposite side when it would clip the viewport.'),
     ],
-    a11y: ['aria-expanded', 'focus-trap', 'esc-dismiss', 'arrow-nav'],
+    a11y: ['aria-expanded', 'aria-haspopup', 'menu-roles', 'esc-dismiss', 'arrow-nav', 'typeahead', 'focus-return'],
 )]
 final class DropdownBehavior {}

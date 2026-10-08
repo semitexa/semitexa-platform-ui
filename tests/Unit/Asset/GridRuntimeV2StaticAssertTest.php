@@ -203,26 +203,15 @@ final class GridRuntimeV2StaticAssertTest extends TestCase
     }
 
     #[Test]
-    public function a_failed_reconnect_does_not_permanently_degrade_a_proven_stream(): void
+    public function the_grid_subscribes_its_feed_by_name_and_never_posts_to_it(): void
     {
-        // The never-streamed gate moved into core.openFeedChannel with the
-        // rest of the transport; the grid must opt into it explicitly.
+        // verify:accept-test-change the dedicated-stream degrade gate this pinned is gone: feeds ride KISS and are controlled through HUG (feeds design step 6)
         $source = self::runtimeSource();
 
-        self::assertStringContainsString(
-            'permanentPullDegrade: true',
-            $source,
-            'the grid must opt into the permanent degrade-to-pull gate.',
-        );
-
-        $core = (string) file_get_contents(
-            \dirname(self::RUNTIME_PATH) . '/ui-core.js',
-        );
-        self::assertStringContainsString(
-            '!gotFrame && !everStreamed',
-            $core,
-            'permanent degrade-to-pull must require that NO connection ever delivered a frame — a dropped-then-failed reconnect stays on the backoff path.',
-        );
+        self::assertStringContainsString('feed: contract.name', $source, 'the grid subscribes by the contract route name.');
+        self::assertStringContainsString('channel.view(currentViewParams())', $source, 'a view change goes through the channel (HUG op: view).');
+        self::assertStringNotContainsString('X-Semitexa-Stream-Rehydrate', $source, 'no view-change POST to the feed route.');
+        self::assertStringNotContainsString('new EventSource(', $source);
     }
 
     #[Test]
