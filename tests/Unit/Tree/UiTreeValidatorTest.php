@@ -193,16 +193,46 @@ final class UiTreeValidatorTest extends TestCase
         self::assertSame([], self::codes($this->validator->check($doc)), 'a string prop takes the path');
     }
 
-    #[Test]
-    public function a_broken_action_is_reported_once_not_again_at_each_reference(): void
+    /**
+     * Every shape of a fault an action reports about itself: under a field of
+     * it (/actions/go/to, /actions/go/kind) and at the action itself
+     * (/actions/go, an extra field).
+     *
+     * @return iterable<string, array{array<string, mixed>, string}>
+     */
+    public static function brokenActions(): iterable
     {
-        // The action fails its own check (no leading "/"); the prop that refers
-        // to it would only repeat that, so a model sees one fault, not two.
+        yield 'target' => [['kind' => 'navigate', 'to' => 'orders'], 'tree.action_target'];
+        yield 'kind' => [['kind' => 'exec', 'to' => '/orders'], 'tree.action_kind'];
+        yield 'extra field' => [['kind' => 'navigate', 'to' => '/orders', 'then' => 'x'], 'tree.action_field'];
+    }
+
+    /** @param array<string, mixed> $action */
+    #[Test]
+    #[\PHPUnit\Framework\Attributes\DataProvider('brokenActions')]
+    public function a_broken_action_is_reported_once_not_again_at_each_reference(array $action, string $code): void
+    {
+        // The prop that refers to a broken action would only repeat its fault,
+        // so a model sees one fault, not two.
         $doc = self::tree();
-        $doc['actions'] = ['go' => ['kind' => 'navigate', 'to' => 'orders']];
+        $doc['actions'] = ['go' => $action];
         $doc['nodes']['page']['props']['variant'] = ['$action' => 'go'];
 
-        self::assertSame(['tree.action_target'], self::codes($this->validator->check($doc)));
+        self::assertSame([$code], self::codes($this->validator->check($doc)));
+    }
+
+    #[Test]
+    public function a_sound_action_whose_name_starts_a_broken_ones_is_still_checked(): void
+    {
+        // The broken action's faults sit under /actions/gone/..., which begins
+        // with /actions/go: only /actions/go itself or /actions/go/... may
+        // mark "go" broken, so the reference to the sound "go" is still
+        // checked and its path does not fit an enum.
+        $doc = self::tree();
+        $doc['actions'] = ['go' => ['kind' => 'navigate', 'to' => '/orders'], 'gone' => ['kind' => 'navigate', 'to' => 'orders']];
+        $doc['nodes']['page']['props']['variant'] = ['$action' => 'go'];
+
+        self::assertSame(['tree.prop_invalid', 'tree.action_target'], self::codes($this->validator->check($doc)));
     }
 
     /**
