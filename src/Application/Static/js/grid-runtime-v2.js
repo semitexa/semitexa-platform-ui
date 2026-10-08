@@ -246,7 +246,8 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
         // the XSRF-TOKEN cookie back as X-CSRF-Token on every non-GET request, so
         // an absolute or protocol-relative endpoint would leak that token to a
         // cross-origin host. Refuse anything that is not a single-leading-slash path.
-        if (endpoint.charAt(0) !== '/' || endpoint.charAt(1) === '/') {
+        // A backslash counts as a slash in a URL: `/\evil.test` is `//evil.test`.
+        if (!/^\/(?![\/\\])/.test(endpoint)) {
             root.setAttribute('data-ui-grid-v2-state', 'error');
             return;
         }
