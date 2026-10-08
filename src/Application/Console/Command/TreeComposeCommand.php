@@ -64,7 +64,23 @@ final class TreeComposeCommand extends Command
         if (is_string($scripted) && $scripted !== '') {
             $replies = [];
             foreach (explode(',', $scripted) as $file) {
-                $replies[] = (string) @file_get_contents(trim($file));
+                $file = trim($file);
+                $reply = is_file($file) && is_readable($file) ? file_get_contents($file) : false;
+                // A reply file that cannot be read stops here, named: as an
+                // empty reply it would read as the model's invalid JSON.
+                if ($reply === false) {
+                    $output->writeln((string) json_encode([
+                        'artifact' => self::ARTIFACT,
+                        'composed' => false,
+                        'rounds' => 0,
+                        'errorsPerRound' => [],
+                        'failure' => sprintf('No model reply could be read from %s.', $file),
+                        'html' => null,
+                    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), OutputInterface::OUTPUT_RAW);
+
+                    return self::FAILURE;
+                }
+                $replies[] = $reply;
             }
             $provider = new ScriptedProvider($replies);
         }

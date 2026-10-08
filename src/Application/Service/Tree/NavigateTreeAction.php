@@ -6,6 +6,7 @@ namespace Semitexa\PlatformUi\Application\Service\Tree;
 
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\PlatformUi\Attribute\AsUiTreeAction;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiProp;
 use Semitexa\PlatformUi\Domain\Model\Tree\UiTreeError;
 
 /**
@@ -20,7 +21,7 @@ final class NavigateTreeAction implements UiTreeActionKindInterface
     public function check(array $action, string $path): array
     {
         $to = $action['to'] ?? null;
-        if (!is_string($to) || preg_match('#\A/(?![/\\\\])[^\s"\'<>`]*\z#', $to) !== 1) {
+        if (!is_string($to) || preg_match(UiProp::SITE_PATH, $to) !== 1) {
             return [new UiTreeError('tree.action_target', $path . '/to', 'A navigate action leads to a path on this site.', 'a path like "/orders?create"', UiTreeError::describe($to), 'Use a path that starts with a single "/".')];
         }
         $extra = array_diff(array_keys($action), ['kind', 'to']);

@@ -56,15 +56,25 @@ final class TreeRenderCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $source = (string) $input->getArgument('tree');
-        $document = $source === '-' ? stream_get_contents(STDIN) : (is_file($source) ? file_get_contents($source) : false);
+        $document = $source === '-' ? stream_get_contents(STDIN) : (is_file($source) && is_readable($source) ? file_get_contents($source) : false);
+        // As ui:tree:validate: no tree is an error that says so, not
+        // "rendered: false" with nothing to go on.
+        if (!is_string($document)) {
+            $output->writeln((string) json_encode([
+                'artifact' => self::ARTIFACT,
+                'rendered' => false,
+                'html' => null,
+                'errors' => [['code' => 'tree.unreadable', 'path' => '', 'message' => "No tree could be read from {$source}."]],
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), OutputInterface::OUTPUT_RAW);
+
+            return self::FAILURE;
+        }
         /** @var list<string> $grants */
         $grants = UiPermissions::grantsOf((array) $input->getOption('grant'));
         $this->bootRendering();
         UiPermissions::actAsHolding($grants);
         try {
-            $result = is_string($document)
-                ? $this->renderer->render($document)
-                : ['html' => null, 'errors' => []];
+            $result = $this->renderer->render($document);
         } finally {
             UiPermissions::reset();
         }

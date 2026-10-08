@@ -52,11 +52,17 @@ final class UiAgentManifestTest extends TestCase
     {
         UiPermissions::actAsHolding([]);
         self::assertSame(['platform.card'], array_column($this->manifest->components(), 'name'));
-        self::assertStringNotContainsString('shop.revenue', $this->manifest->describe());
-        self::assertStringNotContainsString('shop.revenue', (string) json_encode($this->manifest->treeSchema()));
+        $text = $this->manifest->describe();
+        $schema = (string) json_encode($this->manifest->treeSchema());
+        self::assertStringContainsString('platform.card — A card', $text);
+        self::assertStringContainsString('{"const":"platform.card"}', $schema);
+        self::assertStringNotContainsString('shop.revenue', $text);
+        self::assertStringNotContainsString('shop.revenue', $schema);
 
         UiPermissions::actAsHolding(['reports.view']);
         self::assertSame(['platform.card', 'shop.revenue'], array_column($this->manifest->components(), 'name'));
+        self::assertStringContainsString('shop.revenue', $this->manifest->describe(), 'mentioned once permitted: the absence above is the permission');
+        self::assertStringContainsString('{"const":"shop.revenue"}', (string) json_encode($this->manifest->treeSchema()));
     }
 
     #[Test]
