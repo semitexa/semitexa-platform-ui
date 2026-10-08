@@ -27,7 +27,6 @@
         outline: none;
         box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-focus-ring) 30%, transparent);
     }
-    :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input[aria-invalid="true"] { border-color: var(--ui-state-danger); }
     :is([ui="checkbox"], [ui="radio"], [ui="switch"]):has(> input:disabled) { color: var(--ui-text-muted); cursor: not-allowed; }
     :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input:disabled { opacity: 0.55; }
 
@@ -79,6 +78,10 @@
     }
     [ui="switch"] > input:checked { background: var(--ui-accent-brand); border-color: var(--ui-accent-brand); }
     [ui="switch"] > input:checked::before { translate: 1rem 0; }
+
+    /* invalid comes after every :checked rule: equal specificity, so source order
+       decides, and a checked control that fails validation keeps the danger border. */
+    :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input[aria-invalid="true"] { border-color: var(--ui-state-danger); }
 
     @media (prefers-reduced-motion: reduce) {
         :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input,

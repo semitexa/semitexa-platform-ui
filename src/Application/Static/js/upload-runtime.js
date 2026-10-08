@@ -57,11 +57,13 @@ function connect(fileInput) {
         if (xhr) xhr.abort();
         const max = parseInt(fileInput.getAttribute('data-ui-upload-max') || '', 10);
         if (max > 0 && file.size > max) {
-            xhr = null;
             const message = 'The file is larger than ' + humanBytes(max) + '.';
             settle('', message);
             emit(root, 'ui-upload:error', { reason: 'upload_too_large', message });
-            emit(root, 'ui-upload:end');
+            // finish(), not just the end event: an upload this file aborted
+            // never reaches its own finish(), and data-ui-uploading would keep
+            // a form submit waiting forever.
+            finish();
             return;
         }
         const body = new FormData();
@@ -110,7 +112,12 @@ function connect(fileInput) {
 
     const onChange = () => {
         const file = fileInput.files && fileInput.files[0];
-        if (file) send(file); else settle('', '');
+        if (file) { send(file); return; }
+        // Selection cleared mid-upload: that upload must not land a ticket.
+        // The value is cleared before finish(): its ui-upload:end releases
+        // waiting submits, which read the form's values at once.
+        settle('', '');
+        if (xhr) { xhr.abort(); finish(); }
     };
     fileInput.addEventListener('change', onChange);
     // A form reset clears the chosen file; the ticket goes with it.

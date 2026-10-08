@@ -7,6 +7,9 @@
 {%- if size|default(null) %} ui-size="{{ size }}"{% endif -%}
 {%- if label|default(null) %} aria-label="{{ label }}"{% endif -%}
 {%- if _iconOnly %} ui-icon-only{% endif -%}
+{%- if disabled|default(false) %} disabled{% endif -%}
+{%- if aria_invalid|default(null) %} aria-invalid="true"{% endif -%}
+{%- if aria_describedby|default(null) %} aria-describedby="{{ aria_describedby }}"{% endif -%}
 >
 {%- for option in options|default([]) -%}
 <label{% if _iconOnly %} title="{{ option.label|default(option.value) }}"{% endif %}><input type="radio" name="{{ name|default('') }}" value="{{ option.value }}"{% if (option.value ~ '') == _value %} checked{% endif %}>

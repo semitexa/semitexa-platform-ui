@@ -29,7 +29,7 @@ final class UiFormSubmitActionRegistry
 {
     private static ?UiFormSubmitActionRegistryInterface $active = null;
 
-    /** @var array<string, UiFormSubmitActionInterface> actions registered with #[AsFormSubmitAction] */
+    /** @var array<string, UiFormSubmitActionInterface|\Closure(): UiFormSubmitActionInterface> actions registered with #[AsFormSubmitAction]; discovery stores factories */
     private static array $discovered = [];
 
     /**

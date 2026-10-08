@@ -7,4 +7,6 @@
 {%- if placeholder|default(null) %} placeholder="{{ placeholder }}"{% endif -%}
 {%- if required|default(false) %} required{% endif -%}
 {%- if disabled|default(false) %} disabled{% endif -%}
+{%- if aria_invalid|default(null) %} aria-invalid="true"{% endif -%}
+{%- if aria_describedby|default(null) %} aria-describedby="{{ aria_describedby }}"{% endif -%}
 >{{ value|default('') }}</textarea>

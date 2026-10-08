@@ -49,6 +49,12 @@ use Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitActionResult;
 interface UiFormSubmitActionInterface
 {
     /**
+     * The one grammar of an action name: the attribute discovery at boot, the
+     * `submitAction` prop at render and the signed name at dispatch all check it.
+     */
+    public const NAME_PATTERN = '/\A[A-Za-z_][A-Za-z0-9_.-]{0,127}\z/';
+
+    /**
      * Stable, server-owned name (e.g. `platform.demo.accept`). Used by
      * the registry to resolve this action and signed verbatim into
      * `cfg.a` at render time.
