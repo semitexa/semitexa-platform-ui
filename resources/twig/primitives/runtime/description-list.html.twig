@@ -1,0 +1,6 @@
+{#- platform.description-list — items [{term, details}], layout (inline|stacked). -#}
+<dl ui="{{ _primitive.ui }}" data-ui-primitive="{{ _primitive.name }}" ui-layout="{{ layout|default('inline') }}">
+{%- for item in items|default([]) -%}
+<div><dt>{{ item.term }}</dt><dd>{{ item.details }}</dd></div>
+{%- endfor -%}
+</dl>

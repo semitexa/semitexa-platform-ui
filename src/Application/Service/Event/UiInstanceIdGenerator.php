@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Event;
 
+use Semitexa\Ssr\Domain\Model\ComponentInstanceId;
+
 /**
  * Generates per-render Platform UI component instance ids.
  *
@@ -38,9 +40,10 @@ final class UiInstanceIdGenerator
      */
     public const SAFE_ID_PATTERN = '/\Auci_[A-Za-z0-9_-]{1,64}\z/';
 
+    /** The one component identity is ssr's; this only names it for Platform UI. */
     public function next(): string
     {
-        return self::PREFIX . bin2hex(random_bytes(8));
+        return ComponentInstanceId::mint();
     }
 
     /**
@@ -50,5 +53,19 @@ final class UiInstanceIdGenerator
     public static function isSafe(mixed $value): bool
     {
         return is_string($value) && preg_match(self::SAFE_ID_PATTERN, $value) === 1;
+    }
+
+    /**
+     * The instance a template is rendering: the id the component renderer
+     * minted (or kept, on a re-render) — never a second id beside it. A fresh
+     * one only when rendered outside a component.
+     *
+     * @param array<array-key, mixed> $context
+     */
+    public static function forContext(array $context): string
+    {
+        $id = $context['_component_id'] ?? null;
+
+        return ComponentInstanceId::isSafe($id) ? (string) $id : ComponentInstanceId::mint();
     }
 }

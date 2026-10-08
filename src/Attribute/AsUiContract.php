@@ -34,10 +34,18 @@ final readonly class AsUiContract
         public array $props = [],
         public array $examples = [],
         public bool $previewSafe = false,
+        /**
+         * Open to an agent composing a screen (ep-platform-ai-ui). Null: as
+         * previewSafe — a component safe to draw from its props alone is safe
+         * to offer; one that needs a live endpoint says so explicitly.
+         */
+        public ?bool $agent = null,
+        /** The permission a visitor needs for a screen to contain it; null: anyone the screen is for. */
+        public ?string $permission = null,
     ) {}
 
     public function metadata(): UiContract
     {
-        return new UiContract($this->summary, $this->props, $this->examples, $this->previewSafe);
+        return new UiContract($this->summary, $this->props, $this->examples, $this->previewSafe, $this->agent ?? $this->previewSafe, $this->permission);
     }
 }

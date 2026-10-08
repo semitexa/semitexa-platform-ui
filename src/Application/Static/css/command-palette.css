@@ -1,0 +1,89 @@
+/* platform.command-palette — tokens only, light and dark. */
+@layer platform-ui.primitives {
+    [ui-command-trigger] {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--ui-space-2);
+        min-height: var(--ui-control-height-md);
+        min-width: 14rem;
+        padding: 0 var(--ui-space-2) 0 var(--ui-space-3);
+        font: inherit;
+        font-size: var(--ui-text-sm);
+        color: var(--ui-text-muted);
+        background: var(--ui-surface-raised);
+        border: 1px solid var(--ui-border-subtle);
+        border-radius: var(--ui-radius-md, 0.5rem);
+        cursor: pointer;
+    }
+    [ui-command-trigger] > span { flex: 1; text-align: start; }
+    [ui-command-trigger]:hover { border-color: var(--ui-border-strong); }
+    [ui-command-trigger]:focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-focus-ring) 30%, transparent); }
+
+    [ui-command-dialog] {
+        width: min(40rem, calc(100vw - 2 * var(--ui-space-4)));
+        max-height: min(32rem, calc(100vh - 6rem));
+        margin: 12vh auto auto;
+        padding: 0;
+        color: var(--ui-text-primary);
+        background: var(--ui-surface-raised);
+        border: 0;
+        border-radius: var(--ui-radius-lg, 0.75rem);
+        box-shadow: var(--ui-hairline), var(--ui-elevation-3, var(--ui-elevation-2));
+        overflow: hidden;
+    }
+    [ui-command-dialog][open] { display: flex; flex-direction: column; }
+    [ui-command-dialog]::backdrop { background: var(--ui-overlay-scrim, color-mix(in oklab, var(--ui-text-primary) 35%, transparent)); }
+
+    [ui-command-search] {
+        display: flex;
+        align-items: center;
+        gap: var(--ui-space-2);
+        padding: var(--ui-space-2) var(--ui-space-3);
+        border-bottom: 1px solid var(--ui-border-subtle);
+        color: var(--ui-text-muted);
+    }
+    [ui-command-search] > input {
+        flex: 1;
+        min-width: 0;
+        height: var(--ui-control-height-lg);
+        border: 0;
+        outline: none;
+        background: transparent;
+        font: inherit;
+        font-size: var(--ui-text-base);
+        color: var(--ui-text-primary);
+    }
+
+    [ui-command-list] { overflow-y: auto; padding: var(--ui-space-1-5); overscroll-behavior: contain; }
+    [ui-command-list] [role="group"]:empty { display: none; }
+    [ui-command-group-label] {
+        padding: var(--ui-space-2) var(--ui-space-2-5) var(--ui-space-1);
+        font-size: var(--ui-text-xs);
+        font-weight: var(--ui-font-weight-medium);
+        color: var(--ui-text-muted);
+    }
+    [ui-command-option] {
+        display: flex;
+        align-items: center;
+        gap: var(--ui-space-2-5);
+        min-height: 2.25rem;
+        padding: 0 var(--ui-space-2-5);
+        border-radius: var(--ui-radius-md, 0.5rem);
+        color: inherit;
+        text-decoration: none;
+        cursor: pointer;
+    }
+    [ui-command-option] > .sx-icon { flex: none; color: var(--ui-text-muted); }
+    [ui-command-option][aria-selected="true"] { background: color-mix(in oklab, var(--ui-accent-brand) 12%, var(--ui-surface-raised)); }
+    [ui-command-title] { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    [ui-command-subtitle] { color: var(--ui-text-muted); font-size: var(--ui-text-xs); white-space: nowrap; }
+    [ui-command-empty] { margin: 0; padding: var(--ui-space-6) var(--ui-space-3); text-align: center; color: var(--ui-text-muted); font-size: var(--ui-text-sm); }
+
+    [ui-command-footer] {
+        display: flex;
+        gap: var(--ui-space-4);
+        padding: var(--ui-space-2) var(--ui-space-3);
+        border-top: 1px solid var(--ui-border-subtle);
+        font-size: var(--ui-text-xs);
+    }
+}

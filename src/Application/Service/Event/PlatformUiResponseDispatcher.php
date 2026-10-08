@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Event;
 
+use Semitexa\Core\Server\PageTimeline;
 use Closure;
+use Semitexa\Core\Event\EventDispatcherInterface;
+use Semitexa\Ssr\Application\Service\Component\ComponentHtmlRenderer;
 use Psr\Container\ContainerInterface;
+use Semitexa\Core\Container\PropertyInjector;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
 use Semitexa\Core\Log\StaticLoggerBridge;
@@ -95,8 +99,8 @@ use Throwable;
  *   - environment variable names, framework internals
  *
  * It sits behind HUG (`POST /__semitexa_hug`), the single inbound door;
- * `event-runtime.js` posts every UI event there. The former HUG (`POST /__semitexa_hug`)
- * and HUG (`POST /__semitexa_hug`) doors are gone (KISS/HUG are the whole transport).
+ * `event-runtime.js` posts every UI event there. The former `POST /__ui/event`
+ * and `POST /__ui/dispatch` doors are gone (KISS/HUG are the whole transport).
  */
 #[SatisfiesServiceContract(of: UiResponseDispatcherInterface::class)]
 final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterface
@@ -151,6 +155,7 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
 
         $dispatcher = $this->resolveLegacyDispatcher();
 
+        $startedAt = hrtime(true);
         try {
             $result = $dispatcher->dispatch(
                 ctx:        $envelope->signedContext,
@@ -158,8 +163,12 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
                 payload:    $envelope->payload,
             );
         } catch (UiInteractionException $e) {
+            $this->onTimeline($subscriberChannelId, $verifiedClaims, $startedAt, null, $e::class);
             return $this->translateFailure($e, $envelope->eventId);
         }
+        $this->onTimeline($subscriberChannelId, $verifiedClaims, $startedAt, $result, null);
+
+        $this->dispatchDomainEvents($result);
 
         return $this->translateSuccess(
             $result,
@@ -168,6 +177,31 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
             $subscriberChannelId,
             $instanceId,
         );
+    }
+
+    /**
+     * The page's timeline (dev only — PageTimeline is a no-op otherwise):
+     * which component sent what, how long it took, which effects came back.
+     *
+     * @param array<string, mixed> $claims
+     */
+    private function onTimeline(?string $page, array $claims, int $startedAt, ?UiInteractionResult $result, ?string $failure): void
+    {
+        if ($page === null || !PageTimeline::isOn()) {
+            return;
+        }
+        PageTimeline::record($page, 'event', [
+            'component' => is_string($claims['c'] ?? null) ? $claims['c'] : null,
+            'instance' => is_string($claims['i'] ?? null) ? $claims['i'] : null,
+            'part' => is_string($claims['p'] ?? null) ? $claims['p'] : null,
+            'event' => is_string($claims['e'] ?? null) ? $claims['e'] : null,
+            'ms' => round((hrtime(true) - $startedAt) / 1_000_000, 2),
+            'effects' => $result === null ? [] : array_values(array_map(
+                static fn (mixed $patch): string => is_object($patch) && isset($patch->op) ? (string) $patch->op : '?',
+                $result->patches,
+            )),
+            'failed' => $failure,
+        ]);
     }
 
     /**
@@ -217,6 +251,8 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
         // The container fills the CacheBackedUiReplayStore / authorizer / rule
         // registry winners via SatisfiesServiceContract, plus the closure-based
         // resolver for class-level #[HandlesUiEvent] service handlers.
+        $container = $this->container ?? null;
+
         return new UiInteractionDispatcher(
             payloadGuard:   new UiPayloadFieldGuard(),
             patchValidator: new UiPatchValidator(),
@@ -224,7 +260,63 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
             authorizer:     $this->resolveAuthorizer(),
             ruleRegistry:   isset($this->ruleRegistry) ? $this->ruleRegistry : null,
             handlerResolver: $this->buildHandlerResolver(),
+            componentRenderer: $this->buildComponentRenderer(),
+            componentInjector: isset($this->container)
+                ? static fn (object $component) => PropertyInjector::inject($component, $container)
+                : null,
         );
+    }
+
+    /**
+     * The domain events a handler returned (`UiInteractionResult::dispatching()`)
+     * reach the application's own #[AsEventListener]s — the server side of
+     * "something happened", where `dispatch` effects are the browser side.
+     *
+     * A synchronous listener that throws fails the interaction, as a
+     * synchronous listener failure does anywhere (EventDispatcher treats it
+     * as the caller's failure). A listener that must not hold up the UI
+     * answer is declared async or queued.
+     */
+    private function dispatchDomainEvents(UiInteractionResult $result): void
+    {
+        if ($result->domainEvents === []) {
+            return;
+        }
+        $events = isset($this->container) && $this->container->has(EventDispatcherInterface::class)
+            ? $this->container->get(EventDispatcherInterface::class)
+            : null;
+        if (!$events instanceof EventDispatcherInterface) {
+            StaticLoggerBridge::error('platform_ui', 'UI handler returned domain events but no event dispatcher is bound', [
+                'events' => array_map(static fn (object $e): string => $e::class, $result->domainEvents),
+            ]);
+            return;
+        }
+        foreach ($result->domainEvents as $event) {
+            $events->dispatch($event);
+        }
+    }
+
+    /**
+     * How a `rerender` effect becomes a `morph`: ssr's component renderer,
+     * resolved from the container on use.
+     *
+     * @return Closure(string, array<string, mixed>): string|null
+     */
+    private function buildComponentRenderer(): ?Closure
+    {
+        if (!isset($this->container)) {
+            return null;
+        }
+        $container = $this->container;
+
+        return static function (string $componentName, array $props) use ($container): string {
+            $renderer = $container->get(ComponentHtmlRenderer::class);
+            if (!$renderer instanceof ComponentHtmlRenderer) {
+                throw new \LogicException('ComponentHtmlRenderer is not available for a component re-render.');
+            }
+
+            return $renderer->render($componentName, $props, [], true);
+        };
     }
 
     /**

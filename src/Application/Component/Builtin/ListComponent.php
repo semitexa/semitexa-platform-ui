@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Component\Builtin;
 
+use Semitexa\PlatformUi\Attribute\AsUiContract;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiProp;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiPropType;
+
 use Semitexa\Ssr\Attribute\AsComponent;
 use Semitexa\PlatformUi\Attribute\UiSlot;
 
@@ -30,6 +35,21 @@ use Semitexa\PlatformUi\Attribute\UiSlot;
 )]
 #[UiSlot(name: 'header', description: 'Optional heading rendered above the list.')]
 #[UiSlot(name: 'empty', description: 'Empty-state content shown when there are no items.')]
+#[AsUiContract(
+    summary: 'A vertical list of items, each a title with an optional description, meta text and link.',
+    props: [
+        new UiProp('items', UiPropType::Array, required: true, items: new UiProp('item', UiPropType::Object, properties: [
+            new UiProp('title', required: true),
+            new UiProp('description', nullable: true),
+            new UiProp('meta', nullable: true, description: 'Short trailing text ("2h ago").'),
+            new UiProp('href', nullable: true, description: 'A same-site path the item links to.'),
+        ])),
+    ],
+    examples: [
+        new UiExample('default', 'Recent', ['items' => [['title' => 'Invoice #1042', 'meta' => '2h ago'], ['title' => 'Invoice #1041', 'description' => 'Paid', 'href' => '/invoices/1041']]]),
+    ],
+    previewSafe: true,
+)]
 final class ListComponent
 {
 }

@@ -197,4 +197,30 @@ final class UiPageSseSessionMetaHelperTest extends TestCase
         self::assertStringNotContainsString('<script', $html);
         self::assertStringNotContainsString("'", $html, 'helper output uses double quotes only');
     }
+
+    /**
+     * Every grid printed the meta pair itself; two grids, two copies. The grid
+     * now announces the channel and the page carries one pair, in <head>.
+     */
+    #[Test]
+    public function the_live_channel_helper_prints_nothing_and_asks_for_one_head_pair(): void
+    {
+        (new \Semitexa\PlatformUi\Application\Service\Twig\LiveChannelTwigExtension())->registerFunctions();
+        $catalog = (new \ReflectionClass(TwigExtensionRegistry::class))->getProperty('catalog')->getValue();
+        self::assertInstanceOf(TwigExtensionCatalog::class, $catalog);
+        /** @var array<string, array{callback: callable, options: array}> $functions */
+        $functions = (new \ReflectionClass($catalog))->getProperty('functions')->getValue($catalog);
+        self::assertArrayHasKey('ui_page_live_channel', $functions);
+        $announce = $functions['ui_page_live_channel']['callback'];
+
+        $collector = \Semitexa\Ssr\Application\Service\Asset\AssetCollectorStore::get();
+        $collector->takeHeadTags('');
+        self::assertSame('', $announce());
+        self::assertSame('', $announce(), 'a second grid prints nothing either');
+
+        $head = $collector->takeHeadTags('');
+        self::assertSame(1, substr_count($head, 'name="semitexa-ui-sse-session"'));
+        self::assertSame(1, substr_count($head, 'name="semitexa-ui-transport-mode"'));
+    }
 }
+

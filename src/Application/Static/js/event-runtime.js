@@ -49,7 +49,7 @@
 // ('platform-ui/core' -> fingerprinted URL); the import graph guarantees
 // the core is initialized before this executes. This file itself is
 // importable as 'platform-ui/events' (named exports appended at the end).
-import { withCsrf } from 'platform-ui/core';
+import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
 
 (function () {
     'use strict';
@@ -155,22 +155,58 @@ import { withCsrf } from 'platform-ui/core';
     }
 
     function extractValue(partEl, originalEvent) {
-        if (!partEl) {
+        return readControlValue(partEl);
+    }
+
+    /**
+     * The value of a form control, whatever kind it is:
+     *   input / textarea / select      → its string value
+     *   select[multiple]               → list of the selected values
+     *   input[type=checkbox]           → true / false
+     *   input[type=radio]              → its value when checked, else null
+     *   a group (fieldset, div) holding checkboxes → list of the checked values
+     *   a group holding radios         → the checked value, or null
+     */
+    function readControlValue(el) {
+        if (!el || el.nodeType !== 1) {
             return null;
         }
-        // <input>, <select>, <textarea> all expose `.value`.
-        if ('value' in partEl) {
-            try {
-                return partEl.value;
-            } catch (err) {
+        try {
+            var tag = el.tagName;
+            if (tag === 'INPUT') {
+                if (el.type === 'checkbox') return !!el.checked;
+                if (el.type === 'radio') return el.checked ? el.value : null;
+                return el.value;
+            }
+            if (tag === 'SELECT') {
+                if (!el.multiple) return el.value;
+                var picked = [];
+                for (var o = 0; o < el.options.length; o++) {
+                    if (el.options[o].selected) picked.push(el.options[o].value);
+                }
+                return picked;
+            }
+            if (tag === 'TEXTAREA') return el.value;
+            var boxes = el.querySelectorAll('input[type="checkbox"]');
+            if (boxes.length > 0) {
+                var checked = [];
+                for (var b = 0; b < boxes.length; b++) {
+                    if (boxes[b].checked) checked.push(boxes[b].value);
+                }
+                return checked;
+            }
+            var radios = el.querySelectorAll('input[type="radio"]');
+            if (radios.length > 0) {
+                for (var r = 0; r < radios.length; r++) {
+                    if (radios[r].checked) return radios[r].value;
+                }
                 return null;
             }
+            if ('value' in el) return el.value;
+            return el.getAttribute ? el.getAttribute('value') : null;
+        } catch (err) {
+            return null;
         }
-        // Fallback for elements that only expose a value attribute.
-        if (partEl.getAttribute) {
-            return partEl.getAttribute('value');
-        }
-        return null;
     }
 
     function notifyListeners(captured) {
@@ -235,8 +271,21 @@ import { withCsrf } from 'platform-ui/core';
                 ctx: entry.ctx,
                 value: extractValue(partEl, ev),
                 originalEvent: ev,
+                element: partEl,
                 manifestVersion: manifest.v
             };
+
+            // A form already submitting does not submit again (double click,
+            // Enter held down): the first answer decides.
+            if (nativeEvent === 'submit' && isSubmitInFlight(captured.instanceId)) {
+                continue;
+            }
+            // The form lifecycle opens here; the server closes it with
+            // ui-form:accepted / ui-form:rejected / ui-form:invalid.
+            if (nativeEvent === 'submit') {
+                var formRoot = instanceRoot(captured.instanceId);
+                if (formRoot) formRoot.dispatchEvent(new CustomEvent('ui-form:submit', { bubbles: true }));
+            }
 
             if (typeof console !== 'undefined' && console.debug) {
                 console.debug(
@@ -259,7 +308,7 @@ import { withCsrf } from 'platform-ui/core';
                 }
             }
 
-            notifyListeners(captured);
+            sendTimed(captured, entry, rootEl);
         }
     }
 
@@ -283,6 +332,15 @@ import { withCsrf } from 'platform-ui/core';
                 continue;
             }
 
+            // A re-rendered instance (morph) brings a fresh manifest with fresh
+            // signed contexts: it replaces the old one, which is also dropped
+            // once its element has left the page.
+            for (var k = parsedManifests.length - 1; k >= 0; k--) {
+                var old = parsedManifests[k];
+                if (old.payload.i === payload.i || (old.scriptEl && old.scriptEl.isConnected === false)) {
+                    parsedManifests.splice(k, 1);
+                }
+            }
             parsedManifests.push({ scriptEl: scriptEl, payload: payload });
             added++;
 
@@ -330,51 +388,27 @@ import { withCsrf } from 'platform-ui/core';
         };
     }
 
+    // Late manifests (deferred components, navigation swaps, morphs) arrive
+    // through the one element lifecycle (core.mount) instead of a private
+    // MutationObserver; a manifest leaving the page is pruned on the next scan.
     function startObserver() {
-        if (typeof MutationObserver === 'undefined' || !document.body) {
-            return;
-        }
-        var observer = new MutationObserver(function (mutations) {
-            var addedAny = 0;
-            for (var i = 0; i < mutations.length; i++) {
-                var added = mutations[i].addedNodes;
-                if (!added || !added.length) {
-                    continue;
-                }
-                for (var j = 0; j < added.length; j++) {
-                    var node = added[j];
-                    if (!node || node.nodeType !== 1) {
-                        continue;
-                    }
-                    if (node.matches && node.matches(
-                        'script[type="application/json"][data-ui-event-manifest]'
-                    )) {
-                        addedAny += scanRoot(node.parentNode || document);
-                    } else if (node.querySelector && node.querySelector(
-                        'script[type="application/json"][data-ui-event-manifest]'
-                    )) {
-                        addedAny += scanRoot(node);
-                    }
-                }
-            }
-            // A late-arriving manifest (typical case: SSR-deferred
-            // component delivered via the canonical KISS stream) means
-            // the initial-load auto-attach skipped this page entirely
-            // because parsedManifests was empty at DOMContentLoaded.
-            // Re-trigger the auto-attach now that manifests exist;
-            // maybeAutoAttachTransport is idempotent — it bails when a
-            // transport is already attached.
-            if (addedAny > 0 && typeof maybeAutoAttachTransport === 'function') {
-                try {
-                    maybeAutoAttachTransport();
-                } catch (e) {
-                    if (typeof console !== 'undefined' && console.warn) {
-                        console.warn('[semitexa-ui] late-manifest auto-attach failed', e);
+        mount('script[type="application/json"][data-ui-event-manifest]', {
+            connect: function (scriptEl) {
+                // A late-arriving manifest (typical case: SSR-deferred component
+                // delivered via the canonical KISS stream) means the initial-load
+                // auto-attach skipped this page because parsedManifests was empty
+                // at DOMContentLoaded; maybeAutoAttachTransport is idempotent.
+                if (scanRoot(scriptEl.parentNode || document) > 0 && typeof maybeAutoAttachTransport === 'function') {
+                    try {
+                        maybeAutoAttachTransport();
+                    } catch (e) {
+                        if (typeof console !== 'undefined' && console.warn) {
+                            console.warn('[semitexa-ui] late-manifest auto-attach failed', e);
+                        }
                     }
                 }
             }
         });
-        observer.observe(document.body, { childList: true, subtree: true });
     }
 
     /**
@@ -486,7 +520,362 @@ import { withCsrf } from 'platform-ui/core';
      * the one stream back. The body is always the canonical envelope.
      */
     var DEFAULT_TRANSPORT_ENDPOINT = '/__semitexa_hug';
-    var ENVELOPE_SCHEMA_VERSION = 1;
+
+    // ---- Input timing (#[UiOn(debounce:, throttle:)]) ---------------------
+    //
+    // The manifest says WHEN to send (d = debounce ms, t = throttle ms); it
+    // never changes what the server accepts. Debounce sends the LAST value
+    // after a pause; throttle sends the first at once and the last at the end
+    // of the window. A form submit first sends every pending debounce inside
+    // it, so the server validates what the user actually typed.
+    var PENDING_DEBOUNCE = {};   // key -> { timer, captured }
+    var THROTTLES = {};          // key -> { last, timer, captured }
+
+    function timingKey(captured) {
+        return captured.instanceId + '|' + captured.part + '|' + captured.event;
+    }
+
+    function sendTimed(captured, entry, rootEl) {
+        if (captured.event === 'submit') {
+            flushPendingWithin(rootEl);
+            // A submit is answered after everything the form already sent — its
+            // fields' changes, its own flushed input (a re-render) — which would
+            // otherwise land after the submit's verdict and overwrite it.
+            if (inFlightWithin(rootEl)) {
+                SUBMIT_WAITERS.push({ rootEl: rootEl, captured: captured, entry: entry });
+                return;
+            }
+        }
+        var key = timingKey(captured);
+        var debounce = typeof entry.d === 'number' && entry.d > 0 ? entry.d : 0;
+        var throttle = typeof entry.t === 'number' && entry.t > 0 ? entry.t : 0;
+        if (debounce > 0) {
+            var pending = PENDING_DEBOUNCE[key];
+            if (pending) clearTimeout(pending.timer);
+            PENDING_DEBOUNCE[key] = {
+                captured: captured,
+                timer: setTimeout(function () {
+                    delete PENDING_DEBOUNCE[key];
+                    notifyListeners(captured);
+                }, debounce)
+            };
+            return;
+        }
+        if (throttle > 0) {
+            var now = Date.now();
+            var state = THROTTLES[key] || (THROTTLES[key] = { last: 0, timer: null, captured: null });
+            if (now - state.last >= throttle) {
+                state.last = now;
+                notifyListeners(captured);
+                return;
+            }
+            state.captured = captured;
+            if (state.timer === null) {
+                state.timer = setTimeout(function () {
+                    state.timer = null;
+                    state.last = Date.now();
+                    var trailing = state.captured;
+                    state.captured = null;
+                    if (trailing) notifyListeners(trailing);
+                }, throttle - (now - state.last));
+            }
+            return;
+        }
+        notifyListeners(captured);
+    }
+
+    function flushPendingWithin(rootEl) {
+        Object.keys(PENDING_DEBOUNCE).forEach(function (key) {
+            var pending = PENDING_DEBOUNCE[key];
+            var el = pending.captured.element;
+            if (!rootEl || !el || !rootEl.contains(el)) return;
+            clearTimeout(pending.timer);
+            delete PENDING_DEBOUNCE[key];
+            notifyListeners(pending.captured);
+        });
+    }
+
+    // ---- Loading states --------------------------------------------------
+    //
+    // While an action is in flight its component root carries aria-busy and
+    // the part that fired it carries data-loading (style both in CSS). A
+    // submitting form also turns its inputs readonly and its buttons
+    // disabled, and a second submit is dropped. Anything else is declared in
+    // markup with the `ui-loading` grammar (after Symfony UX):
+    //
+    //   ui-loading="show"                          hidden until loading
+    //   ui-loading="addAttribute(disabled)"        while loading
+    //   ui-loading="action(save)|addClass(is-dim)" only while part `save` acts
+    //   ui-loading="delay(300)|show"               only if it takes > 300ms
+    //   ui-loading="action(form.submit)|hide addClass(a b)"   several directives;
+    //                                       action()/delay() bind the directive they lead
+    //
+    // Effects: show, hide, addClass(c …), removeClass(c …), addAttribute(a),
+    // removeAttribute(a). Each is undone when the action's answer arrives.
+    var IN_FLIGHT = {};          // instanceId -> { count, submits }
+    var LOADING_EFFECTS = { show: 1, hide: 1, addClass: 1, removeClass: 1, addAttribute: 1, removeAttribute: 1 };
+    var LOADING_ATTR_RE = /^(?!on)[a-z][a-z0-9-]*$/;
+    var DEFAULT_LOADING_DELAY = 200;
+
+    /** The one lookup of a component instance's root by its (safe) id. */
+    function instanceRoot(instanceId) {
+        if (typeof instanceId !== 'string' || !IDENTIFIER_RE.test(instanceId)) return null;
+        return document.querySelector('[data-ui-component-instance-id="' + cssAttrEscape(instanceId) + '"]');
+    }
+
+    function isSubmitInFlight(instanceId) {
+        var state = IN_FLIGHT[instanceId];
+        if (state && state.submits > 0) return true;
+        return SUBMIT_WAITERS.some(function (w) { return w.captured.instanceId === instanceId; });
+    }
+
+    var SUBMIT_WAITERS = [];     // submits held until their fields answered
+
+    function inFlightWithin(rootEl) {
+        if (!rootEl) return false;
+        // A file still on its way (upload-runtime) is the field's value to be.
+        if (rootEl.querySelector('[data-ui-uploading]')) return true;
+        return Object.keys(IN_FLIGHT).some(function (id) {
+            var el = instanceRoot(id);
+            return el !== null && rootEl.contains(el);
+        });
+    }
+
+    document.addEventListener('ui-upload:end', function () {
+        if (SUBMIT_WAITERS.length > 0) releaseSubmitWaiters();
+    });
+
+    function releaseSubmitWaiters() {
+        var waiting = SUBMIT_WAITERS;
+        SUBMIT_WAITERS = [];
+        waiting.forEach(function (w) {
+            if (w.rootEl.isConnected) sendTimed(w.captured, w.entry, w.rootEl);
+        });
+    }
+
+    /** `ui-loading` value → [{ scope: {part, event}|null, delay, effect, arg }]. */
+    function parseLoading(spec, effects) {
+        effects = effects || LOADING_EFFECTS;
+        var out = [];
+        var tokens = String(spec || '').match(/(?:[^\s()|]+(?:\([^)]*\))?\|?)+/g) || [];
+        for (var t = 0; t < tokens.length; t++) {
+            var pieces = tokens[t].split('|');
+            var directive = { scope: null, delay: 0, effect: null, arg: '' };
+            for (var p = 0; p < pieces.length; p++) {
+                var m = /^([A-Za-z]+)(?:\(([^)]*)\))?$/.exec(pieces[p]);
+                if (!m) continue;
+                var name = m[1];
+                var arg = m[2] === undefined ? null : m[2].trim();
+                if (name === 'action' && arg) {
+                    var dot = arg.indexOf('.');
+                    directive.scope = dot === -1 ? { part: arg, event: null } : { part: arg.slice(0, dot), event: arg.slice(dot + 1) };
+                } else if (name === 'delay') {
+                    directive.delay = arg === null ? DEFAULT_LOADING_DELAY : Math.max(0, parseInt(arg, 10) || 0);
+                } else if (effects[name]) {
+                    directive.effect = name;
+                    directive.arg = arg || '';
+                }
+            }
+            if (directive.effect !== null) out.push(directive);
+        }
+        return out;
+    }
+
+    function applyLoadingEffect(el, directive) {
+        var arg = directive.arg;
+        var names = arg.split(/\s+/).filter(Boolean);
+        switch (directive.effect) {
+            case 'show':
+                el.hidden = false;
+                return function () { el.hidden = true; };
+            case 'hide':
+                var wasHidden = el.hidden;
+                el.hidden = true;
+                return function () { el.hidden = wasHidden; };
+            case 'addClass':
+                var added = names.filter(function (c) { return !el.classList.contains(c); });
+                added.forEach(function (c) { el.classList.add(c); });
+                return function () { added.forEach(function (c) { el.classList.remove(c); }); };
+            case 'removeClass':
+                var removed = names.filter(function (c) { return el.classList.contains(c); });
+                removed.forEach(function (c) { el.classList.remove(c); });
+                return function () { removed.forEach(function (c) { el.classList.add(c); }); };
+            case 'addAttribute':
+                if (!LOADING_ATTR_RE.test(arg) || el.hasAttribute(arg)) return null;
+                el.setAttribute(arg, '');
+                return function () { el.removeAttribute(arg); };
+            case 'removeAttribute':
+                if (!LOADING_ATTR_RE.test(arg) || !el.hasAttribute(arg)) return null;
+                var previous = el.getAttribute(arg);
+                el.removeAttribute(arg);
+                return function () { el.setAttribute(arg, previous); };
+        }
+        return null;
+    }
+
+    function beginLoading(captured) {
+        var token = { instanceId: captured.instanceId, undo: [], timers: [], submit: captured.event === 'submit' };
+        var rootEl = instanceRoot(captured.instanceId);
+        var state = IN_FLIGHT[captured.instanceId] || (IN_FLIGHT[captured.instanceId] = { count: 0, submits: 0 });
+        state.count++;
+        if (token.submit) state.submits++;
+        if (!rootEl) return token;
+
+        rootEl.setAttribute('aria-busy', 'true');
+        var triggers = [captured.element];
+        // A form submit's own button shows it too (the event's submitter).
+        if (captured.originalEvent && captured.originalEvent.submitter) triggers.push(captured.originalEvent.submitter);
+        triggers.forEach(function (trigger) {
+            if (!trigger || !trigger.setAttribute || trigger.hasAttribute('data-loading')) return;
+            trigger.setAttribute('data-loading', '');
+            token.undo.push(function () { trigger.removeAttribute('data-loading'); });
+        });
+
+        if (token.submit) {
+            var controls = rootEl.querySelectorAll('input, textarea, select, button');
+            for (var c = 0; c < controls.length; c++) {
+                (function (ctl) {
+                    if (ctl.tagName === 'BUTTON' || ctl.type === 'submit' || ctl.tagName === 'SELECT') {
+                        if (ctl.disabled) return;
+                        ctl.disabled = true;
+                        token.undo.push(function () { ctl.disabled = false; });
+                    } else if (!ctl.readOnly) {
+                        ctl.readOnly = true;
+                        token.undo.push(function () { ctl.readOnly = false; });
+                    }
+                })(controls[c]);
+            }
+        }
+
+        var declared = rootEl.matches('[ui-loading]') ? [rootEl] : [];
+        var inside = rootEl.querySelectorAll('[ui-loading]');
+        for (var d = 0; d < inside.length; d++) declared.push(inside[d]);
+        declared.forEach(function (el) {
+            parseLoading(el.getAttribute('ui-loading')).forEach(function (directive) {
+                var scope = directive.scope;
+                if (scope && (scope.part !== captured.part || (scope.event !== null && scope.event !== captured.event))) return;
+                var run = function () {
+                    var undo = applyLoadingEffect(el, directive);
+                    if (undo) token.undo.push(undo);
+                };
+                if (directive.delay > 0) token.timers.push(setTimeout(run, directive.delay)); else run();
+            });
+        });
+        token.rootEl = rootEl;
+        return token;
+    }
+
+    function endLoading(token) {
+        if (!token || token.ended) return;
+        token.ended = true;
+        token.timers.forEach(function (t) { clearTimeout(t); });
+        for (var u = token.undo.length - 1; u >= 0; u--) {
+            try { token.undo[u](); } catch (e) { /* a morphed-away element */ }
+        }
+        var state = IN_FLIGHT[token.instanceId];
+        if (state) {
+            state.count--;
+            if (token.submit) state.submits--;
+            if (state.count <= 0) {
+                delete IN_FLIGHT[token.instanceId];
+                var rootEl = instanceRoot(token.instanceId);
+                if (rootEl) rootEl.removeAttribute('aria-busy');
+            }
+        }
+        if (SUBMIT_WAITERS.length > 0) releaseSubmitWaiters();
+    }
+
+    // Optimistic UI — the answer an action expects, drawn the moment it fires,
+    // declared in markup with the same grammar as ui-loading:
+    //
+    //   ui-optimistic="action(increment)|increment"     the count goes up now
+    //   ui-optimistic="action(remove)|hide"              the row goes now
+    //   ui-optimistic="action(star)|toggleAttribute(aria-pressed) addClass(is-on)"
+    //
+    // Effects: hide, text(v), increment(n), addClass(c …), removeClass(c …),
+    // addAttribute(a), removeAttribute(a), toggleAttribute(a). The prediction
+    // stands when the server accepts — its answer (a morph, a patch) then puts
+    // the truth in place; when it refuses or cannot be reached, every effect is
+    // undone and the visitor is told. The server stays the truth: nothing here
+    // decides anything, it only draws early what the server is expected to say.
+    var OPTIMISTIC_EFFECTS = { hide: 1, text: 1, increment: 1, addClass: 1, removeClass: 1, addAttribute: 1, removeAttribute: 1, toggleAttribute: 1 };
+
+    function applyOptimisticEffect(el, directive) {
+        var arg = directive.arg;
+        switch (directive.effect) {
+            case 'text':
+                var previousText = el.textContent;
+                el.textContent = arg;
+                return function () { el.textContent = previousText; };
+            case 'increment':
+                var before = el.textContent;
+                var current = parseFloat(String(before).replace(/[^0-9.+-]/g, ''));
+                if (isNaN(current)) return null;
+                var step = arg === '' ? 1 : parseFloat(arg);
+                if (isNaN(step)) return null;
+                el.textContent = String(current + step);
+                return function () { el.textContent = before; };
+            case 'toggleAttribute':
+                if (!LOADING_ATTR_RE.test(arg)) return null;
+                var had = el.hasAttribute(arg);
+                var was = el.getAttribute(arg);
+                if (had) el.removeAttribute(arg); else el.setAttribute(arg, '');
+                return function () { if (had) el.setAttribute(arg, was); else el.removeAttribute(arg); };
+        }
+        return applyLoadingEffect(el, directive);
+    }
+
+    function beginOptimistic(captured) {
+        var undo = [];
+        var rootEl = instanceRoot(captured.instanceId);
+        if (!rootEl) return undo;
+        var declared = rootEl.matches('[ui-optimistic]') ? [rootEl] : [];
+        var inside = rootEl.querySelectorAll('[ui-optimistic]');
+        for (var d = 0; d < inside.length; d++) declared.push(inside[d]);
+        declared.forEach(function (el) {
+            parseLoading(el.getAttribute('ui-optimistic'), OPTIMISTIC_EFFECTS).forEach(function (directive) {
+                var scope = directive.scope;
+                if (scope && (scope.part !== captured.part || (scope.event !== null && scope.event !== captured.event))) return;
+                var revert = applyOptimisticEffect(el, directive);
+                if (revert) undo.push(revert);
+            });
+        });
+        return undo;
+    }
+
+    /** The server refused or could not be reached: every prediction undone, and said so. */
+    function rollBackOptimistic(undo, captured) {
+        if (undo.length === 0) return;
+        for (var u = undo.length - 1; u >= 0; u--) {
+            try { undo[u](); } catch (e) { /* a morphed-away element */ }
+        }
+        var toast = window.SemitexaUi && window.SemitexaUi.toast;
+        if (typeof toast === 'function') {
+            toast('That did not go through. Nothing was changed.', { status: TOAST_STATUS.error || 'danger' });
+        } else {
+            emitTransportEvent('semitexa:ui-toast', { message: 'That did not go through. Nothing was changed.', level: 'error' });
+        }
+        emitTransportEvent('semitexa:ui-optimistic:rolled-back', { captured: captured });
+    }
+
+    function hideIdleLoadingElements(rootEl, instanceId) {
+        if (IN_FLIGHT[instanceId]) return;
+        var els = rootEl.querySelectorAll('[ui-loading]');
+        for (var i = 0; i < els.length; i++) {
+            if (parseLoading(els[i].getAttribute('ui-loading')).some(function (d) { return d.effect === 'show'; })) {
+                els[i].hidden = true;
+            }
+        }
+    }
+
+    // `show` elements start hidden: they appear only while loading.
+    mount('[ui-loading]', {
+        connect: function (el) {
+            if (parseLoading(el.getAttribute('ui-loading')).some(function (d) { return d.effect === 'show'; })) {
+                el.hidden = true;
+            }
+        }
+    });
 
     function attachTransport(options) {
         if (typeof options !== 'object' || options === null) {
@@ -501,6 +890,12 @@ import { withCsrf } from 'platform-ui/core';
                 console.warn('[semitexa-ui] transport.attach: fetch is not available; no network calls will fire.');
             }
             return function () {};
+        }
+        // Attaching twice is a no-op: a page that attaches by hand while the
+        // runtime auto-attached would otherwise send every event twice (a
+        // form's second submit then spends a consumed one-time token).
+        for (var a = 0; a < attachedTransports.length; a++) {
+            if (attachedTransports[a].endpoint === endpoint) return attachedTransports[a].detach;
         }
 
         var unsubscribe = onCapture(function (captured) {
@@ -534,15 +929,13 @@ import { withCsrf } from 'platform-ui/core';
             var correlationId = generateCorrelationId();
             var semanticEvent = deriveSemanticEvent(captured);
             try {
-                body = JSON.stringify({
-                    schemaVersion: ENVELOPE_SCHEMA_VERSION,
+                body = JSON.stringify(envelope({
                     eventId: dispatchId,
                     correlationId: correlationId,
                     semanticEvent: semanticEvent,
                     signedContext: captured.ctx,
-                    timestamp: new Date().toISOString(),
                     payload: payloadObj
-                });
+                }));
             } catch (encErr) {
                 emitTransportEvent('semitexa:ui-event:failed', {
                     captured: captured,
@@ -560,6 +953,9 @@ import { withCsrf } from 'platform-ui/core';
                 endpoint: endpoint
             });
 
+            var loading = beginLoading(captured);
+            var optimistic = beginOptimistic(captured);
+
             fetch(endpoint, {
                 method: 'POST',
                 credentials: 'same-origin',
@@ -567,6 +963,8 @@ import { withCsrf } from 'platform-ui/core';
                 body: body
             }).then(function (resp) {
                 return resp.text().then(function (text) {
+                    // The answer to THIS action ends its loading state.
+                    endLoading(loading);
                     var parsed = null;
                     try { parsed = text ? JSON.parse(text) : null; } catch (parseErr) {
                         parsed = null;
@@ -595,6 +993,7 @@ import { withCsrf } from 'platform-ui/core';
                             }
                         }
                     } else {
+                        rollBackOptimistic(optimistic, captured);
                         emitTransportEvent('semitexa:ui-event:failed', {
                             captured: captured,
                             dispatchId: dispatchId,
@@ -605,6 +1004,8 @@ import { withCsrf } from 'platform-ui/core';
                     }
                 });
             }).catch(function (err) {
+                endLoading(loading);
+                rollBackOptimistic(optimistic, captured);
                 emitTransportEvent('semitexa:ui-event:failed', {
                     captured: captured,
                     dispatchId: dispatchId,
@@ -615,14 +1016,15 @@ import { withCsrf } from 'platform-ui/core';
         });
 
         var entry = { endpoint: endpoint, unsubscribe: unsubscribe };
-        attachedTransports.push(entry);
-        return function detach() {
+        entry.detach = function detach() {
             entry.unsubscribe();
             var idx = attachedTransports.indexOf(entry);
             if (idx >= 0) {
                 attachedTransports.splice(idx, 1);
             }
         };
+        attachedTransports.push(entry);
+        return entry.detach;
     }
 
     function emitTransportEvent(name, detail) {
@@ -651,11 +1053,23 @@ import { withCsrf } from 'platform-ui/core';
      *   - finds the component root by data-ui-component-instance-id;
      *   - finds the patch target *inside* that root by data-ui-part /
      *     data-ui-patch-target (NEVER by an arbitrary selector);
-     *   - never uses innerHTML, never `eval`s, never executes scripts;
+     *   - parses server-rendered HTML only through an inert <template>,
+     *     never `eval`s, never executes scripts;
      *   - emits semitexa:ui-patch:applied / :failed lifecycle events per
      *     patch — one failed patch never breaks the rest of the batch.
      */
-    var ALLOWED_PATCH_OPS = { setText: true, setValue: true, setAttribute: true };
+    // The one UI effect vocabulary (UiResponsePatch). The same list arrives on
+    // a HUG reply and as KISS `ui.patch` pushes. HTML ops carry server-rendered
+    // markup (a component re-render or a handler's Twig fragment) and are
+    // parsed through an inert <template>, so no script in it ever runs.
+    var ALLOWED_PATCH_OPS = {
+        setText: true, setValue: true, setAttribute: true,
+        morph: true, replace: true, append: true, prepend: true,
+        remove: true, focus: true, redirect: true, toast: true, dispatch: true,
+        reset: true, open: true, close: true, url: true
+    };
+    var TOAST_STATUS = { info: 'info', success: 'success', warning: 'warning', error: 'danger' };
+    var DISPATCH_EVENT_RE = /^[a-z][a-z0-9]*(?:[:.-][a-z0-9]+)*$/;
     var ALLOWED_PATCH_ATTRIBUTES = {
         'aria-invalid': true,
         'aria-describedby': true,
@@ -703,24 +1117,75 @@ import { withCsrf } from 'platform-ui/core';
         if (typeof instanceId !== 'string' || !IDENTIFIER_RE.test(instanceId)) {
             return failPatch(patch, captured, index, 'invalid_target_instance');
         }
-        // Defense in depth: even though the server already pins the
-        // patch instance to the signed event, double-check on the
-        // client that the response we just received corresponds to the
-        // captured event we just sent.
-        if (captured && captured.instanceId && captured.instanceId !== instanceId) {
-            return failPatch(patch, captured, index, 'target_instance_mismatch');
-        }
         var rootEl = document.querySelector(
             '[data-ui-component-instance-id="' + cssAttrEscape(instanceId) + '"]'
         );
         if (!rootEl) {
             return failPatch(patch, captured, index, 'root_not_found');
         }
+        // Defense in depth: the server already pins every patch to the signed
+        // instance or to an instance it signed alongside (a form's fields). The
+        // client accepts the instance that sent the event and anything rendered
+        // INSIDE it — a form answering for its own fields — never a stranger.
+        if (captured && captured.instanceId && captured.instanceId !== instanceId) {
+            var senderEl = instanceRoot(captured.instanceId);
+            if (!senderEl || !senderEl.contains(rootEl)) {
+                return failPatch(patch, captured, index, 'target_instance_mismatch');
+            }
+        }
+
+        // Page-level effects: they act from the instance, not on a part of it.
+        if (op === 'redirect' || op === 'toast' || op === 'dispatch' || op === 'morph' || op === 'url') {
+            if (!applyInstanceEffect(op, patch, rootEl)) {
+                return failPatch(patch, captured, index, 'invalid_' + op);
+            }
+            emitTransportEvent('semitexa:ui-patch:applied', { patch: patch, captured: captured, index: index });
+            return;
+        }
 
         var el = resolveTargetElement(rootEl, target, patch, captured, index);
         if (!el) return; // failPatch already emitted by resolveTargetElement
 
         switch (op) {
+            case 'replace':
+            case 'append':
+            case 'prepend':
+                var fragment = parseHtml(patch.value);
+                if (fragment === null) {
+                    return failPatch(patch, captured, index, 'invalid_html');
+                }
+                if (op === 'replace') {
+                    el.replaceWith(fragment);
+                    // A replaced event manifest (a form re-armed after a
+                    // submit) must serve the very next event.
+                    scan(document);
+                } else if (op === 'append') {
+                    el.appendChild(fragment);
+                } else {
+                    el.insertBefore(fragment, el.firstChild);
+                }
+                break;
+            case 'remove':
+                el.remove();
+                break;
+            case 'focus':
+                if (typeof el.focus === 'function') el.focus();
+                break;
+            case 'reset':
+                if (typeof el.reset !== 'function') {
+                    return failPatch(patch, captured, index, 'target_not_a_form');
+                }
+                el.reset();
+                break;
+            case 'open':
+            case 'close':
+                // The instance itself is not an overlay: it means the overlay
+                // the instance sits in (close the modal around a saved form).
+                var overlay = el === rootEl && !overlayApi(el) ? closestOverlay(el.parentElement) : el;
+                if (!overlay || !toggleOverlay(overlay, op === 'open')) {
+                    return failPatch(patch, captured, index, 'target_not_an_overlay');
+                }
+                break;
             case 'setText':
                 el.textContent = patch.value == null ? '' : String(patch.value);
                 break;
@@ -753,6 +1218,221 @@ import { withCsrf } from 'platform-ui/core';
         });
     }
 
+    // ---- URL state (url effect) ------------------------------------------
+    // A component's #[UiUrl] props changed: set / drop those query parameters
+    // of the page's own address. On a shell page the navigation layer records
+    // it (so Back is a page move it understands); elsewhere a Back to an entry
+    // this pushed reloads, and the server restores the props from the URL.
+    var URL_KEY_RE = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
+    var urlStatePushed = false;
+
+    function applyUrlState(params, push) {
+        if (!params || typeof params !== 'object') return false;
+        var url = new URL(window.location.href);
+        var keys = Object.keys(params);
+        if (keys.length === 0) return false;
+        for (var k = 0; k < keys.length; k++) {
+            var value = params[keys[k]];
+            if (!URL_KEY_RE.test(keys[k]) || (value !== null && typeof value !== 'string')) return false;
+            if (value === null) url.searchParams.delete(keys[k]); else url.searchParams.set(keys[k], value);
+        }
+        var target = url.pathname + url.search + url.hash;
+        if (target === window.location.pathname + window.location.search + window.location.hash) return true;
+        var nav = window.SemitexaNavigation;
+        if (nav && typeof nav.recordUrl === 'function' && nav.isShellPage()) {
+            nav.recordUrl(target, { replace: !push });
+            return true;
+        }
+        if (push) {
+            window.history.pushState({ semitexaUrlState: true }, '', target);
+            if (!urlStatePushed) {
+                urlStatePushed = true;
+                window.addEventListener('popstate', function () { window.location.reload(); });
+            }
+        } else {
+            window.history.replaceState(window.history.state, '', target);
+        }
+        return true;
+    }
+
+    // ---- Overlays (open / close effects) ---------------------------------
+    // An overlay is an element carrying a togglable behavior (modal, offcanvas
+    // — their open()/close() keep scroll-lock, transitions and events), else a
+    // native <dialog>.
+    var OVERLAY_ALIASES = ['modal', 'offcanvas'];
+
+    function overlayApi(el) {
+        var behaviors = window.SemitexaUi && window.SemitexaUi.behaviors;
+        if (behaviors && typeof behaviors.instance === 'function') {
+            for (var a = 0; a < OVERLAY_ALIASES.length; a++) {
+                var inst = behaviors.instance(el, OVERLAY_ALIASES[a]);
+                if (inst && inst.api && typeof inst.api.open === 'function' && typeof inst.api.close === 'function') return inst.api;
+            }
+        }
+        if (el.tagName === 'DIALOG' && typeof el.close === 'function') {
+            return {
+                open: function () { if (!el.open) el.showModal(); },
+                close: function () { if (el.open) el.close(); }
+            };
+        }
+        return null;
+    }
+
+    function closestOverlay(el) {
+        for (var node = el; node && node.nodeType === 1; node = node.parentElement) {
+            if (overlayApi(node)) return node;
+        }
+        return null;
+    }
+
+    function toggleOverlay(el, open) {
+        var overlay = overlayApi(el);
+        if (!overlay) return false;
+        if (open) overlay.open(); else overlay.close();
+        return true;
+    }
+
+    /** Server-rendered HTML → a fragment, through an inert <template>. */
+    function parseHtml(html) {
+        if (typeof html !== 'string' || typeof document.createElement !== 'function') return null;
+        var tpl = document.createElement('template');
+        tpl.innerHTML = html;
+        return tpl.content;
+    }
+
+    function applyInstanceEffect(op, patch, rootEl) {
+        var args = patch.args && typeof patch.args === 'object' ? patch.args : {};
+        switch (op) {
+            case 'morph':
+                var fragment = parseHtml(patch.value);
+                var next = fragment ? fragment.firstElementChild : null;
+                if (!next) return false;
+                morphElement(rootEl, next);
+                // Runtime-owned state the server HTML does not carry: `show`
+                // loading elements are hidden again unless an action is still
+                // in flight on this instance.
+                hideIdleLoadingElements(rootEl, patch.target.instance);
+                // Pick up the re-rendered manifest now, not on the observer's
+                // next tick: the very next click must use the new contexts.
+                scan(document);
+                return true;
+            case 'redirect':
+                var path = patch.value;
+                if (typeof path !== 'string' || path.charAt(0) !== '/' || path.charAt(1) === '/') return false;
+                if (args.replace === true) window.location.replace(path); else window.location.assign(path);
+                return true;
+            case 'toast':
+                if (typeof patch.value !== 'string' || patch.value === '') return false;
+                var toast = window.SemitexaUi && window.SemitexaUi.toast;
+                var opts = { status: TOAST_STATUS[args.level] || 'info' };
+                if (typeof args.title === 'string') opts.title = args.title;
+                if (typeof toast === 'function') {
+                    toast(patch.value, opts);
+                } else {
+                    emitTransportEvent('semitexa:ui-toast', { message: patch.value, level: args.level || 'info', title: opts.title });
+                }
+                return true;
+            case 'url':
+                return applyUrlState(args.params, args.history === 'push');
+            case 'dispatch':
+                if (typeof patch.value !== 'string' || !DISPATCH_EVENT_RE.test(patch.value)) return false;
+                rootEl.dispatchEvent(new CustomEvent(patch.value, { bubbles: true, detail: args.detail || {} }));
+                return true;
+        }
+        return false;
+    }
+
+    /**
+     * Morph `from` into `to` in place: attributes synced, children matched by
+     * id or data-ui-part (else by position), so focus, caret and the value a
+     * user is typing survive a re-render of the component around them.
+     */
+    function morphElement(from, to) {
+        if (from.nodeType !== to.nodeType || from.nodeName !== to.nodeName) {
+            from.replaceWith(to.cloneNode(true));
+            return;
+        }
+        if (from.nodeType === 3 || from.nodeType === 8) {
+            if (from.nodeValue !== to.nodeValue) from.nodeValue = to.nodeValue;
+            return;
+        }
+        if (from.nodeType !== 1) return;
+        if (from.nodeName === 'SCRIPT') {
+            // A script (an event manifest) is swapped whole, so it is a new
+            // node the runtime scans — never edited in place.
+            from.replaceWith(to.cloneNode(true));
+            return;
+        }
+        syncAttributes(from, to);
+        if ('value' in from && (from.nodeName === 'INPUT' || from.nodeName === 'TEXTAREA' || from.nodeName === 'SELECT')) {
+            if (from !== document.activeElement && from.value !== to.value) from.value = to.value;
+            if (from.nodeName === 'INPUT' && from.checked !== to.checked) from.checked = to.checked;
+        }
+        morphChildren(from, to);
+    }
+
+    // State the browser owns, not the server HTML: whether a <dialog> or
+    // <details> is open, and an overlay behavior's `sx-open` class. A re-render
+    // of a component around an open modal must not shut it.
+    var RUNTIME_OPEN_NODES = { DIALOG: true, DETAILS: true };
+
+    function syncAttributes(from, to) {
+        var i;
+        var keepOpen = RUNTIME_OPEN_NODES[from.nodeName] === true;
+        var wasShown = from.classList && from.classList.contains('sx-open');
+        for (i = from.attributes.length - 1; i >= 0; i--) {
+            var name = from.attributes[i].name;
+            if (keepOpen && name === 'open') continue;
+            if (!to.hasAttribute(name)) from.removeAttribute(name);
+        }
+        for (i = 0; i < to.attributes.length; i++) {
+            var attr = to.attributes[i];
+            if (keepOpen && attr.name === 'open') continue;
+            if (from.getAttribute(attr.name) !== attr.value) from.setAttribute(attr.name, attr.value);
+        }
+        if (wasShown) from.classList.add('sx-open');
+    }
+
+    function morphKey(node) {
+        if (!node || node.nodeType !== 1) return null;
+        return node.getAttribute('id') ? '#' + node.getAttribute('id')
+            : node.getAttribute('data-ui-part') ? 'part:' + node.getAttribute('data-ui-part')
+            : null;
+    }
+
+    function morphChildren(from, to) {
+        var keyed = {};
+        var child;
+        for (child = from.firstChild; child; child = child.nextSibling) {
+            var key = morphKey(child);
+            if (key !== null) keyed[key] = child;
+        }
+        var cursor = from.firstChild;
+        var nextNew;
+        for (var neu = to.firstChild; neu; neu = nextNew) {
+            nextNew = neu.nextSibling;
+            var neuKey = morphKey(neu);
+            var match = neuKey !== null && keyed[neuKey] ? keyed[neuKey] : null;
+            if (match === null && cursor && morphKey(cursor) === null
+                && cursor.nodeType === neu.nodeType && cursor.nodeName === neu.nodeName) {
+                match = cursor;
+            }
+            if (match !== null) {
+                if (match !== cursor) from.insertBefore(match, cursor);
+                else cursor = cursor.nextSibling;
+                if (neuKey !== null) delete keyed[neuKey];
+                morphElement(match, neu);
+            } else {
+                from.insertBefore(neu.cloneNode(true), cursor);
+            }
+        }
+        while (cursor) {
+            var rest = cursor.nextSibling;
+            from.removeChild(cursor);
+            cursor = rest;
+        }
+    }
+
     function resolveTargetElement(rootEl, target, patch, captured, index) {
         var part = target.part;
         var name = target.name;
@@ -775,9 +1455,15 @@ import { withCsrf } from 'platform-ui/core';
                 failPatch(patch, captured, index, 'invalid_target_name');
                 return null;
             }
-            var namedEl = rootEl.querySelector(
+            // The instance's own target first: a form and the fields nested
+            // in it can carry the same name (every event manifest does).
+            var named = rootEl.querySelectorAll(
                 '[data-ui-patch-target="' + cssAttrEscape(name) + '"]'
             );
+            var namedEl = named[0] || null;
+            for (var n = 0; n < named.length; n++) {
+                if (named[n].closest('[data-ui-component-instance-id]') === rootEl) { namedEl = named[n]; break; }
+            }
             if (!namedEl) {
                 failPatch(patch, captured, index, 'target_not_found');
                 return null;
@@ -870,27 +1556,22 @@ import { withCsrf } from 'platform-ui/core';
             if (typeof name !== 'string' || !FIELD_NAME_SAFE_RE.test(name)) {
                 continue;
             }
-            // The field's input part is the only thing we read. No
-            // textareas / selects / checkboxes in this slice —
-            // those surfaces will be added together with the
-            // primitives that render them.
+            // The field's input part — any control kind (readControlValue).
             var inputEl = fieldEl.querySelector('[data-ui-part="input"]');
-            if (!inputEl || !('value' in inputEl)) {
+            if (!inputEl) {
                 continue;
             }
-            var rawValue;
-            try {
-                rawValue = inputEl.value;
-            } catch (e) {
-                continue;
-            }
+            var rawValue = readControlValue(inputEl);
             if (rawValue === null || rawValue === undefined) {
                 snapshot[name] = null;
                 continue;
             }
-            // The DOM `.value` is always a string in this slice; we
-            // coerce defensively so a future surface that returns
-            // numbers doesn't accidentally smuggle objects through.
+            // Scalars, or a flat list of strings (multi-select, checkbox
+            // group) — never an object.
+            if (Array.isArray(rawValue)) {
+                snapshot[name] = rawValue.filter(function (v) { return typeof v === 'string'; });
+                continue;
+            }
             if (typeof rawValue !== 'string' && typeof rawValue !== 'number' &&
                 typeof rawValue !== 'boolean'
             ) {
@@ -1157,7 +1838,22 @@ import { withCsrf } from 'platform-ui/core';
     // can re-sync state that may have been published while the socket was
     // down. Keyed by url so two distinct streams do not cross-trigger.
     var SSE_LAST_CONNECTED_AT = {};
-    var SSE_RECONNECT_MIN_GAP_MS = 2000;
+    var KISS_PATH = '/__semitexa_kiss';
+    // The last frame id each stream got (`k<connection>.<n>`, numbered by the
+    // server's replay transport), by url. A NEW EventSource for the same url (a
+    // revived tab, a reopened stream) carries it as `last_event_id`, so the
+    // server replays what the dying connection never delivered; the browser's
+    // own reconnect sends it as the Last-Event-ID header by itself.
+    var SSE_LAST_REPLAY_ID = {};
+    var SSE_REPLAY_ID_RE = /^k[0-9a-f]{6}\.\d+$/;
+
+    function withReplayId(url) {
+        var last = SSE_LAST_REPLAY_ID[url];
+        if (typeof last !== 'string' || last === '') {
+            return url;
+        }
+        return url + (url.indexOf('?') === -1 ? '?' : '&') + 'last_event_id=' + encodeURIComponent(last);
+    }
 
     function attachSse(options) {
         if (typeof options !== 'object' || options === null) {
@@ -1200,7 +1896,8 @@ import { withCsrf } from 'platform-ui/core';
 
         var source;
         try {
-            source = new EventSource(url, { withCredentials: false });
+            source = new EventSource(withReplayId(url), { withCredentials: false });
+            source.__semitexaUrl = url;
         } catch (err) {
             emitTransportEvent('semitexa:ui-sse:error', {
                 phase: 'construct',
@@ -1217,18 +1914,30 @@ import { withCsrf } from 'platform-ui/core';
                 url: url
             });
             // Reconnect detection: the FIRST `connected` for this url is the
-            // initial open; a later one (after a gap) means the stream came
-            // back from a drop. Signal consumers to re-sync any state lost
-            // while the socket was down.
-            var nowTs = (typeof Date !== 'undefined' && Date.now) ? Date.now() : 0;
+            // initial open; every later one is a new connection, and the server
+            // dropped the old one's feed subscriptions with it. Signal consumers
+            // to re-subscribe. (This used to require two seconds since the
+            // previous `connected`, so a stream that dropped and came back
+            // quickly kept its feeds unsubscribed.)
+            var nowTs = (typeof Date !== 'undefined' && Date.now) ? Date.now() : 1;
             var prevTs = SSE_LAST_CONNECTED_AT[url] || 0;
-            SSE_LAST_CONNECTED_AT[url] = nowTs;
-            if (prevTs !== 0 && (nowTs - prevTs) >= SSE_RECONNECT_MIN_GAP_MS) {
+            SSE_LAST_CONNECTED_AT[url] = nowTs || 1;
+            if (prevTs !== 0) {
                 emitTransportEvent('semitexa:ui-sse:reconnected', {
                     url: url,
                     sincePreviousMs: nowTs - prevTs
                 });
             }
+        });
+
+        // The server no longer holds the frame this reconnect named: what was
+        // missed is lost, and consumers re-sync from fresh snapshots (feeds do
+        // on the `reconnected` signal that follows).
+        source.addEventListener('ui.stream.reset', function (ev) {
+            emitTransportEvent('semitexa:ui-sse:reset', {
+                detail: parseSseFrame(ev),
+                url: url
+            });
         });
 
         source.addEventListener('ui.patch', function (ev) {
@@ -1312,10 +2021,6 @@ import { withCsrf } from 'platform-ui/core';
 
         source.addEventListener('close', function (ev) {
             var parsed = parseSseFrame(ev);
-            emitTransportEvent('semitexa:ui-sse:close', {
-                detail: parsed,
-                url: url
-            });
             // Deterministic teardown. SSR's AsyncResourceSseServer
             // emits `event: close` once it has flushed the drain
             // queue; if we do not call `source.close()` here, the
@@ -1329,6 +2034,14 @@ import { withCsrf } from 'platform-ui/core';
             if (idx >= 0) {
                 ATTACHED_SSE_CONNECTIONS.splice(idx, 1);
             }
+            // Announce only once the connection is gone: a listener that
+            // reopens the same URL (drain mode, answers that arrived while
+            // this drain was open) would otherwise be de-duplicated against
+            // the dying connection — and every later answer would wait.
+            emitTransportEvent('semitexa:ui-sse:close', {
+                detail: parsed,
+                url: url
+            });
         });
 
         // SSE transport unification · Phase 3 — multiplex demux. The shared KISS
@@ -1372,6 +2085,18 @@ import { withCsrf } from 'platform-ui/core';
                 error: err,
                 url: url
             });
+            // A KISS stream that fails before it EVER connected cannot stream on
+            // this page: stop retrying and let every feed fall back to pull. A
+            // stream that drops after connecting stays on the browser's own
+            // reconnect, and the `reconnected` signal re-subscribes.
+            if (url.indexOf(KISS_PATH) !== -1 && !SSE_LAST_CONNECTED_AT[url]) {
+                try { source.close(); } catch (closeErr) { /* ignore */ }
+                var failedIdx = ATTACHED_SSE_CONNECTIONS.indexOf(entry);
+                if (failedIdx >= 0) {
+                    ATTACHED_SSE_CONNECTIONS.splice(failedIdx, 1);
+                }
+                failAllSubscriptions();
+            }
         };
 
         var entry = { url: url, source: source };
@@ -1388,6 +2113,10 @@ import { withCsrf } from 'platform-ui/core';
     function parseSseFrame(ev) {
         if (!ev || typeof ev.data !== 'string' || ev.data === '') {
             return null;
+        }
+        var origin = ev.target && ev.target.__semitexaUrl;
+        if (typeof origin === 'string' && typeof ev.lastEventId === 'string' && SSE_REPLAY_ID_RE.test(ev.lastEventId)) {
+            SSE_LAST_REPLAY_ID[origin] = ev.lastEventId;
         }
         try {
             return JSON.parse(ev.data);
@@ -1592,6 +2321,12 @@ import { withCsrf } from 'platform-ui/core';
         forms: {
             snapshot: formAggregateSnapshot,
             reset: formAggregateReset
+        },
+        // Morph an element into freshly rendered HTML in place (focus, caret,
+        // an open dialog survive): the island runtime's re-render.
+        morph: function (from, to) {
+            morphElement(from, to);
+            scan(document);
         }
     });
 
@@ -1724,7 +2459,7 @@ import { withCsrf } from 'platform-ui/core';
     var SSE_SUBSCRIPTIONS = {}; // subscription_id -> { feedRef, params, onFrame }
     var SSE_DATA_FRAME_TYPE_LIST = [
         'ui.document.data', 'ui.document.error',
-        'ui.collection.data', 'ui.collection.error'
+        'ui.collection.data', 'ui.collection.error', 'ui.collection.patch'
     ];
 
     /** True when a LIVE-mode KISS connection is already attached (URL carries mode=live). */
@@ -1755,54 +2490,64 @@ import { withCsrf } from 'platform-ui/core';
         return true;
     }
 
-    /** The feed route URL with the feed's params on the query (like the GET connect). */
-    function feedControlUrl(feedRef, params) {
-        var url = feedRef.url;
-        var qs = [];
+    /** The params a feed control may carry: flat scalars only, nulls dropped. */
+    function flatStreamParams(params) {
+        var out = {};
         if (params) {
             for (var k in params) {
-                if (Object.prototype.hasOwnProperty.call(params, k) && params[k] != null) {
-                    qs.push(encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+                if (!Object.prototype.hasOwnProperty.call(params, k)) {
+                    continue;
+                }
+                var v = params[k];
+                if (v === null || v === undefined) {
+                    continue;
+                }
+                if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+                    out[k] = v;
                 }
             }
         }
-        if (qs.length) {
-            url += (url.indexOf('?') === -1 ? '?' : '&') + qs.join('&');
-        }
-        return url;
+        return out;
     }
 
-    function postSseControl(feedRef, params, sessionId, subscriptionId, unsubscribe) {
+    /**
+     * Feed control goes to HUG — `{"stream": {op, feed, params, session,
+     * subscriptionId}}` — and only acknowledges; every frame arrives on KISS.
+     * op: subscribe | view | unsubscribe. Best-effort: a reconnect re-subscribes.
+     */
+    function postStreamControl(op, feed, params, sessionId, subscriptionId, patches) {
         if (typeof fetch !== 'function') {
             return;
         }
-        var headers = {
-            'X-Semitexa-Kiss-Session': sessionId,
-            'X-Semitexa-Subscription-Id': subscriptionId
-        };
-        headers[unsubscribe ? 'X-Semitexa-Stream-Unsubscribe' : 'X-Semitexa-Stream-Subscribe'] = '1';
+        var stream = { op: op, feed: feed, session: sessionId, subscriptionId: subscriptionId };
+        // The subscriber applies keyed patches (ui.collection.patch).
+        if (op === 'subscribe' && patches === true) {
+            stream.patches = true;
+        }
+        if (op !== 'unsubscribe') {
+            stream.params = flatStreamParams(params);
+        }
         try {
-            fetch(feedControlUrl(feedRef, params), {
-                method: 'POST',
-                credentials: 'same-origin',
-                keepalive: true,
-                headers: withCsrf('POST', headers)
-            }).catch(function () { /* best-effort; reconnect re-subscribes */ });
+            hug({ stream: stream }, { keepalive: true })
+                .catch(function () { /* best-effort; reconnect re-subscribes */ });
         } catch (postErr) { /* ignore */ }
     }
 
     /**
      * Subscribe a feed to the shared KISS connection.
-     *   feedRef = { url }, params = feed query params (e.g. { ctx }),
-     *   onFrame(frame) = called with each demuxed frame body.
-     * Returns { degraded, subscriptionId, unsubscribe() }. When `degraded` is
-     * true the page has no KISS session — the caller keeps its own EventSource.
+     *   feedRef = { feed } — the feed's route name (its OPTIONS contract `name`),
+     *   params = feed query params (e.g. { ctx }),
+     *   onFrame(frame) = called with each demuxed frame body,
+     *   onUnavailable() = optional; the page's KISS stream failed before it
+     *   ever connected, so this subscription is dropped and the caller pulls.
+     * Returns { degraded, subscriptionId, view(params), unsubscribe() }. When
+     * `degraded` is true the page has no KISS session — the caller pulls.
      */
-    function sseSubscribe(feedRef, params, onFrame) {
-        var noop = { degraded: true, subscriptionId: null, unsubscribe: function () {} };
+    function sseSubscribe(feedRef, params, onFrame, onUnavailable) {
+        var noop = { degraded: true, subscriptionId: null, view: function () {}, unsubscribe: function () {} };
         var sessionId = readPageSseSessionId();
         if (sessionId === null || typeof EventSource !== 'function' || typeof fetch !== 'function'
-            || !feedRef || typeof feedRef.url !== 'string' || feedRef.url === ''
+            || !feedRef || typeof feedRef.feed !== 'string' || feedRef.feed === ''
             || typeof onFrame !== 'function') {
             return noop;
         }
@@ -1810,20 +2555,42 @@ import { withCsrf } from 'platform-ui/core';
         ensureKissOpen(sessionId);
 
         var subscriptionId = mintHexPrefixedId('sse_', 16); // sse_<32hex>
-        SSE_SUBSCRIPTIONS[subscriptionId] = { feedRef: feedRef, params: params || {}, onFrame: onFrame };
-        postSseControl(feedRef, params, sessionId, subscriptionId, false);
+        var patches = feedRef.patches === true;
+        SSE_SUBSCRIPTIONS[subscriptionId] = { feed: feedRef.feed, params: params || {}, onFrame: onFrame, onUnavailable: onUnavailable, patches: patches };
+        postStreamControl('subscribe', feedRef.feed, params, sessionId, subscriptionId, patches);
 
         return {
             degraded: false,
             subscriptionId: subscriptionId,
+            view: function (nextParams) {
+                var s = SSE_SUBSCRIPTIONS[subscriptionId];
+                if (!s) {
+                    return;
+                }
+                // A reconnect re-subscribes with the CURRENT view, not the first one.
+                s.params = nextParams || {};
+                postStreamControl('view', s.feed, s.params, sessionId, subscriptionId);
+            },
             unsubscribe: function () {
                 if (!SSE_SUBSCRIPTIONS[subscriptionId]) {
                     return;
                 }
                 delete SSE_SUBSCRIPTIONS[subscriptionId];
-                postSseControl(feedRef, params, sessionId, subscriptionId, true);
+                postStreamControl('unsubscribe', feedRef.feed, null, sessionId, subscriptionId);
             }
         };
+    }
+
+    /** The page's KISS stream cannot open: every subscription falls back to pull. */
+    function failAllSubscriptions() {
+        var ids = Object.keys(SSE_SUBSCRIPTIONS);
+        for (var i = 0; i < ids.length; i++) {
+            var s = SSE_SUBSCRIPTIONS[ids[i]];
+            delete SSE_SUBSCRIPTIONS[ids[i]];
+            if (s && typeof s.onUnavailable === 'function') {
+                try { s.onUnavailable(); } catch (cbErr) { /* one feed must not break the rest */ }
+            }
+        }
     }
 
     /** Re-POST every active subscribe (same ids) after the shared connection reconnects. */
@@ -1835,7 +2602,7 @@ import { withCsrf } from 'platform-ui/core';
         for (var id in SSE_SUBSCRIPTIONS) {
             if (Object.prototype.hasOwnProperty.call(SSE_SUBSCRIPTIONS, id)) {
                 var s = SSE_SUBSCRIPTIONS[id];
-                postSseControl(s.feedRef, s.params, sessionId, id, false);
+                postStreamControl('subscribe', s.feed, s.params, sessionId, id, s.patches === true);
             }
         }
     }
@@ -1978,16 +2745,31 @@ import { withCsrf } from 'platform-ui/core';
     // closure work and keeps the wire log clean.
     var drainOnDemandArmed = false;
     var drainOnDemandOpened = false;
+    // Streamed answers that arrived while a drain was already open: the server
+    // may have queued them just as that drain was closing, so a close with any
+    // outstanding reopens once. Without this a drain page received only its
+    // FIRST streamed answer — every later one waited on the server for good.
+    var drainStreamedWhileOpen = 0;
 
     function armDrainOnDemand(sessionId) {
         if (drainOnDemandArmed) {
             return;
         }
         drainOnDemandArmed = true;
-        document.addEventListener('semitexa:ui-event:dispatched', function (ev) {
-            if (drainOnDemandOpened) {
+        var drainUrl = function () { return buildKissUrl(sessionId, SSE_TRANSPORT_MODE_DRAIN); };
+        document.addEventListener('semitexa:ui-sse:close', function (ev) {
+            var url = ev && ev.detail ? ev.detail.url : '';
+            if (typeof url !== 'string' || url.indexOf('mode=' + SSE_TRANSPORT_MODE_DRAIN) === -1) {
                 return;
             }
+            drainOnDemandOpened = false;
+            if (drainStreamedWhileOpen > 0) {
+                drainStreamedWhileOpen = 0;
+                drainOnDemandOpened = true;
+                attachSse({ url: drainUrl() });
+            }
+        }, false);
+        document.addEventListener('semitexa:ui-event:dispatched', function (ev) {
             var detail = ev && ev.detail ? ev.detail : null;
             if (!detail || !detail.response || typeof detail.response !== 'object') {
                 return;
@@ -2004,10 +2786,13 @@ import { withCsrf } from 'platform-ui/core';
             if (streamed <= 0) {
                 return;
             }
+            if (drainOnDemandOpened) {
+                drainStreamedWhileOpen += streamed;
+                return;
+            }
             drainOnDemandOpened = true;
-            attachSse({
-                url: buildKissUrl(sessionId, SSE_TRANSPORT_MODE_DRAIN)
-            });
+            drainStreamedWhileOpen = 0;
+            attachSse({ url: drainUrl() });
         }, false);
     }
 
@@ -2136,3 +2921,4 @@ export const dispatch = __events.dispatch;
 export const transport = __events.transport;
 export const sse = __events.sse;
 export const forms = __events.forms;
+export const morph = __events.morph;

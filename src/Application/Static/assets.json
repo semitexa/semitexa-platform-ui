@@ -25,6 +25,26 @@
       "position": "head",
       "priority": 41
     },
+    "css/app-shell.css": {
+      "scope": "page",
+      "position": "head",
+      "priority": 44
+    },
+    "css/auth.css": {
+      "scope": "page",
+      "position": "head",
+      "priority": 45
+    },
+    "css/blocks.css": {
+      "scope": "page",
+      "position": "head",
+      "priority": 46
+    },
+    "css/command-palette.css": {
+      "scope": "page",
+      "position": "head",
+      "priority": 43
+    },
     "css/date-field.css": {
       "scope": "page",
       "position": "head",
@@ -78,6 +98,30 @@
         "type": "module"
       }
     },
+    "js/app-shell.js": {
+      "scope": "page",
+      "position": "body",
+      "priority": 74,
+      "attributes": {
+        "type": "module"
+      }
+    },
+    "js/command-palette.js": {
+      "scope": "page",
+      "position": "body",
+      "priority": 73,
+      "attributes": {
+        "type": "module"
+      }
+    },
+    "js/upload-runtime.js": {
+      "scope": "page",
+      "position": "body",
+      "priority": 72,
+      "attributes": {
+        "type": "module"
+      }
+    },
     "js/form-collab-runtime.js": {
       "scope": "page",
       "position": "body",
@@ -105,6 +149,14 @@
       "dependencies": [
         "platform-ui:js:calendar-dates"
       ]
+    },
+    "js/island-runtime.js": {
+      "scope": "page",
+      "position": "body",
+      "priority": 73,
+      "attributes": {
+        "type": "module"
+      }
     },
     "js/date-field-runtime.js": {
       "scope": "page",

@@ -51,5 +51,13 @@ final class UiOn
         public string $part,
         public string $event,
         public ?string $updates = null,
+        /**
+         * Send only after the user paused this long (ms) — as-you-type input
+         * without a request per keystroke. A pending send fires at once when
+         * the enclosing form submits.
+         */
+        public ?int $debounce = null,
+        /** Send at most once per this many ms (first immediately, last too). */
+        public ?int $throttle = null,
     ) {}
 }

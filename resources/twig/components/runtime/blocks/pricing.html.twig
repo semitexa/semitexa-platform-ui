@@ -1,0 +1,28 @@
+{#- platform.block-pricing — props: title, lead, plans [{name, price, period, description, features[], action, featured, badge}]. -#}
+{{- asset_require('platform-ui:css:blocks') -}}
+<section data-ui-component="platform.block-pricing" ui-block="pricing">
+    <div ui-block-inner>
+        {{ include('@platform-ui/components/runtime/blocks/_head.html.twig', {title: title ?? '', lead: lead ?? ''}, with_context = false) }}
+        <ul ui-pricing-list role="list">
+            {%- for plan in plans ?? [] %}
+            <li ui-plan{% if plan.featured ?? false %} ui-featured{% endif %}>
+                <div ui-plan-head>
+                    <h3 ui-plan-name>{{ plan.name }}</h3>
+                    {%- if (plan.badge ?? '') != '' %}{{ primitive('badge', {text: plan.badge, tone: 'brand', variant: (plan.featured ?? false) ? 'solid' : 'soft'}) }}{% endif %}
+                </div>
+                <p ui-plan-price><span ui-plan-amount>{{ plan.price }}</span>{% if (plan.period ?? '') != '' %} <span ui-plan-period>{{ plan.period }}</span>{% endif %}</p>
+                {%- if (plan.description ?? '') != '' %}<p ui-plan-description>{{ plan.description }}</p>{% endif %}
+                {%- if (plan.features ?? [])|length > 0 %}
+                <ul ui-plan-features role="list">
+                    {%- for f in plan.features %}<li>{{ icon('check', {size: 16}) }}<span>{{ f }}</span></li>{% endfor %}
+                </ul>
+                {%- endif %}
+                {%- if plan.action ?? null %}
+                {%- set _a = plan.action|merge({variant: plan.action.variant ?? ((plan.featured ?? false) ? 'solid' : 'outline')}) %}
+                {{ include('@platform-ui/components/runtime/blocks/_actions.html.twig', {actions: [_a]}, with_context = false) }}
+                {%- endif %}
+            </li>
+            {%- endfor %}
+        </ul>
+    </div>
+</section>

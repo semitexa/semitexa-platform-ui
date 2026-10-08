@@ -8,11 +8,20 @@
 > third door alive next to `/__ui/dispatch` and `/__semitexa_component_event`.
 > That choice is reversed: the canonical inbound is **`POST /__semitexa_hug`**
 > (`HugEventPayload` → `HugEventHandler` → `UiResponseDispatcherInterface`), and
-> `/__ui/event` and `/__ui/dispatch` are deleted, and component events ride
-> HUG as `{"componentEvent": {…}}`. Feeds — the collaborative-form document
-> included — are being moved to HUG-controlled subscriptions over KISS
-> (`tk-kh-form-doc-over-kiss`); until then `/__ui/form-doc` is the one door
-> `lint:transport-doors` still lists as pending. A feature that
+> `/__ui/event`, `/__ui/dispatch` and `/__semitexa_component_event` are
+> deleted. Since 2026-10-05 there is ONE component model on top of the two
+> doors: a component's events are its `#[UiOn]` methods on the canonical
+> envelope, answered with one effect vocabulary (`UiResponsePatch`: morph via
+> `rerender`, small ops, redirect/toast/dispatch) that rides the HUG reply or
+> the KISS push alike; domain events are `UiInteractionResult::dispatching()`.
+> The separate `{"componentEvent"}` body and its signed manifest are gone
+> (`var/docs/one-component-model-design.md`). Feeds — the collaborative-form document
+> included — are HUG-controlled subscriptions on KISS: the browser posts
+> `{"stream": {op, feed, params, session, subscriptionId}}` to HUG with the
+> feed's route NAME, and frames arrive only on KISS. No feed opens a stream of
+> its own, feed routes are GET-only (the plain-pull fallback), and the
+> form-document feed has no path at all (`exposure: Hug`), so `/__ui/form-doc`
+> is gone too. A feature that
 > needs a verb HUG lacks extends HUG; it does not add a route. Below, read every
 > "`/__ui/event`" as `POST /__semitexa_hug`.
 

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Component\Builtin;
 
+use Semitexa\PlatformUi\Application\Service\Validation\UiFieldValue;
+
 use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\InputPrimitive;
 use Semitexa\PlatformUi\Application\Service\Validation\Rule\MinLengthRule;
 use Semitexa\PlatformUi\Application\Service\Validation\Rule\RequiredRule;
@@ -187,10 +189,8 @@ final class FieldComponent implements UsesUiFieldRuleRegistry
      *   - setText on the validation-message name target with the
      *     diagnostic.
      *
-     * Plus the legacy `server-ack` setText (preserved for the dispatch
-     * playground demo that opts into `showServerAckTarget: true`); the
-     * frontend applier emits a `failed` lifecycle event for that one
-     * when the target is absent, which is a graceful no-op.
+     * Plus the legacy `server-ack` setText, only for a field rendered with
+     * `showServerAckTarget: true` (signed into the ctx as `cfg.ack`).
      *
      * The validation rules are intentionally minimal — empty / <3 chars
      * are invalid, everything else is valid. This is a DEMO of the
@@ -201,7 +201,7 @@ final class FieldComponent implements UsesUiFieldRuleRegistry
     public function onInputChanged(UiInteractionEvent $event): UiInteractionResult
     {
         $value = $event->value();
-        $valueAsString = is_scalar($value) ? (string) $value : '';
+        $valueAsString = UiFieldValue::asString($value);
 
         // Rules come EXCLUSIVELY from the signed-ctx `cfg.r` claim —
         // the manifest builder signed them at render time, the
@@ -214,18 +214,18 @@ final class FieldComponent implements UsesUiFieldRuleRegistry
 
         $patches = $validation->toPatches($event->instanceId);
 
-        // Preserve the historical server-ack patch so the existing
-        // backend-dispatch demo keeps working without a parallel
-        // handler. Components that don't render the server-ack target
-        // see a `target_not_found` lifecycle event for this one patch
-        // and the rest of the batch still applies.
-        $patches[] = new UiResponsePatch(
-            op: UiResponsePatch::OP_SET_TEXT,
-            targetInstance: $event->instanceId,
-            targetPart: null,
-            targetName: 'server-ack',
-            value: 'Server received: ' . $valueAsString,
-        );
+        // The historical server-ack echo, only for a field rendered with
+        // `showServerAckTarget` (signed as cfg.ack): everywhere else it was a
+        // `target_not_found` failure that also put the typed value on the wire.
+        if (($event->config['ack'] ?? false) === true) {
+            $patches[] = new UiResponsePatch(
+                op: UiResponsePatch::OP_SET_TEXT,
+                targetInstance: $event->instanceId,
+                targetPart: null,
+                targetName: 'server-ack',
+                value: 'Server received: ' . $valueAsString,
+            );
+        }
 
         // Surface only the SHAPE of the form snapshot in debug — never
         // the values. Sibling values may be sensitive (codes, tokens);
@@ -284,10 +284,16 @@ final class FieldComponent implements UsesUiFieldRuleRegistry
     private function validateFromEvent(UiInteractionEvent $event, string $value): UiFieldValidationResult
     {
         $signedRules = $event->rules();
+        $signedFieldName = $event->config['fn'] ?? null;
+        if ($signedRules === [] && is_string($signedFieldName) && $signedFieldName !== '') {
+            // A named field rendered without rules declared none: nothing to
+            // check (a switch is not "at least 3 characters"). The demo rule
+            // below is only for contexts that carry neither.
+            return UiFieldValidationResult::valid();
+        }
         $rawRules = $signedRules !== [] ? $signedRules : self::DEFAULT_RULES;
 
         $formValues = $event->formValues;
-        $signedFieldName = $event->config['fn'] ?? null;
         if (is_string($signedFieldName) && $signedFieldName !== '') {
             // Signed name → trusted slot. Overwrite any client value
             // for this key with the dispatched value (which is *also*
@@ -297,11 +303,13 @@ final class FieldComponent implements UsesUiFieldRuleRegistry
             $formValues[$signedFieldName] = $value;
         }
 
+        $submitted = $event->value();
         $context = new UiFieldValidationContext(
             componentName: $event->componentName,
             instanceId:    $event->instanceId,
             fieldName:     $event->partName,
             formValues:    $formValues,
+            submittedList: is_array($submitted) ? array_values(array_map(static fn ($v): string => is_scalar($v) ? (string) $v : '', $submitted)) : null,
         );
 
         try {

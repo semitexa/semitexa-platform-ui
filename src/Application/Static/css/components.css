@@ -485,6 +485,51 @@
         margin-inline-start: var(--ui-space-2);
     }
 
+    /* ---- platform.dashboard ---------------------------------------- */
+    [ui-component="dashboard"] {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+        gap: var(--ui-space-4);
+        container-type: inline-size;
+    }
+    /* A lazily drawn widget's body lays out as the card's own children. */
+    [ui-component="dashboard"] [ui-dashboard="body"] {
+        display: contents;
+    }
+
+    [ui-component="dashboard"] [ui-dashboard="widget"] {
+        display: grid; align-content: start; gap: var(--ui-space-3); min-width: 0;
+        padding: var(--ui-space-4);
+        border: 1px solid var(--ui-border-subtle);
+        border-radius: var(--ui-radius-lg, 0.75rem);
+        background: var(--ui-surface-raised);
+    }
+    [ui-component="dashboard"] [ui-dashboard="widget"][ui-dashboard-wide] { grid-column: span 2; }
+    @container (max-width: 34rem) {
+        [ui-component="dashboard"] [ui-dashboard="widget"][ui-dashboard-wide] { grid-column: auto; }
+    }
+    [ui-component="dashboard"] [ui-dashboard="widget"] [ui-component="stat"] { padding: 0; background: none; box-shadow: none; }
+    [ui-component="dashboard"] [ui-dashboard="title"] { margin: 0; font-size: var(--ui-text-sm); font-weight: var(--ui-font-weight-semibold); }
+    [ui-component="dashboard"] [ui-dashboard="legend"] {
+        display: flex; flex-wrap: wrap; gap: var(--ui-space-1) var(--ui-space-3);
+        margin: 0; padding: 0; list-style: none; font-size: var(--ui-text-sm); color: var(--ui-text-muted);
+    }
+    [ui-component="dashboard"] [ui-dashboard="legend"] strong { color: var(--ui-text-primary); }
+    [ui-component="dashboard"] [ui-dashboard="more"] { font-size: var(--ui-text-sm); justify-self: start; }
+
+    /* ---- platform.chart -------------------------------------------- */
+    [ui-component="chart"] { margin: 0; display: grid; gap: var(--ui-space-1); min-width: 0; }
+    [ui-component="chart"] [ui-chart="title"] { font-size: var(--ui-text-sm); color: var(--ui-text-muted); }
+    [ui-component="chart"] [ui-chart="svg"] { display: block; width: 100%; overflow: visible; }
+    [ui-component="chart"] [ui-chart="bar"] { fill: var(--ui-accent-brand); }
+    [ui-component="chart"] [ui-chart="line"] { fill: none; stroke: var(--ui-accent-brand); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+    [ui-component="chart"] [ui-chart="area"] { fill: color-mix(in oklab, var(--ui-accent-brand) 14%, transparent); stroke: none; }
+    /* The numbers, for a screen reader only. */
+    [ui-component="chart"] [ui-chart="data"] {
+        position: absolute; width: 1px; height: 1px; overflow: hidden;
+        clip-path: inset(50%); white-space: nowrap;
+    }
+
     /* ---- platform.empty-state --------------------------------------- */
     [ui-component="empty-state"] {
         display: flex;

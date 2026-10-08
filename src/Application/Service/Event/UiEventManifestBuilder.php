@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Event;
 
+use Semitexa\PlatformUi\Application\Service\State\UiComponentStates;
 use Semitexa\PlatformUi\Domain\Contract\UiPartDataProviderInterface;
 use Semitexa\PlatformUi\Domain\Exception\UiComponentRegistryException;
 use Semitexa\PlatformUi\Domain\Model\Component\UiComponentMetadata;
@@ -113,6 +114,7 @@ final class UiEventManifestBuilder
         ?string $subscriberChannelId = null,
         ?string $dataProviderClass = null,
         array $externalBindings = [],
+        array $props = [],
     ): UiEventManifest {
         if ($instanceId === '') {
             throw new UiComponentRegistryException(
@@ -151,6 +153,17 @@ final class UiEventManifestBuilder
             $normalisedDp = $dataProviderClass;
         }
 
+        // The props this instance was rendered with ride its signed context, so
+        // a handler can ask for a re-render (`UiResponsePatch::rerender()`)
+        // and the server reproduces the instance without trusting the browser.
+        // Only a small, JSON-plain set: anything else leaves `pr` out and the
+        // instance simply cannot be re-rendered.
+        // Kept on the server instead when the component has #[UiState] or the
+        // props are too large to copy into every context: the contexts then
+        // carry the state's key (`st`), and the dispatcher loads it.
+        $stateKey = UiComponentStates::persist($metadata->class, $instanceId, $props);
+        $normalisedProps = $stateKey === null ? self::signableProps($props) : null;
+
         $entries = [];
         foreach ($metadata->events as $event) {
             $claims = [
@@ -176,6 +189,13 @@ final class UiEventManifestBuilder
                 $claims['dp'] = $normalisedDp;
             }
 
+            if ($normalisedProps !== null) {
+                $claims['pr'] = $normalisedProps;
+            }
+            if ($stateKey !== null) {
+                $claims['st'] = $stateKey;
+            }
+
             $blob = SignedContext::sign($claims, $ttlSeconds);
 
             $entries[] = new UiEventManifestEntry(
@@ -183,6 +203,8 @@ final class UiEventManifestBuilder
                 event: $event->eventName,
                 signedContext: $blob,
                 updatesPath: $event->updatesPath !== null ? (string) $event->updatesPath : null,
+                debounceMs: $event->debounceMs,
+                throttleMs: $event->throttleMs,
             );
         }
 
@@ -207,6 +229,13 @@ final class UiEventManifestBuilder
                 $claims['dp'] = $normalisedDp;
             }
 
+            if ($normalisedProps !== null) {
+                $claims['pr'] = $normalisedProps;
+            }
+            if ($stateKey !== null) {
+                $claims['st'] = $stateKey;
+            }
+
             $blob = SignedContext::sign($claims, $ttlSeconds);
 
             $entries[] = new UiEventManifestEntry(
@@ -222,5 +251,40 @@ final class UiEventManifestBuilder
             instanceId: $instanceId,
             entries: $entries,
         );
+    }
+
+    /** Upper bound for the signed props, JSON-encoded. */
+    public const MAX_SIGNED_PROPS_BYTES = 4096;
+
+    /**
+     * @param array<array-key, mixed> $props
+     * @return array<string, mixed>|null null when the props cannot ride a signed context
+     */
+    private static function signableProps(array $props): ?array
+    {
+        if ($props === [] || array_is_list($props) || !self::isJsonPlain($props)) {
+            return null;
+        }
+        $json = json_encode($props, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($json === false || strlen($json) > self::MAX_SIGNED_PROPS_BYTES) {
+            return null;
+        }
+
+        /** @var array<string, mixed> $props */
+        return $props;
+    }
+
+    private static function isJsonPlain(mixed $value): bool
+    {
+        if (is_array($value)) {
+            foreach ($value as $item) {
+                if (!self::isJsonPlain($item)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        return $value === null || is_scalar($value);
     }
 }

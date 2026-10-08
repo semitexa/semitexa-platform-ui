@@ -136,15 +136,33 @@ final class UiFormPayloadSnapshotTest extends TestCase
     }
 
     #[Test]
-    public function array_value_rejected(): void
+    public function a_list_of_non_strings_or_a_keyed_array_is_rejected(): void
     {
-        try {
-            $this->extractor->extract(['form' => ['values' => ['multi' => [1, 2]]]]);
-            self::fail();
-        } catch (UiInteractionBadRequestException $e) {
-            self::assertSame('invalid_form_snapshot_value', $e->reason);
-            self::assertStringContainsString('arrays and objects are rejected', $e->getMessage());
+        // verify:accept-test-change tk-la-form-controls: a flat list of STRINGS is now a valid value (multi-select, checkbox group); everything else that is an array stays rejected
+        foreach ([['multi' => [1, 2]], ['multi' => ['a' => 'b']], ['multi' => [['nested']]]] as $values) {
+            try {
+                $this->extractor->extract(['form' => ['values' => $values]]);
+                self::fail('rejected: ' . json_encode($values));
+            } catch (UiInteractionBadRequestException $e) {
+                self::assertSame('invalid_form_snapshot_value', $e->reason);
+            }
         }
+    }
+
+    #[Test]
+    public function a_flat_list_of_strings_is_a_multi_value(): void
+    {
+        self::assertSame(
+            ['tags' => ['php', 'ui'], 'terms' => true],
+            $this->extractor->extract(['form' => ['values' => ['tags' => ['php', 'ui'], 'terms' => true]]]),
+        );
+    }
+
+    #[Test]
+    public function a_list_longer_than_the_cap_is_rejected(): void
+    {
+        $this->expectException(UiInteractionBadRequestException::class);
+        $this->extractor->extract(['form' => ['values' => ['tags' => array_fill(0, 101, 'x')]]]);
     }
 
     #[Test]

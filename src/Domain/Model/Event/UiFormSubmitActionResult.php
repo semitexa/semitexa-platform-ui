@@ -23,10 +23,19 @@ namespace Semitexa\PlatformUi\Domain\Model\Event;
  *                      so an action cannot target an unsigned instance
  *                      or use an unallow-listed op/attribute.
  *
- * Deliberate non-features (left for later slices):
+ *   - `fieldErrors`  : field name → message, shown on that field exactly
+ *                      like a validation failure (a uniqueness check the
+ *                      rules cannot express). Names must be signed fields.
+ *   - `reset`        : restore the form's controls after success.
+ *   - `redirectTo`   : same-origin path to leave for; the form is then
+ *                      neither reset nor re-armed.
+ *   - `closeModal`   : close the overlay the form sits in.
  *
- *   - no `redirect` variant — adding a redirect is a separate slice
- *     (needs CSRF, session policy, allow-list of safe URLs);
+ * Built fluently: `rejected('Fix the errors')->withFieldErrors([...])`,
+ * `accepted('Saved')->resettingForm()`, `accepted()->redirectingTo('/x')`, `accepted('Sent')->closingModal()`.
+ *
+ * Deliberate non-features:
+ *
  *   - no `persistence` variant — persistence requires storage-specific
  *     validation + authorization;
  *   - no `html` variant — would break the inert-patch trust perimeter.
@@ -36,13 +45,40 @@ final readonly class UiFormSubmitActionResult
     /**
      * @param array<string, mixed>    $debug
      * @param list<UiResponsePatch>   $extraPatches
+     * @param array<string, string>   $fieldErrors
      */
     public function __construct(
         public bool   $accepted,
         public string $message,
         public array  $debug = [],
         public array  $extraPatches = [],
+        public array  $fieldErrors = [],
+        public bool   $reset = false,
+        public ?string $redirectTo = null,
+        public bool   $closeModal = false,
     ) {}
+
+    /** @param array<string, string> $fieldErrors */
+    public function withFieldErrors(array $fieldErrors): self
+    {
+        return new self($this->accepted, $this->message, $this->debug, $this->extraPatches, $fieldErrors, $this->reset, $this->redirectTo, $this->closeModal);
+    }
+
+    public function resettingForm(): self
+    {
+        return new self($this->accepted, $this->message, $this->debug, $this->extraPatches, $this->fieldErrors, true, $this->redirectTo, $this->closeModal);
+    }
+
+    /** Close the modal (or offcanvas, or <dialog>) the form sits in. */
+    public function closingModal(): self
+    {
+        return new self($this->accepted, $this->message, $this->debug, $this->extraPatches, $this->fieldErrors, $this->reset, $this->redirectTo, true);
+    }
+
+    public function redirectingTo(string $path): self
+    {
+        return new self($this->accepted, $this->message, $this->debug, $this->extraPatches, $this->fieldErrors, $this->reset, $path, $this->closeModal);
+    }
 
     /**
      * @param array<string, mixed>    $debug
@@ -79,6 +115,9 @@ final readonly class UiFormSubmitActionResult
         ];
         if ($this->debug !== []) {
             $out['detail'] = $this->debug;
+        }
+        if ($this->fieldErrors !== []) {
+            $out['fieldErrors'] = array_keys($this->fieldErrors);
         }
         return $out;
     }

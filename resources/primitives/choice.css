@@ -1,0 +1,87 @@
+@layer platform-ui.primitives {
+    /* checkbox · radio · switch — a <label> root around the native control,
+       drawn from tokens (appearance: none), focus / invalid / disabled alike. */
+    :is([ui="checkbox"], [ui="radio"], [ui="switch"]) {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--ui-space-2);
+        font-size: var(--ui-text-sm);
+        line-height: var(--ui-text-sm-leading);
+        color: var(--ui-text-primary);
+        cursor: pointer;
+    }
+    :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input {
+        appearance: none;
+        flex: none;
+        margin: 0;
+        display: inline-grid;
+        place-content: center;
+        background: var(--ui-surface-raised);
+        border: 1px solid var(--ui-border-strong);
+        cursor: inherit;
+        transition:
+            background-color var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease),
+            border-color var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease);
+    }
+    :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-focus-ring) 30%, transparent);
+    }
+    :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input[aria-invalid="true"] { border-color: var(--ui-state-danger); }
+    :is([ui="checkbox"], [ui="radio"], [ui="switch"]):has(> input:disabled) { color: var(--ui-text-muted); cursor: not-allowed; }
+    :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input:disabled { opacity: 0.55; }
+
+    /* checkbox: a rounded square, a check mark drawn by clip-path */
+    [ui="checkbox"] > input { width: 1.125rem; height: 1.125rem; border-radius: var(--ui-radius-sm, 0.25rem); }
+    [ui="checkbox"] > input::before {
+        content: "";
+        width: 0.625rem;
+        height: 0.625rem;
+        background: var(--ui-text-on-accent);
+        clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+        scale: 0;
+        transition: scale var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease);
+    }
+    [ui="checkbox"] > input:checked { background: var(--ui-accent-brand); border-color: var(--ui-accent-brand); }
+    [ui="checkbox"] > input:checked::before { scale: 1; }
+
+    /* radio: a circle with a dot */
+    [ui="radio"] > input { width: 1.125rem; height: 1.125rem; border-radius: 50%; }
+    [ui="radio"] > input::before {
+        content: "";
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 50%;
+        background: var(--ui-accent-brand);
+        scale: 0;
+        transition: scale var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease);
+    }
+    [ui="radio"] > input:checked { border-color: var(--ui-accent-brand); }
+    [ui="radio"] > input:checked::before { scale: 1; }
+
+    /* switch: a track with a thumb that slides */
+    [ui="switch"] > input {
+        width: 2.25rem;
+        height: 1.25rem;
+        border-radius: 999px;
+        place-content: center start;
+        padding: 0.125rem;
+        background: var(--ui-surface-sunken);
+    }
+    [ui="switch"] > input::before {
+        content: "";
+        width: 0.875rem;
+        height: 0.875rem;
+        border-radius: 50%;
+        background: var(--ui-surface-raised);
+        box-shadow: var(--ui-shadow-xs);
+        transition: translate var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease);
+    }
+    [ui="switch"] > input:checked { background: var(--ui-accent-brand); border-color: var(--ui-accent-brand); }
+    [ui="switch"] > input:checked::before { translate: 1rem 0; }
+
+    @media (prefers-reduced-motion: reduce) {
+        :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input,
+        :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input::before { transition: none; }
+    }
+}

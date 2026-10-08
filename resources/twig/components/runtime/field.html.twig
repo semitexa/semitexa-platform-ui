@@ -62,7 +62,48 @@
         <label{% if _id %} for="{{ _id }}"{% endif %} ui-text="label">{{ label }}{% if required|default(false) %} <span aria-hidden="true" style="color:var(--ui-state-danger);">*</span>{% endif %}</label>
     {% endif %}
 
-    {% if _has_prefix or _has_suffix %}
+    {#- `control`: input (default) | textarea | select | checkbox | switch | checkboxes | radio | segmented | file.
+        Every kind carries data-ui-part="input", so validation, patches and the
+        form snapshot treat them alike; `options` = [{value, label}] for
+        select / checkboxes / radio, `multiple: true` for a multi-select.
+        `file`: `accept` = MIME patterns (default ['image/*']), `maxBytes` (default
+        1 MiB; above SWOOLE_PACKAGE_MAX_LENGTH less 16 KiB the render fails); the
+        file goes to HUG as it is chosen and the field's value is the signed
+        ticket the form action redeems (UiUploadTickets::fromForm). -#}
+    {%- set _control = control|default('input') -%}
+    {% if _control != 'input' %}
+        {%- set _p = ui_part_props('input', inputProps|default({})) -%}
+        {%- set _name = _p.name|default(name|default('')) -%}
+        {%- set _value = _p.value ?? value ?? null -%}
+        {%- set _values = _value is iterable ? _value|map(v => v ~ '') : (_value is null ? [] : [_value ~ '']) -%}
+        {%- set _options = options|default([]) -%}
+        {%- set _required = required|default(false) -%}
+        {% if _control == 'textarea' %}
+            {{ primitive('textarea', {part: 'input', name: _name, id: _id, rows: rows|default(6), placeholder: placeholder|default(null), required: _required, value: _values|first|default('')}) }}
+        {% elseif _control == 'select' %}
+            {{ primitive('select', {part: 'input', name: _name, id: _id, multiple: multiple|default(false), placeholder: placeholder|default(null), required: _required, options: _options, value: _values}) }}
+        {% elseif _control == 'segmented' %}
+            {{ primitive('segmented', {part: 'input', name: _name, label: label|default(null), options: _options, value: _values|first|default(null)}) }}
+        {% elseif _control == 'checkbox' or _control == 'switch' %}
+            {{ primitive(_control, {part: 'input', name: _name, id: _id, label: checkboxLabel|default(label|default('')), checked: _value and _value != '0', required: _required}) }}
+        {% elseif _control == 'file' %}
+            {{ asset_require('platform-ui:js:upload-runtime') }}
+            {%- set _accept = accept|default(['image/*']) -%}
+            {%- set _maxBytes = maxBytes ?? constant('Semitexa\\PlatformUi\\Application\\Service\\Upload\\UiUploadTickets::DEFAULT_MAX_BYTES') -%}
+            <div ui-component="upload" sx-layout="stack" sx-gap="1" data-ui-upload-root>
+                <input type="file" data-ui-upload="{{ ui_upload_context(_ui_instance, _name, _accept, _maxBytes) }}" data-ui-upload-max="{{ _maxBytes }}" accept="{{ _accept|join(',') }}"{% if _id %} id="{{ _id }}"{% endif %}>
+                <input data-ui-part="input" type="hidden" name="{{ _name }}" value="">
+                <progress data-ui-upload-progress max="100" value="0" hidden></progress>
+                <span data-ui-upload-status ui-text="muted" aria-live="polite"></span>
+            </div>
+        {% else %}
+            <fieldset data-ui-part="input" ui-component="choices" sx-layout="cluster" sx-gap="3" style="border:0;padding:0;margin:0;"{% if _id %} id="{{ _id }}"{% endif %}>
+                {% for option in _options %}
+                    {{ primitive(_control == 'radio' ? 'radio' : 'checkbox', {name: _name ~ (_control == 'checkboxes' ? '[]' : ''), value: option.value, label: option.label|default(option.value), checked: (option.value ~ '') in _values}) }}
+                {% endfor %}
+            </fieldset>
+        {% endif %}
+    {% elseif _has_prefix or _has_suffix %}
         <div sx-layout="cluster" sx-gap="2" sx-align="center">
             {% if _has_prefix %}<span ui-text="muted">{{ _prefix|raw }}</span>{% endif %}
             <span style="flex:1;display:block;">{{ ui_part('input', inputProps|default({})) }}</span>
@@ -113,6 +154,10 @@
     {%- endif -%}
     {%- if _safe_field_name -%}
         {%- set _ui_cfg_input_change = _ui_cfg_input_change|merge({'fn': _safe_field_name}) -%}
+    {%- endif -%}
+    {#- Only a field that shows the server-ack target asks for its echo. -#}
+    {%- if showServerAckTarget|default(false) -%}
+        {%- set _ui_cfg_input_change = _ui_cfg_input_change|merge({'ack': true}) -%}
     {%- endif -%}
     {%- set _ui_event_config = _ui_cfg_input_change is empty ? {} : {'input.change': _ui_cfg_input_change} -%}
     {#-

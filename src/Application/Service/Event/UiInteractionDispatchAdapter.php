@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Event;
 
+use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionUnprocessableException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventResponse;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventResponseStatus;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult;
+use Semitexa\PlatformUi\Domain\Model\Event\UiResponsePatch;
 
 /**
  * Bridges canonical {@see UiEventResponse} handler returns into the
@@ -28,15 +30,14 @@ use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult;
  * dispatcher's existing exception-mapping path produces the documented
  * 422 envelope without any new code in the dispatch handler.
  *
- * Typed instruction objects (redirect / notification / validation) are
- * not encoded yet — Phase 5 grid flow uses `commandAccepted` +
- * `statePatch` only. When the first consumer needs a typed instruction,
- * extend this adapter to read its primitive fields rather than dumping
- * the object reference.
+ * The instructions the one effect vocabulary can express become effects
+ * ({@see UiResponsePatch}): a redirect, a notification (toast), and a
+ * re-render (`rerender` / `componentPropsPatch` → `rerender` with those
+ * props, which the dispatcher turns into a morph). The rest stays in `debug`.
  */
 final class UiInteractionDispatchAdapter
 {
-    public function toInteractionResult(UiEventResponse $response): UiInteractionResult
+    public function toInteractionResult(UiEventResponse $response, string $instanceId = ''): UiInteractionResult
     {
         if ($response->status === UiEventResponseStatus::Error) {
             $error = $response->error;
@@ -76,6 +77,32 @@ final class UiInteractionDispatchAdapter
             $debug['sse'] = $response->sse;
         }
 
-        return UiInteractionResult::ack($debug);
+        $effects = [];
+        if ($instanceId !== '') {
+            if ($response->rerender !== [] || $response->componentPropsPatch !== []) {
+                $effects[] = UiResponsePatch::rerender($instanceId, $response->componentPropsPatch);
+            }
+            if ($response->notification !== null) {
+                $effects[] = UiResponsePatch::toast(
+                    $instanceId,
+                    $response->notification->message,
+                    $response->notification->level,
+                    $response->notification->title,
+                );
+            }
+            if ($response->redirect !== null && UiResponsePatch::isSameOriginPath($response->redirect->url)) {
+                $effects[] = UiResponsePatch::redirect($instanceId, $response->redirect->url, $response->redirect->replace);
+            } elseif ($response->redirect !== null) {
+                // The handler has already done its work; refusing the whole
+                // answer now would tell the user it failed. The off-site
+                // redirect is dropped, loudly, and the rest goes through.
+                StaticLoggerBridge::error('platform_ui', 'UI handler redirect dropped: only same-origin paths are followed', [
+                    'instance' => $instanceId,
+                    'url' => $response->redirect->url,
+                ]);
+            }
+        }
+
+        return $effects === [] ? UiInteractionResult::ack($debug) : UiInteractionResult::patch($effects, $debug);
     }
 }

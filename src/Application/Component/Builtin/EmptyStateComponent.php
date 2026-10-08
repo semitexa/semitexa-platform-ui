@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Component\Builtin;
 
+use Semitexa\PlatformUi\Attribute\AsUiContract;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiProp;
+
 use Semitexa\Ssr\Attribute\AsComponent;
 use Semitexa\PlatformUi\Attribute\UiSlot;
 
@@ -31,6 +35,18 @@ use Semitexa\PlatformUi\Attribute\UiSlot;
 )]
 #[UiSlot(name: 'media', description: 'Custom illustration markup; overrides the icon prop when present.')]
 #[UiSlot(name: 'actions', description: 'Recovery controls (buttons/links) rendered below the text.')]
+#[AsUiContract(
+    summary: 'A centred placeholder for a place with nothing to show yet.',
+    props: [
+        new UiProp('title', required: true),
+        new UiProp('description', nullable: true),
+        new UiProp('icon', nullable: true, description: 'A Lucide icon name ("inbox").'),
+    ],
+    examples: [
+        new UiExample('default', 'No orders', ['title' => 'No orders yet', 'description' => 'Orders appear here as they arrive.', 'icon' => 'inbox']),
+    ],
+    previewSafe: true,
+)]
 final class EmptyStateComponent
 {
 }

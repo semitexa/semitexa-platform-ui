@@ -1,0 +1,7 @@
+{#- The shared heading of a page block: title (h2) and lead, both optional. -#}
+{%- if (title ?? '') != '' or (lead ?? '') != '' -%}
+<header ui-block-head>
+    {%- if (title ?? '') != '' %}<h2 ui-block-title>{{ title }}</h2>{% endif -%}
+    {%- if (lead ?? '') != '' %}<p ui-block-lead>{{ lead }}</p>{% endif -%}
+</header>
+{%- endif -%}

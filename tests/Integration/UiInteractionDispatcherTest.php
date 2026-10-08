@@ -160,22 +160,19 @@ final class UiInteractionDispatcherTest extends TestCase
         self::assertSame(UiInteractionResult::KIND_PATCH, $result->kind);
         self::assertSame('hello@example.com', $result->debug['value']);
         self::assertSame('uci_test_0000000001', $result->debug['instance']);
-        // FieldComponent::onInputChanged() now emits a 4-patch batch:
+        // FieldComponent::onInputChanged() emits the 3-patch validation batch:
         //   1. setAttribute aria-invalid on the input part (null → removed for valid)
         //   2. setAttribute ui-state on the input part
         //   3. setText on the validation-message name target
-        //   4. setText on the server-ack name target (preserved for the dispatch-demo)
-        self::assertCount(4, $result->patches);
+        // (the server-ack echo only for a field signed with cfg.ack).
+        // verify:accept-test-change the server-ack echo became opt-in (signed cfg.ack); this ctx does not ask for it
+        self::assertCount(3, $result->patches);
         foreach ($result->patches as $patch) {
             self::assertSame('uci_test_0000000001', $patch->targetInstance);
         }
-        // Patch 3 is the validation message; patch 4 is the server-ack echo.
         self::assertSame('setText', $result->patches[2]->op);
         self::assertSame('validation-message', $result->patches[2]->targetName);
         self::assertSame('Looks good.', $result->patches[2]->value);
-        self::assertSame('setText', $result->patches[3]->op);
-        self::assertSame('server-ack', $result->patches[3]->targetName);
-        self::assertSame('Server received: hello@example.com', $result->patches[3]->value);
     }
 
     #[Test]
@@ -514,8 +511,9 @@ final class UiInteractionDispatcherTest extends TestCase
         self::assertSame(UiInteractionResult::KIND_PATCH, $result->kind);
         self::assertSame('roundtrip-ok', $result->debug['value']);
         self::assertSame('uci_round_trip_99', $result->debug['instance']);
-        // Validation (3 patches) + server-ack (1 patch).
-        self::assertCount(4, $result->patches);
+        // Validation (3 patches); no server-ack without a signed cfg.ack.
+        // verify:accept-test-change the server-ack echo became opt-in (signed cfg.ack)
+        self::assertCount(3, $result->patches);
         foreach ($result->patches as $patch) {
             self::assertSame('uci_round_trip_99', $patch->targetInstance);
         }
@@ -660,6 +658,35 @@ final class UiInteractionDispatcherTest extends TestCase
             }
         }
     }
+
+    #[Test]
+    public function a_component_handler_reaches_its_injected_services(): void
+    {
+        UiComponentRegistry::register((new UiComponentMetadataFactory())->fromClass(InjectedServiceComponent::class));
+        $container = new class implements \Psr\Container\ContainerInterface {
+            public function get(string $id): mixed
+            {
+                return new \ArrayObject(['greeting' => 'Hello from the container.']);
+            }
+
+            public function has(string $id): bool
+            {
+                return $id === \ArrayObject::class;
+            }
+        };
+        $dispatcher = new UiInteractionDispatcher(
+            productionLike: false,
+            componentInjector: static fn (object $component) => \Semitexa\Core\Container\PropertyInjector::inject($component, $container),
+        );
+
+        $result = $dispatcher->dispatch(
+            $this->freshCtx(component: 'platform.test-injected-service'),
+            $this->freshDispatchId(),
+            ['value' => 'x'],
+        );
+
+        self::assertSame('Hello from the container.', $result->patches[0]->value);
+    }
 }
 
 /**
@@ -686,5 +713,23 @@ final class EvilCrossInstancePatchComponent
                 value: 'gotcha',
             ),
         ]);
+    }
+}
+
+/** A component whose #[UiOn] handler needs a service — filled before it runs. */
+#[AsComponent(
+    name: 'platform.test-injected-service',
+    template: '@platform-ui/components/runtime/field.html.twig',
+)]
+#[UiPart(name: 'input', uses: InputPrimitive::class, bind: 'value')]
+final class InjectedServiceComponent
+{
+    #[\Semitexa\Core\Attribute\InjectAsReadonly]
+    protected \ArrayObject $greetings;
+
+    #[UiOn(part: 'input', event: 'change')]
+    public function onChange(UiInteractionEvent $event): UiInteractionResult
+    {
+        return UiInteractionResult::patch([UiResponsePatch::setText($event->instanceId, (string) $this->greetings['greeting'], null, 'greeting')]);
     }
 }

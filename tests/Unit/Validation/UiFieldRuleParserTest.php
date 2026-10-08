@@ -208,7 +208,7 @@ final class UiFieldRuleParserTest extends TestCase
     {
         // Regression: docs + playground copy quote these names verbatim.
         self::assertSame(
-            ['required', 'minLength', 'maxLength', 'sameAsField'],
+            ['required', 'minLength', 'maxLength', 'sameAsField', 'email', 'url', 'integer', 'number', 'min', 'max', 'slug', 'in'],
             $this->parser()->knownRuleNames(),
         );
     }

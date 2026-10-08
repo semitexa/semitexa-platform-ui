@@ -8,9 +8,8 @@ use Semitexa\PlatformUi\Application\Service\Collaboration\CollabManifestBuilder;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
 use Semitexa\PlatformUi\Application\Service\Icon\IconRegistry;
 use Semitexa\PlatformUi\Application\Service\Component\UiPartPropResolver;
-use Semitexa\PlatformUi\Application\Service\Event\PlatformUiAuthState;
 use Semitexa\Ssr\Application\Service\UiEvent\UiSseSessionState;
-use Semitexa\PlatformUi\Application\Service\Event\PlatformUiTransportModePolicy;
+use Semitexa\PlatformUi\Application\Service\Event\UiPageSseSession;
 use Semitexa\PlatformUi\Application\Service\Event\UiEventManifestBuilder;
 use Semitexa\PlatformUi\Application\Service\Event\UiInstanceIdGenerator;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleParser;
@@ -43,15 +42,21 @@ final class PlatformUiTwigExtension
         /**
          * icon(name, opts = [])
          *
-         * Emit an inline, currentColor SVG from the SX icon registry (Lucide-style).
-         * SSR-first — no client hydration, no HTTP request. opts: size (px int or
-         * CSS length), class, label (accessible image; omitted => decorative),
-         * strokeWidth. Unknown names render nothing.
+         * Emit an inline, currentColor SVG from the full Lucide set (old names
+         * resolve through aliases). SSR-first — no client hydration, no HTTP
+         * request. opts: size (px int or CSS length), class, label (accessible
+         * image; omitted => decorative), strokeWidth. An unknown name renders
+         * nothing — in dev, a comment naming it, so a typo is findable.
          */
         TwigExtensionRegistry::registerFunction(
             'icon',
             static function (string $name, array $opts = []): Markup {
-                return new Markup(IconRegistry::render($name, $opts), 'UTF-8');
+                $svg = IconRegistry::render($name, $opts);
+                if ($svg === '' && in_array(getenv('APP_ENV'), ['dev', 'local'], true)) {
+                    $svg = sprintf('<!-- icon "%s" not found -->', str_replace('--', '-', htmlspecialchars($name, ENT_QUOTES)));
+                }
+
+                return new Markup($svg, 'UTF-8');
             },
             ['is_safe' => ['html']],
         );
@@ -223,7 +228,8 @@ final class PlatformUiTwigExtension
          */
         TwigExtensionRegistry::registerFunction(
             'ui_component_instance',
-            static fn (): string => (new UiInstanceIdGenerator())->next(),
+            static fn (array $context): string => UiInstanceIdGenerator::forContext($context),
+            ['needs_context' => true],
         );
 
         /**
@@ -256,10 +262,8 @@ final class PlatformUiTwigExtension
          */
         TwigExtensionRegistry::registerFunction(
             'ui_component_instance_for',
-            static function (mixed $override = null): string {
-                if ($override === null) {
-                    return (new UiInstanceIdGenerator())->next();
-                }
+            static function (array $context, mixed $override = null): string {
+                if ($override === null) return UiInstanceIdGenerator::forContext($context);
                 if (!UiInstanceIdGenerator::isSafe($override)) {
                     throw new UiComponentRegistryException(
                         'ui_component_instance_for() override must match the safe instance-id shape (' . UiInstanceIdGenerator::SAFE_ID_PATTERN . ').',
@@ -268,6 +272,7 @@ final class PlatformUiTwigExtension
                 /** @var string $override */
                 return $override;
             },
+            ['needs_context' => true],
         );
 
         /**
@@ -328,10 +333,8 @@ final class PlatformUiTwigExtension
                 //
                 // When the caller passes `dp:`, the FQCN of a class
                 // implementing UiPartDataProviderInterface is folded
-                // into every signed ctx so the dispatcher can resolve
-                // and invoke the read-side data provider for filter /
-                // sort / pagination flows without trusting any client-
-                // supplied class name.
+                // into every signed ctx so the dispatcher can resolve the read-side data
+                // provider (filter / sort / paging) without trusting a client class name.
                 $manifest = (new UiEventManifestBuilder())->build(
                     metadata: $metadata,
                     instanceId: $instanceId,
@@ -340,26 +343,10 @@ final class PlatformUiTwigExtension
                     subscriberChannelId: UiSseSessionState::current(),
                     dataProviderClass: $dp,
                     externalBindings: UiComponentRegistry::externalBindingsFor($metadata->name),
+                    props: is_array($context['_props'] ?? null) ? $context['_props'] : [],
                 );
 
-                $json = json_encode(
-                    $manifest->toJsonShape(),
-                    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
-                );
-
-                // `</script>` inside JSON would break the parser; encode the
-                // closing-tag sequence defensively.
-                $json = str_replace('</', '<\\/', $json);
-
-                $instanceAttr = htmlspecialchars($instanceId, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-                $componentAttr = htmlspecialchars($manifest->componentName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-
-                $html = sprintf(
-                    '<script type="application/json" data-ui-event-manifest="%s" data-ui-component="%s">%s</script>',
-                    $instanceAttr,
-                    $componentAttr,
-                    $json,
-                );
+                $html = $manifest->toScriptHtml();
 
                 return new Markup($html, 'UTF-8');
             },
@@ -378,7 +365,7 @@ final class PlatformUiTwigExtension
          * tokens the inbound collaboration handler routes by — see
          * {@see CollabManifestBuilder}. The block is pure data (no executable
          * JS); the runtime finds it by the `data-ui-collab-manifest` marker and
-         * connects `/__ui/form-doc`.
+         * subscribes the form-document feed (`platform-ui.form-doc`) over KISS.
          *
          * Placed INSIDE the form's component root (the element carrying
          * `data-ui-component-instance-id`) so the runtime resolves the root via
@@ -774,21 +761,7 @@ final class PlatformUiTwigExtension
         TwigExtensionRegistry::registerFunction(
             'ui_page_sse_session_meta',
             static function (?string $mode = null): Markup {
-                // The auth bit is OPTIONAL request-scoped state pushed in
-                // by the consuming app's AuthCheck bridge; null (no bridge)
-                // leaves the policy on its drain default. Reading it here —
-                // at the request-scoped render boundary — keeps
-                // PlatformUiTransportModePolicy itself pure and auth-agnostic.
-                $resolved = (new PlatformUiTransportModePolicy())
-                    ->resolve($mode, PlatformUiAuthState::current());
-                $id = UiSseSessionState::mintIfAbsent();
-                $idAttr = htmlspecialchars($id, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-                $modeAttr = htmlspecialchars($resolved->value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-                return new Markup(
-                    '<meta name="semitexa-ui-sse-session" content="' . $idAttr . '">'
-                    . '<meta name="semitexa-ui-transport-mode" content="' . $modeAttr . '">',
-                    'UTF-8',
-                );
+                return new Markup(UiPageSseSession::meta($mode), 'UTF-8');
             },
             ['is_safe' => ['html']],
         );

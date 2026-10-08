@@ -24,6 +24,8 @@ final readonly class UiEventManifestEntry
         public string $event,
         public string $signedContext,
         public ?string $updatesPath = null,
+        public ?int $debounceMs = null,
+        public ?int $throttleMs = null,
     ) {}
 
     /**
@@ -42,6 +44,14 @@ final readonly class UiEventManifestEntry
         ];
         if ($this->updatesPath !== null) {
             $shape['u'] = $this->updatesPath;
+        }
+        // Client timing (not signed: it only decides WHEN the browser sends,
+        // never what the server accepts).
+        if ($this->debounceMs !== null) {
+            $shape['d'] = $this->debounceMs;
+        }
+        if ($this->throttleMs !== null) {
+            $shape['t'] = $this->throttleMs;
         }
         return $shape;
     }
