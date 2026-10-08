@@ -675,7 +675,12 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
             if (filter !== null && filter.length <= 1000) {
                 filter.split(';').forEach(function (term) {
                     var m = /^([A-Za-z_][A-Za-z0-9_]*):([a-z]+):(.{1,100})$/.exec(term);
-                    if (m && state.filters[m[1]]) state.filters[m[1]] = { op: m[2], value: m[3] };
+                    // A filter control sends its own operator: a restored term
+                    // with any other (unknown, or valid but not the control's)
+                    // would stick to every value typed after it.
+                    if (m && state.filters[m[1]]) {
+                        if (m[2] === state.filters[m[1]].op) state.filters[m[1]].value = m[3];
+                    }
                     else if (m && state.ranges[m[1]] && (m[2] === 'gte' || m[2] === 'lte')) state.ranges[m[1]][m[2]] = m[3];
                 });
             }
@@ -1490,12 +1495,21 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
     // ------------------------------------------------------------------
     var grids = mount('[data-ui-grid-v2]', {
         connect: function (root) {
+            // What the server drew (the noscript fallback, the event manifest)
+            // stays; what this instance adds (controls, table, confirm dialog,
+            // an error) goes with it, or a root detached and re-added would
+            // show the old, dead table beside the new one.
+            var drawn = Array.prototype.slice.call(root.childNodes);
             bootGrid(root);
             return {
                 destroy: function () {
                     if (root.__uiGridV2 && typeof root.__uiGridV2.destroy === 'function') {
                         try { root.__uiGridV2.destroy(); } catch (e) { /* noop */ }
                     }
+                    Array.prototype.slice.call(root.childNodes).forEach(function (node) {
+                        if (drawn.indexOf(node) < 0) root.removeChild(node);
+                    });
+                    root.__uiGridV2 = null;
                     root.__uiGridV2Booted = false;
                 }
             };
