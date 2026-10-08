@@ -12,8 +12,10 @@ final readonly class UiProp
     /**
      * A path on this site: one leading "/", not "//" or "/\\" (another
      * host), and nothing that could close the attribute it is written into.
+     * Unicode-aware (u): JSON Schema's \s, which the emitted schema() pattern
+     * uses, includes Unicode whitespace such as U+00A0, and the two must agree.
      */
-    public const SITE_PATH = '#\A/(?![/\\\\])[^\s"\'<>`]*\z#';
+    public const SITE_PATH = '#\A/(?![/\\\\])[^\s"\'<>`]*\z#u';
 
     /**
      * @param list<string|int|float|bool> $values
