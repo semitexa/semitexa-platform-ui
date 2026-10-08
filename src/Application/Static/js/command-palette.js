@@ -220,13 +220,18 @@ function connect(root) {
         if (patch && patch.target && patch.target.instance === instanceId && patch.target.name === 'server-results') settle();
     });
 
-    if (root.hasAttribute('data-ui-command-hotkey') && hotkeyOwner === null) {
-        hotkeyOwner = root;
+    // One palette on the page owns Ctrl+K. Every hotkey palette listens, and
+    // the owner acts; when the owner is torn down (a navigation swapped its
+    // region), the next palette to see the key takes it over instead of the
+    // hotkey going dead until a reload.
+    if (root.hasAttribute('data-ui-command-hotkey')) {
+        if (hotkeyOwner === null) hotkeyOwner = root;
         on(document, 'keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
-                e.preventDefault();
-                if (dialog.open) dialog.close(); else dialog.showModal();
-            }
+            if (!((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k')) return;
+            if (hotkeyOwner === null || !hotkeyOwner.isConnected) hotkeyOwner = root;
+            if (hotkeyOwner !== root) return;
+            e.preventDefault();
+            if (dialog.open) dialog.close(); else dialog.showModal();
         });
     }
 
