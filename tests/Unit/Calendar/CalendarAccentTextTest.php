@@ -26,7 +26,10 @@ final class CalendarAccentTextTest extends TestCase
 
         $filled = [];
         foreach ($rules as [, $selector, $body]) {
-            if (preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*var\(--ui-accent-brand\b/', $body) !== 1) {
+            // Any background declaration that uses the accent token itself, wherever
+            // in the value (a gradient too), and not a longer token that only
+            // starts with it (--ui-accent-brand-contrast).
+            if (preg_match('/(?:^|;)\s*background(?:-color)?\s*:[^;]*var\(\s*--ui-accent-brand\s*[,)]/', $body) !== 1) {
                 continue;
             }
             preg_match('/(?:^|;)\s*color\s*:\s*([^;]+)/', $body, $color);
