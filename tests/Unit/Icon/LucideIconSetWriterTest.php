@@ -27,7 +27,6 @@ final class LucideIconSetWriterTest extends TestCase
 
     protected function tearDown(): void
     {
-        @chmod($this->root . '/out', 0775);
         $files = new \RecursiveIteratorIterator(
             new \RecursiveDirectoryIterator($this->root, \FilesystemIterator::SKIP_DOTS),
             \RecursiveIteratorIterator::CHILD_FIRST,
@@ -65,12 +64,11 @@ final class LucideIconSetWriterTest extends TestCase
     }
 
     #[Test]
-    public function a_target_that_cannot_be_written_fails_the_sync_and_keeps_the_previous_catalog(): void
+    public function a_step_that_cannot_be_written_fails_the_sync_and_keeps_the_previous_catalog(): void
     {
-        chmod($this->root . '/out', 0555);
-        if (is_writable($this->root . '/out')) {
-            self::markTestSkipped('running as a user that ignores directory permissions');
-        }
+        // A copy that fails whoever runs it: directory permissions mean
+        // nothing to root, so they could not prove this in every environment.
+        unlink($this->root . '/pkg/LICENSE');
 
         try {
             (new LucideIconSetWriter())->write($this->root . '/pkg', $this->root . '/out');
