@@ -64,6 +64,19 @@ final class DisplayPrimitivesRenderTest extends TestCase
     }
 
     #[Test]
+    public function progress_survives_a_non_positive_max_and_clamps_its_caption(): void
+    {
+        $zeroMax = $this->renderer->render('progress', ['label' => 'Sync', 'value' => 5, 'max' => 0]);
+        self::assertStringContainsString('<progress max="100" value="5" aria-label="Sync"></progress>', $zeroMax);
+        self::assertStringContainsString('<span ui-progress-value>5%</span>', $zeroMax);
+
+        $over = $this->renderer->render('progress', ['label' => 'Sync', 'value' => 150]);
+        self::assertStringContainsString('<span ui-progress-value>100%</span>', $over);
+        $under = $this->renderer->render('progress', ['label' => 'Sync', 'value' => -20]);
+        self::assertStringContainsString('<span ui-progress-value>0%</span>', $under);
+    }
+
+    #[Test]
     public function meter_passes_its_thresholds_to_the_browser(): void
     {
         $html = $this->renderer->render('meter', ['label' => 'Disk', 'value' => 0.9, 'low' => 0.6, 'high' => 0.85, 'optimum' => 0.1]);
@@ -93,7 +106,9 @@ final class DisplayPrimitivesRenderTest extends TestCase
         self::assertStringContainsString('<input type="hidden" name="tags[]" value="swoole">', $html);
         self::assertStringContainsString('aria-label="Remove Swoole"', $html);
         self::assertStringContainsString('<svg', $html);
-        self::assertStringNotContainsString('ui-behavior', $this->renderer->render('tag', ['text' => 'PHP']));
+        $plain = $this->renderer->render('tag', ['text' => 'PHP']);
+        self::assertStringContainsString('PHP', $plain);
+        self::assertStringNotContainsString('ui-behavior', $plain);
     }
 
     #[Test]
