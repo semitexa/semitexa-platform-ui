@@ -1,6 +1,6 @@
 {
     "name": "semitexa/platform-ui",
-    "description": "Semitexa Platform UI — LLM-friendly CSS grammar, design tokens, primitive components, and AI-assisted skin generation (SkinResolver: LLM prompt resolver feeding semitexa/theme's skin generator, plus refinement and eval scorer). Requires semitexa/theme for SkinAlgorithm contract.",
+    "description": "Semitexa Platform UI \u2014 LLM-friendly CSS grammar, design tokens, primitive components, and AI-assisted skin generation (SkinResolver: LLM prompt resolver feeding semitexa/theme's skin generator, plus refinement and eval scorer). Requires semitexa/theme for SkinAlgorithm contract.",
     "type": "semitexa-module",
     "license": "MIT",
     "authors": [
@@ -12,9 +12,9 @@
     "require": {
         "php": "^8.4",
         "semitexa/authorization": "*",
-        "semitexa/core": "*",
-        "semitexa/llm": "*",
-        "semitexa/ssr": ">=2026.09.17.1037 || dev-master",
+        "semitexa/core": ">=2026.10.08.0620 || dev-master",
+        "semitexa/llm": ">=2026.10.08.0620 || dev-master",
+        "semitexa/ssr": ">=2026.10.08.0620 || dev-master",
         "semitexa/theme": "*",
         "symfony/console": "^7.0",
         "semitexa/prompt": "*"
@@ -35,14 +35,14 @@
     "extra": {
         "semitexa": {
             "floors": {
-                "semitexa/core": "next",
-                "semitexa/ssr": "next",
-                "semitexa/llm": "next"
+                "semitexa/core": "2026.10.08.0620",
+                "semitexa/ssr": "2026.10.08.0620",
+                "semitexa/llm": "2026.10.08.0620"
             }
         },
         "semitexa-module": {
             "name": "platform-ui",
-            "description": "LLM-friendly CSS grammar + design tokens + UI primitives + AI-assisted skin generation (SkinResolver → theme)",
+            "description": "LLM-friendly CSS grammar + design tokens + UI primitives + AI-assisted skin generation (SkinResolver \u2192 theme)",
             "template_paths": [
                 "resources/twig"
             ]
