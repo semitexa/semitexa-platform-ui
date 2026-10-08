@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use Semitexa\PlatformUi\Application\Component\Builtin\ListComponent;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentMetadataFactory;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
+use Semitexa\PlatformUi\Application\Service\Link\UiSafeHref;
 use Twig\Environment as TwigEnvironment;
 use Twig\Loader\FilesystemLoader;
 use Twig\Markup;
@@ -41,6 +42,7 @@ final class ListComponentRenderTest extends TestCase
             },
             ['needs_context' => true, 'is_safe' => ['html']],
         ));
+        $this->twig->addFunction(new TwigFunction('ui_href', static fn (mixed $h): string => UiSafeHref::filter($h)));
     }
 
     protected function tearDown(): void
@@ -86,6 +88,32 @@ final class ListComponentRenderTest extends TestCase
         self::assertStringContainsString('<span ui-list="meta">2m ago</span>', $html);
         self::assertStringContainsString('<span ui-list="description">the first one</span>', $html);
         self::assertStringContainsString('<span ui-list="title">Second</span>', $html);
+    }
+
+    /**
+     * platform.list is open to agents: an LLM-composed tree hands it items whose
+     * href is untrusted data. Escaping keeps the attribute closed; it does not
+     * stop a javascript: URL from being a perfectly escaped href.
+     */
+    #[Test]
+    public function an_item_href_that_could_run_script_renders_no_link(): void
+    {
+        $html = $this->render(['items' => [
+            ['title' => 'Script', 'href' => 'javascript:alert(document.cookie)'],
+            ['title' => 'Cased', 'href' => " JaVaScRiPt:alert(1)"],
+            ['title' => 'Data', 'href' => 'data:text/html,<script>alert(1)</script>'],
+            ['title' => 'Elsewhere', 'href' => '//evil.example/'],
+            ['title' => 'Safe', 'href' => '/orders/7'],
+        ]]);
+
+        self::assertStringNotContainsStringIgnoringCase('javascript:', $html);
+        self::assertStringNotContainsString('data:text', $html);
+        self::assertStringNotContainsString('evil.example', $html);
+        self::assertStringContainsString('<span ui-list="title">Script</span>', $html);
+        self::assertStringContainsString('<span ui-list="title">Cased</span>', $html);
+        self::assertStringContainsString('<span ui-list="title">Data</span>', $html);
+        self::assertStringContainsString('<span ui-list="title">Elsewhere</span>', $html);
+        self::assertStringContainsString('<a ui-list="title" href="/orders/7">Safe</a>', $html);
     }
 
     #[Test]

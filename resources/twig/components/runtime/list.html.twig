@@ -15,8 +15,10 @@
     <ul ui-list="items">
         {%- for item in _items -%}
             <li ui-list="item">
-                {%- if item.href|default(null) -%}
-                    <a ui-list="title" href="{{ item.href }}">{{ item.title }}</a>
+                {#- An href that could run script (javascript:, data:, //host) renders no link. -#}
+                {%- set _href = ui_href(item.href ?? '') -%}
+                {%- if _href -%}
+                    <a ui-list="title" href="{{ _href }}">{{ item.title }}</a>
                 {%- else -%}
                     <span ui-list="title">{{ item.title }}</span>
                 {%- endif -%}
