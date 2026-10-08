@@ -100,21 +100,31 @@ final class UiTreeValidator
                 continue;
             }
             $action = self::actionOf($value);
-            if ($action !== null) {
-                if (!isset($tree->actions[$action])) {
-                    $errors[] = new UiTreeError('tree.action_unknown', $propPath, sprintf('"%s" names no action of the tree.', $action), $tree->actions === [] ? 'an action declared under actions' : implode(', ', array_keys($tree->actions)), $action, 'Declare it under actions, or remove the reference.');
-                }
+            if ($action !== null && !isset($tree->actions[$action])) {
+                $errors[] = new UiTreeError('tree.action_unknown', $propPath, sprintf('"%s" names no action of the tree.', $action), $tree->actions === [] ? 'an action declared under actions' : implode(', ', array_keys($tree->actions)), $action, 'Declare it under actions, or remove the reference.');
                 continue;
             }
+            // An action reference is drawn as the value its kind resolves to
+            // (a navigate is its path): that value must fit the prop like any
+            // other, or a reference would slip a path into an enum, a boolean
+            // or a list the contract never allowed.
             $pointer = UiTree::bindingOf($value);
-            $checked = $pointer !== null ? $tree->resolve($pointer)['value'] : $value;
+            $checked = match (true) {
+                $action !== null => $this->actions->propValue($tree, $action),
+                $pointer !== null => $tree->resolve($pointer)['value'],
+                default => $value,
+            };
             try {
                 $prop->validate($checked, $name);
             } catch (InvalidArgumentException $e) {
                 $errors[] = new UiTreeError(
                     'tree.prop_invalid',
                     $propPath,
-                    ($pointer !== null ? sprintf('The data at "%s" does not fit: ', $pointer) : '') . $e->getMessage(),
+                    match (true) {
+                        $action !== null => sprintf('The action "%s" does not fit: ', $action),
+                        $pointer !== null => sprintf('The data at "%s" does not fit: ', $pointer),
+                        default => '',
+                    } . $e->getMessage(),
                     (string) json_encode($prop->schema(), JSON_UNESCAPED_SLASHES),
                     UiTreeError::describe($checked),
                 );

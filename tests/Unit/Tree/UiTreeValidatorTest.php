@@ -166,6 +166,30 @@ final class UiTreeValidatorTest extends TestCase
         self::assertSame('navigate', $result['errors'][2]->expected, 'only the kinds registered');
     }
 
+    #[Test]
+    public function an_action_reference_must_fit_the_prop_it_fills(): void
+    {
+        // The renderer draws {"$action": "go"} as the action's path, "/orders":
+        // fine for a string prop, never for an enum or a boolean.
+        $doc = self::tree();
+        $doc['actions'] = ['go' => ['kind' => 'navigate', 'to' => '/orders']];
+        $doc['nodes']['page']['props']['variant'] = ['$action' => 'go'];
+        $doc['nodes']['status']['props']['dot'] = ['$action' => 'go'];
+
+        $result = $this->validator->check($doc);
+
+        self::assertNull($result['tree']);
+        self::assertSame(['tree.prop_invalid', 'tree.prop_invalid'], self::codes($result));
+        self::assertSame('/nodes/page/props/variant', $result['errors'][0]->path);
+        self::assertStringContainsString('The action "go" does not fit', $result['errors'][0]->message);
+        self::assertSame('/nodes/status/props/dot', $result['errors'][1]->path);
+
+        $doc = self::tree();
+        $doc['actions'] = ['go' => ['kind' => 'navigate', 'to' => '/orders']];
+        $doc['nodes']['status']['props']['text'] = ['$action' => 'go'];
+        self::assertSame([], self::codes($this->validator->check($doc)), 'a string prop takes the path');
+    }
+
     /** @param list<string> $permissions */
     private function grant(array $permissions): void
     {
