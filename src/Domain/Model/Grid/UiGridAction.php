@@ -49,7 +49,7 @@ final readonly class UiGridAction
      */
     public function toProps(): array
     {
-        return ['id' => $this->id, 'label' => $this->label, 'scopes' => array_values($this->scopes), 'tone' => $this->tone]
+        return ['id' => $this->id, 'label' => $this->label, 'scopes' => $this->scopes, 'tone' => $this->tone]
             + ($this->confirm !== null ? ['confirm' => $this->confirm] : [])
             + ($this->confirmBulk !== null ? ['confirmBulk' => $this->confirmBulk] : [])
             + ($this->removesRows ? ['optimistic' => 'remove'] : []);
