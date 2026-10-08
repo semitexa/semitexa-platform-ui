@@ -37,7 +37,9 @@ function markCurrent(sidebar) {
     sidebar.querySelectorAll('[ui-app-nav-link]').forEach((link) => {
         const href = link.getAttribute('href') || '';
         const prefix = link.getAttribute('data-match') === 'prefix';
-        const current = href === path || (prefix && path.startsWith(href));
+        // A prefix matches at a "/" boundary, as the layout does on the server:
+        // /admin/article is not current on /admin/articles.
+        const current = href === path || (prefix && path.startsWith(href.replace(/\/+$/, '') + '/'));
         if (current) {
             link.setAttribute('aria-current', 'page');
             if (currentGroup === null) currentGroup = link.closest('details');

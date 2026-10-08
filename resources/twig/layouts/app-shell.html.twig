@@ -30,11 +30,13 @@
     {%- set _visible = group.items|default([])|filter(i => i.permission is not defined or can(i.permission)) -%}
     {%- if _visible|length > 0 -%}{%- set _nav = _nav|merge([group|merge({items: _visible})]) -%}{%- endif -%}
 {%- endfor -%}
-{#- The group holding the current page opens; else the first. -#}
+{#- The group holding the current page opens; else the first. A prefix item
+    matches its own path and the paths under it, at a "/": /admin/article
+    is not the current item on /admin/articles. -#}
 {%- set _open_group = 0 -%}
 {%- for group in _nav|reverse -%}
     {%- for item in group.items|default([]) -%}
-        {%- if item.href == _path or (item.match|default('exact') == 'prefix' and _path starts with item.href) %}{% set _open_group = _nav|length - loop.parent.loop.index %}{% endif -%}
+        {%- if item.href == _path or (item.match|default('exact') == 'prefix' and _path starts with (item.href|trim('/', 'right') ~ '/')) %}{% set _open_group = _nav|length - loop.parent.loop.index %}{% endif -%}
     {%- endfor -%}
 {%- endfor -%}
 <!doctype html>
@@ -76,7 +78,7 @@
                     <summary>{{ group.label }}</summary>
                     <ul role="list">
                         {% for item in _items %}
-                            {%- set _current = item.href == _path or (item.match|default('exact') == 'prefix' and _path starts with item.href) -%}
+                            {%- set _current = item.href == _path or (item.match|default('exact') == 'prefix' and _path starts with (item.href|trim('/', 'right') ~ '/')) -%}
                             <li><a href="{{ item.href }}" ui-app-nav-link data-match="{{ item.match|default('exact') }}"{% if _current %} aria-current="page"{% endif %} title="{{ item.label }}">
                                 {{- icon(item.icon|default('circle'), {size: 18}) -}}
                                 <span ui-app-nav-label>{{ item.label }}</span>
