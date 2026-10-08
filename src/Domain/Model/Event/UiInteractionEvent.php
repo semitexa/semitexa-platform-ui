@@ -86,6 +86,20 @@ final readonly class UiInteractionEvent
     }
 
     /**
+     * The props this instance was rendered with — signed into its context at
+     * render time (`pr` claim), so they are the server's own, not the
+     * browser's. Empty when the props were too large or not JSON-plain to sign.
+     *
+     * @return array<string, mixed>
+     */
+    public function props(): array
+    {
+        $props = $this->claims['pr'] ?? null;
+
+        return is_array($props) ? $props : [];
+    }
+
+    /**
      * Returns the validation rule spec list embedded in the signed
      * config under the compact `r` key. Always returns a list (empty
      * when no rules were signed).

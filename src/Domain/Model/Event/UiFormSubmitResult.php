@@ -40,6 +40,12 @@ final readonly class UiFormSubmitResult
         public string $message,
     ) {}
 
+    /** An action form without fields (a confirmation): valid, nothing checked. */
+    public static function nothingToValidate(): self
+    {
+        return new self(valid: true, totalCount: 0, validCount: 0, invalidCount: 0, fields: [], message: '');
+    }
+
     /**
      * Build the summary from a list of per-field validation results.
      *

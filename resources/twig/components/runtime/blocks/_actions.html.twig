@@ -1,0 +1,12 @@
+{#- Page-block actions: [{label, href, variant?, icon?}] as button-primitive links.
+    An href ui_href() refuses drops the action — a button that goes nowhere is worse than none. -#}
+{%- set _rendered = [] -%}
+{%- for a in actions|default([]) -%}
+    {%- set _href = ui_href(a.href ?? '') -%}
+    {%- if _href and (a.label ?? '') != '' -%}
+        {%- set _rendered = _rendered|merge([primitive('button', {text: a.label, href: _href, variant: a.variant ?? 'solid', tone: 'brand', size: 'lg', iconEnd: a.icon ?? null})]) -%}
+    {%- endif -%}
+{%- endfor -%}
+{%- if _rendered|length > 0 -%}
+<div ui-block-actions>{% for b in _rendered %}{{ b }}{% endfor %}</div>
+{%- endif -%}

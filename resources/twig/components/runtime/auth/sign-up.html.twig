@@ -1,0 +1,28 @@
+{#- platform.sign-up — props: submitAction, title, termsHref, signInHref, minPassword. -#}
+{%- set _min = minPassword|default(12) -%}
+{% set _fields %}
+    {{ component('platform.field', {label: 'Name', name: 'name', required: true, showValidationTarget: true, rules: ['required'], inputProps: {autocomplete: 'name', autofocus: true}}) }}
+    {{ component('platform.field', {label: 'Email', name: 'email', required: true, showValidationTarget: true, rules: ['required'], inputProps: {type: 'email', autocomplete: 'email'}}) }}
+    {{ component('platform.field', {
+        label: 'Password', name: 'password', help: 'At least ' ~ _min ~ ' characters.',
+        required: true, showValidationTarget: true, rules: ['required', ['minLength', _min]],
+        inputProps: {type: 'password', autocomplete: 'new-password'},
+    }) }}
+    {{ component('platform.field', {
+        label: 'Repeat the password', name: 'password_confirmation',
+        required: true, showValidationTarget: true, rules: ['required', ['sameAsField', 'password', 'The passwords do not match.']],
+        inputProps: {type: 'password', autocomplete: 'new-password'},
+    }) }}
+    {% if termsHref|default('') %}
+        {{ component('platform.field', {checkboxLabel: 'I accept the terms', name: 'terms', control: 'checkbox', required: true, showValidationTarget: true, rules: ['required']}) }}
+        <p ui-text="muted" style="margin:0;font-size:0.8125rem;"><a href="{{ termsHref }}">Read the terms</a></p>
+    {% endif %}
+{% endset %}
+<div data-ui-component="platform.sign-up" ui-auth-form sx-layout="stack" sx-gap="4">
+    <h1 ui-text="title" style="font-size:1.375rem;margin:0;">{{ title|default('Create an account') }}</h1>
+    {{ component('platform.form', {
+        showStatus: true, statusInitialMessage: '', showSubmit: true, submitText: 'Create account',
+        autoFields: true, submitAction: submitAction, ariaLabel: title|default('Create an account'),
+    }, {content: _fields}) }}
+    {% if signInHref|default('') %}<div ui-auth-links><span>Have an account?</span><a href="{{ signInHref }}">Sign in</a></div>{% endif %}
+</div>

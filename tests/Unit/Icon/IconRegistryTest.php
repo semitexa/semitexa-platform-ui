@@ -32,7 +32,8 @@ final class IconRegistryTest extends TestCase
         self::assertStringContainsString('class="sx-icon"', $svg);
         self::assertStringContainsString('aria-hidden="true"', $svg);
         self::assertStringContainsString('width="24"', $svg);
-        self::assertStringContainsString('<line', $svg); // the menu bars
+        // verify:accept-test-change the full Lucide 1.52 set draws the menu bars as <path>, the old hand-picked glyph used <line> (tk-br-icons)
+        self::assertStringContainsString('<path', $svg); // the menu bars
     }
 
     #[Test]
@@ -59,5 +60,40 @@ final class IconRegistryTest extends TestCase
         IconRegistry::add('smoke-test-icon', '<circle cx="12" cy="12" r="9"/>');
         self::assertTrue(IconRegistry::has('smoke-test-icon'));
         self::assertStringContainsString('<circle cx="12"', IconRegistry::render('smoke-test-icon'));
+    }
+
+    /** The 32 names the hand-picked set had; templates and props still use them. */
+    private const PREVIOUS_NAMES = [
+        'menu', 'x', 'check', 'chevron-down', 'chevron-up', 'chevron-left', 'chevron-right', 'arrow-right',
+        'arrow-left', 'search', 'user', 'inbox', 'home', 'plus', 'minus', 'trash', 'pencil', 'info',
+        'alert-triangle', 'alert-circle', 'check-circle', 'bell', 'calendar', 'mail', 'external-link',
+        'more-horizontal', 'star', 'heart', 'download', 'upload', 'settings', 'loader',
+    ];
+
+    #[Test]
+    public function the_full_lucide_set_ships_and_every_previous_name_still_resolves(): void
+    {
+        self::assertGreaterThan(1800, count(IconRegistry::names()));
+        foreach (self::PREVIOUS_NAMES as $name) {
+            self::assertTrue(IconRegistry::has($name), $name);
+        }
+        // Renamed upstream: the old name is an alias of the new one.
+        self::assertSame(IconRegistry::get('house'), IconRegistry::get('home'));
+        self::assertSame(IconRegistry::get('triangle-alert'), IconRegistry::get('alert-triangle'));
+        self::assertNotContains('home', IconRegistry::names(), 'aliases are not listed as icons of their own');
+    }
+
+    #[Test]
+    public function a_name_is_a_lucide_name_not_a_path(): void
+    {
+        foreach (['../aliases', '../../composer', 'A', 'house/', 'house.json'] as $name) {
+            self::assertNull(IconRegistry::get($name), $name);
+        }
+    }
+
+    #[Test]
+    public function keywords_make_the_set_searchable(): void
+    {
+        self::assertContains('home', IconRegistry::keywords()['house'] ?? []);
     }
 }

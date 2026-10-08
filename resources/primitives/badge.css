@@ -30,9 +30,12 @@
     [ui="badge"][ui-tone="warning"] { --_tone: var(--ui-state-warning); --_on-tone: var(--ui-text-on-warning); }
     [ui="badge"][ui-tone="danger"]  { --_tone: var(--ui-state-danger);  --_on-tone: var(--ui-text-on-danger); }
 
+    /* Soft and outline text mix the tone toward the text colour: an amber
+       warning at 85% read 3.06:1 on its own tint (axe, light skin), below AA's
+       4.5:1 for 12px text. 62% keeps the hue and clears AA in both modes. */
     [ui="badge"]:where(:not([ui-variant]), [ui-variant="soft"]) {
         background: color-mix(in oklab, var(--_tone) 13%, var(--ui-surface-raised));
-        color: color-mix(in oklab, var(--_tone) 60%, var(--ui-text-primary));
+        color: color-mix(in oklab, var(--_tone) 62%, var(--ui-text-primary));
         border-color: color-mix(in oklab, var(--_tone) 22%, transparent);
     }
     [ui="badge"][ui-variant="solid"] {
@@ -41,7 +44,7 @@
     }
     [ui="badge"][ui-variant="outline"] {
         background: transparent;
-        color: color-mix(in oklab, var(--_tone) 60%, var(--ui-text-primary));
+        color: color-mix(in oklab, var(--_tone) 62%, var(--ui-text-primary));
         border-color: color-mix(in oklab, var(--_tone) 50%, transparent);
     }
 

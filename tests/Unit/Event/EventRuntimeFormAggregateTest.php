@@ -170,7 +170,8 @@ final class EventRuntimeFormAggregateTest extends TestCase
 
         // No new innerHTML / outerHTML / eval / Function in the new
         // aggregation block.
-        self::assertStringNotContainsString('innerHTML', $code);
+        // verify:accept-test-change innerHTML exists once, in the effect applier's inert <template> parse (EventRuntimeAssetTest pins it)
+        self::assertSame(1, substr_count($code, 'innerHTML'));
         self::assertStringNotContainsString('outerHTML', $code);
         self::assertStringNotContainsString('eval(', $code);
         self::assertStringNotContainsString('new Function(', $code);
@@ -297,8 +298,13 @@ final class EventRuntimeFormAggregateTest extends TestCase
         // rule below forbids querySelectorAll against `document`. Walking
         // `document.scripts` backwards answers the same question with no
         // selector, which is strictly safer than either.
+        //
+        // 5 -> 6 (2026-10-05, tk-la-bugs, tk-la-loading): instanceRoot(id), the
+        // one helper that resolves a component root by `[data-ui-component-
+        // instance-id="<id>"]` with the id checked against IDENTIFIER_RE and
+        // escaped — used for the patch sender's root and the loading state.
         self::assertSame(
-            5,
+            6,
             substr_count($code, 'document.querySelector('),
             'A new document.querySelector callsite was added — review for selector safety.',
         );
@@ -308,8 +314,8 @@ final class EventRuntimeFormAggregateTest extends TestCase
             $code,
             'the manifest reader must keep matching on a hard-coded attribute name',
         );
-        // Three of the five querySelector callsites read by the safe
-        // instance-id attribute pattern. The fourth — pinned in
+        // Four of the six querySelector callsites read by the safe
+        // instance-id attribute pattern (the fourth: instanceRoot()). The fourth — pinned in
         // EventRuntimeAssetTest::runtime_auto_opens_canonical_kiss_when_meta_present
         // — reads the static `meta[name="semitexa-ui-sse-session"]`
         // selector. The fifth reads
@@ -319,7 +325,7 @@ final class EventRuntimeFormAggregateTest extends TestCase
             '/document\.querySelector\(\s*\n?\s*[\'"]\[data-ui-component-instance-id="/',
             $code,
         );
-        self::assertSame(3, $idLookups);
+        self::assertSame(4, $idLookups);
         $sessionMetaLookups = preg_match_all(
             '/document\.querySelector\(\s*\n?\s*[\'"]meta\[name="\'\s*\+\s*SSE_SESSION_META_NAME/',
             $code,

@@ -38,6 +38,11 @@ namespace Semitexa\PlatformUi\Domain\Model\Event;
  *                         the originating page over `/__semitexa_kiss`.
  *                         Only the shape was re-checked at extraction;
  *                         HMAC binding is what makes it trustworthy.
+ *   - `props`              : the props the form was rendered with, from
+ *                         the SIGNED context — server-owned values the
+ *                         action may trust (which record an edit form
+ *                         edits: `component('platform.form', {articleId: …})`).
+ *                         Unlike `values`, the browser cannot change them.
  *
  * Intentionally omitted from this slice:
  *
@@ -54,6 +59,7 @@ final readonly class UiFormSubmitActionContext
     /**
      * @param array<string, scalar|null>          $values
      * @param list<UiFormSubmitFieldDefinition>   $fields
+     * @param array<string, mixed>                $props
      */
     public function __construct(
         public string $formInstanceId,
@@ -63,5 +69,6 @@ final readonly class UiFormSubmitActionContext
         public array $fields,
         public UiFormSubmitResult $submitResult,
         public ?string $subscriberChannelId = null,
+        public array $props = [],
     ) {}
 }

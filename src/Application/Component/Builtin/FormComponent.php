@@ -4,15 +4,19 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Component\Builtin;
 
+use Semitexa\PlatformUi\Application\Service\Validation\UiFieldValue;
+
 use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\FormRootPrimitive;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionAuthorizer;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistry;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitLifecycle;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitSecurityPolicy;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleParser;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistry;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistryInterface;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldValidationContext;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldValidator;
+use Semitexa\PlatformUi\Domain\Model\Event\UiFieldValidationResult;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFormSubmitConfigParser;
 use Semitexa\PlatformUi\Application\Service\Validation\UsesUiFieldRuleRegistry;
 use Semitexa\PlatformUi\Attribute\UiOn;
@@ -57,13 +61,10 @@ use Semitexa\Ssr\Attribute\AsComponent;
  *     authoritative final validation the cross-field input-change
  *     path explicitly defers to.
  *
- * Out of scope:
+ * After the action, {@see UiFormSubmitLifecycle} projects its field errors,
+ * reset / redirect, the `ui-form:*` DOM event and re-arms the form with a
+ * fresh one-time token.
  *
- *   - No persistence. No business action. No redirect.
- *   - No per-field DOM mutation on submit (form-level summary only).
- *     Field instance ids are not currently signed in `cfg.f` because
- *     slot introspection at FormComponent render time would require
- *     a new template seam; the follow-up slice adds it cleanly.
  *   - No raw submitted values are echoed in the response debug —
  *     even non-sensitive shapes stay out of operator logs.
  *
@@ -114,7 +115,10 @@ final class FormComponent implements UsesUiFieldRuleRegistry
     public function onSubmit(UiInteractionEvent $event): UiInteractionResult
     {
         $config = $this->resolveSignedConfig($event);
-        if ($config->isEmpty()) {
+        // A form with no fields but a signed action is a confirmation — the
+        // delete button of an edit dialog — and goes on to its action with
+        // nothing to validate. Without an action there is nothing to do.
+        if ($config->isEmpty() && $config->actionName === null) {
             // Template rendered without a `fields` prop. Still emit
             // a friendly summary so the demo round-trips, but pin
             // the no-config case in debug so misconfigurations
@@ -133,7 +137,10 @@ final class FormComponent implements UsesUiFieldRuleRegistry
         $registry = $this->ruleRegistry ?? UiFieldRuleRegistry::getActive();
         $parser   = new UiFieldRuleParser($registry);
         $validator = new UiFieldValidator();
-        $formValues = $event->formValues;
+        // A confirmation form (no signed fields) validates nothing, so it
+        // passes nothing on: a form whose fields were never signed (a missing
+        // `autoFields: true`) must not hand its action values no rule checked.
+        $formValues = $config->isEmpty() ? [] : $event->formValues;
 
         $perField = [];
         /** @var list<array{def: \Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitFieldDefinition, result: \Semitexa\PlatformUi\Domain\Model\Event\UiFieldValidationResult}> $fieldOutcomes */
@@ -154,7 +161,7 @@ final class FormComponent implements UsesUiFieldRuleRegistry
             }
 
             $submitted    = $formValues[$def->name] ?? null;
-            $stringValue  = is_scalar($submitted) ? (string) $submitted : '';
+            $stringValue  = UiFieldValue::asString($submitted);
             $fieldContext = new UiFieldValidationContext(
                 componentName: $event->componentName,
                 instanceId:    $def->instanceId ?? $event->instanceId,
@@ -162,6 +169,7 @@ final class FormComponent implements UsesUiFieldRuleRegistry
                 label:         $def->label,
                 required:      $def->required,
                 formValues:    $formValues,
+                submittedList: is_array($submitted) ? array_values(array_map(static fn ($v): string => is_scalar($v) ? (string) $v : '', $submitted)) : null,
             );
 
             $result = $validator->validate(
@@ -178,7 +186,9 @@ final class FormComponent implements UsesUiFieldRuleRegistry
             $fieldOutcomes[] = ['def' => $def, 'result' => $result];
         }
 
-        $summary = UiFormSubmitResult::fromFieldResults($perField);
+        $summary = $config->isEmpty()
+            ? UiFormSubmitResult::nothingToValidate()
+            : UiFormSubmitResult::fromFieldResults($perField);
 
         // Patch order: per-field patches FIRST. Form-level patches
         // come next — either the validation summary's two patches OR
@@ -193,7 +203,12 @@ final class FormComponent implements UsesUiFieldRuleRegistry
             if ($def->instanceId === null) {
                 continue;
             }
-            foreach ($result->toPatches($def->instanceId) as $patch) {
+            // A submit praises nothing: a valid field's message is cleared
+            // (an earlier error goes), not set to "Looks good." under every
+            // field. The praise belongs to the field the visitor changed,
+            // and its own change event says it.
+            $projected = $result->isValid() ? UiFieldValidationResult::valid('') : $result;
+            foreach ($projected->toPatches($def->instanceId) as $patch) {
                 $patches[] = $patch;
             }
             $projectedInstances[] = $def->instanceId;
@@ -230,6 +245,7 @@ final class FormComponent implements UsesUiFieldRuleRegistry
                 fields:               $config->fields,
                 submitResult:         $summary,
                 subscriberChannelId:  self::extractSubscriberChannelId($event->claims),
+                props:                $event->props(),
             );
 
             // Gate 1: action authorization. Runs BEFORE the security
@@ -323,6 +339,8 @@ final class FormComponent implements UsesUiFieldRuleRegistry
             foreach ($actionResult->extraPatches as $extra) {
                 $patches[] = $extra;
             }
+            // Field errors, reset / redirect, the lifecycle event, re-arm.
+            array_push($patches, ...UiFormSubmitLifecycle::afterAction($event, $config, $actionResult));
         } elseif ($actionDenialDebug !== null) {
             // Authorizer or security policy denied the action. Emit
             // the same two form-level patches as a normal action,
@@ -343,9 +361,13 @@ final class FormComponent implements UsesUiFieldRuleRegistry
                 value: UiFormSubmitResult::STATE_INVALID,
                 attribute: 'ui-state',
             );
+            $patches[] = UiResponsePatch::dispatch($event->instanceId, UiFormSubmitLifecycle::EVENT_REJECTED, ['action' => $signedAction]);
         } else {
             foreach ($summary->toPatches($event->instanceId) as $patch) {
                 $patches[] = $patch;
+            }
+            if (!$summary->valid) {
+                $patches[] = UiFormSubmitLifecycle::invalid($event, $signedAction);
             }
         }
 

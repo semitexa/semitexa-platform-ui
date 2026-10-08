@@ -10,6 +10,8 @@ use Semitexa\PlatformUi\Application\Service\Event\PlatformUiSseSessionState;
 use Semitexa\PlatformUi\Application\Service\Event\PlatformUiTransportModePolicy;
 use Semitexa\PlatformUi\Application\Service\Twig\PlatformUiTwigExtension;
 use Semitexa\PlatformUi\Domain\Exception\UiTransportModeException;
+use Semitexa\Ssr\Application\Service\Asset\AssetCollector;
+use Semitexa\Ssr\Application\Service\Asset\AssetCollectorStore;
 use Semitexa\Ssr\Application\Service\Extension\TwigExtensionCatalog;
 use Semitexa\Ssr\Application\Service\Extension\TwigExtensionRegistry;
 use Twig\Markup;
@@ -35,11 +37,39 @@ final class UiPageSseSessionMetaHelperTest extends TestCase
 {
     private ?string $previousEnv = null;
 
+    /*
+     * Process-global state these cases touch, as it stood before each one: the
+     * wired Twig catalog and its function map, the CLI asset collector and its
+     * head tags, and the per-request SSE session id. tearDown() puts each back
+     * as found, so a case neither inherits nor leaves behind anything.
+     */
+    private ?TwigExtensionCatalog $previousCatalog = null;
+
+    /** @var array<string, array{callback: callable, options: array}> */
+    private array $previousFunctions = [];
+
+    private ?AssetCollector $previousCollector = null;
+
+    /** @var array<string, mixed> */
+    private array $previousHeadTags = [];
+
+    private ?string $previousSessionId = null;
+
     protected function setUp(): void
     {
         $prev = getenv(PlatformUiTransportModePolicy::ENV_VAR_NAME);
         $this->previousEnv = $prev === false ? null : $prev;
         putenv(PlatformUiTransportModePolicy::ENV_VAR_NAME);
+
+        $this->previousCatalog = TwigExtensionRegistry::getCatalog();
+        if ($this->previousCatalog !== null) {
+            $this->previousFunctions = self::functionsOf($this->previousCatalog);
+        }
+        $this->previousCollector = self::staticCollector();
+        if ($this->previousCollector !== null) {
+            $this->previousHeadTags = self::headTagsProperty()->getValue($this->previousCollector);
+        }
+        $this->previousSessionId = PlatformUiSseSessionState::current();
 
         // Re-register the helper fresh — TwigExtensionRegistry stores
         // a closure under the function name, and registerFunction()
@@ -53,11 +83,49 @@ final class UiPageSseSessionMetaHelperTest extends TestCase
     protected function tearDown(): void
     {
         PlatformUiSseSessionState::reset();
+        if ($this->previousSessionId !== null) {
+            // The id got here through mintIfAbsent(), restore() or
+            // setForTesting(), all of which only accept a safe-shaped id.
+            PlatformUiSseSessionState::restore($this->previousSessionId);
+        }
+
+        if ($this->previousCatalog === null) {
+            TwigExtensionRegistry::setCatalog(null);
+        } else {
+            (new \ReflectionProperty(TwigExtensionCatalog::class, 'functions'))
+                ->setValue($this->previousCatalog, $this->previousFunctions);
+            TwigExtensionRegistry::setCatalog($this->previousCatalog);
+        }
+
+        if ($this->previousCollector === null) {
+            AssetCollectorStore::reset();
+        } else {
+            self::headTagsProperty()->setValue($this->previousCollector, $this->previousHeadTags);
+            (new \ReflectionProperty(AssetCollectorStore::class, 'staticFallback'))
+                ->setValue(null, $this->previousCollector);
+        }
+
         if ($this->previousEnv === null) {
             putenv(PlatformUiTransportModePolicy::ENV_VAR_NAME);
         } else {
             putenv(PlatformUiTransportModePolicy::ENV_VAR_NAME . '=' . $this->previousEnv);
         }
+    }
+
+    /** @return array<string, array{callback: callable, options: array}> */
+    private static function functionsOf(TwigExtensionCatalog $catalog): array
+    {
+        return (new \ReflectionProperty(TwigExtensionCatalog::class, 'functions'))->getValue($catalog);
+    }
+
+    private static function staticCollector(): ?AssetCollector
+    {
+        return (new \ReflectionProperty(AssetCollectorStore::class, 'staticFallback'))->getValue();
+    }
+
+    private static function headTagsProperty(): \ReflectionProperty
+    {
+        return new \ReflectionProperty(AssetCollector::class, 'headTags');
     }
 
     /**
@@ -197,4 +265,30 @@ final class UiPageSseSessionMetaHelperTest extends TestCase
         self::assertStringNotContainsString('<script', $html);
         self::assertStringNotContainsString("'", $html, 'helper output uses double quotes only');
     }
+
+    /**
+     * Every grid printed the meta pair itself; two grids, two copies. The grid
+     * now announces the channel and the page carries one pair, in <head>.
+     */
+    #[Test]
+    public function the_live_channel_helper_prints_nothing_and_asks_for_one_head_pair(): void
+    {
+        (new \Semitexa\PlatformUi\Application\Service\Twig\LiveChannelTwigExtension())->registerFunctions();
+        $catalog = (new \ReflectionClass(TwigExtensionRegistry::class))->getProperty('catalog')->getValue();
+        self::assertInstanceOf(TwigExtensionCatalog::class, $catalog);
+        /** @var array<string, array{callback: callable, options: array}> $functions */
+        $functions = (new \ReflectionClass($catalog))->getProperty('functions')->getValue($catalog);
+        self::assertArrayHasKey('ui_page_live_channel', $functions);
+        $announce = $functions['ui_page_live_channel']['callback'];
+
+        $collector = AssetCollectorStore::get();
+        $collector->takeHeadTags('');
+        self::assertSame('', $announce());
+        self::assertSame('', $announce(), 'a second grid prints nothing either');
+
+        $head = $collector->takeHeadTags('');
+        self::assertSame(1, substr_count($head, 'name="semitexa-ui-sse-session"'));
+        self::assertSame(1, substr_count($head, 'name="semitexa-ui-transport-mode"'));
+    }
 }
+

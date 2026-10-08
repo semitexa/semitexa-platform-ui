@@ -17,6 +17,14 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
  * dropdown). The behavior adds open triggers, a body scroll-lock, animated
  * transitions and events on top.
  *
+ * With `urlParam`, the dialog is part of the address (`?create`), so it can
+ * be linked to and reloaded. Opening rewrites the history entry rather than
+ * pushing one, so Back leaves the page instead of only closing the dialog;
+ * back/forward onto an entry with or without the parameter opens or closes it:
+ *
+ *   <a href="?create" ui-behavior-open="#create">New</a>
+ *   <dialog id="create" ui-behavior="modal" ui-modal="urlParam: create"> … </dialog>
+ *
  *   <button ui-behavior-open="#confirm">Delete…</button>
  *   <dialog id="confirm" ui-behavior="modal" ui-modal="bgClose: true">
  *     <div ui-behavior-content> … <button ui-behavior-dismiss>Cancel</button> </div>
@@ -28,6 +36,7 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
     script: 'platform-ui:js:behaviors',
     options: [
         new UiBehaviorOption('bgClose', UiOptionType::Bool, default: true, description: 'Close when the backdrop is clicked.'),
+        new UiBehaviorOption('urlParam', UiOptionType::String, default: '', description: 'A query parameter the dialog follows: open on load when the address has it, added on open, dropped on close, followed on back/forward.'),
     ],
     a11y: ['focus-trap', 'esc-dismiss', 'aria-modal', 'scroll-lock'],
 )]

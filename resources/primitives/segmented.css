@@ -1,0 +1,49 @@
+@layer platform-ui.primitives {
+    /* A radio group drawn as one button bar; the radios stay real (keyboard,
+       form value), only visually hidden. */
+    [ui="segmented"] {
+        display: inline-flex;
+        gap: 0.125rem;
+        margin: 0;
+        padding: 0.1875rem;
+        border: 1px solid var(--ui-border-subtle);
+        border-radius: var(--ui-radius-md, 0.5rem);
+        background: var(--ui-surface-sunken);
+        min-inline-size: 0;
+        /* Its own width, even as a child of a stretching stack. */
+        inline-size: fit-content;
+        max-inline-size: 100%;
+        align-self: flex-start;
+    }
+    [ui="segmented"] > label {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        min-height: calc(var(--ui-control-height-md) - 0.5rem);
+        padding: 0 var(--ui-space-3);
+        border-radius: calc(var(--ui-radius-md, 0.5rem) - 0.1875rem);
+        font-size: var(--ui-text-sm);
+        color: var(--ui-text-muted);
+        cursor: pointer;
+        transition: background-color var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease), color var(--ui-motion-duration-fast, 120ms) var(--ui-motion-easing-standard, ease);
+    }
+    [ui="segmented"][ui-size="sm"] > label { min-height: calc(var(--ui-control-height-sm) - 0.5rem); padding: 0 var(--ui-space-2); font-size: var(--ui-text-xs); }
+    /* The label takes the click (it activates its radio); the input keeps focus and keys. */
+    [ui="segmented"] > label > input { position: absolute; opacity: 0; inset: 0; margin: 0; pointer-events: none; }
+    [ui="segmented"] > label:hover { color: var(--ui-text-primary); }
+    [ui="segmented"] > label:has(> input:checked) { background: var(--ui-surface-raised); color: var(--ui-text-primary); box-shadow: var(--ui-shadow-xs); }
+    [ui="segmented"] > label:has(> input:focus-visible) { box-shadow: 0 0 0 2px var(--ui-focus-ring); }
+    [ui="segmented"][aria-invalid="true"] { border-color: var(--ui-state-danger); }
+    [ui="segmented"] > label > svg { flex: none; }
+    [ui="segmented"] > label > svg + span { margin-inline-start: var(--ui-space-1-5); }
+    /* Icons only: the label text stays for assistive technology. */
+    [ui="segmented"][ui-icon-only] > label { padding: 0 var(--ui-space-2); }
+    [ui="segmented"][ui-icon-only] > label > span {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+}

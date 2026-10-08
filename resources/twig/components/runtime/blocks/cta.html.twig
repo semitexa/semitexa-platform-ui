@@ -1,0 +1,11 @@
+{#- platform.block-cta — props: title, text, tone (brand|neutral), actions. -#}
+{{- asset_require('platform-ui:css:blocks') -}}
+<section data-ui-component="platform.block-cta" ui-block="cta" ui-tone="{{ (tone ?? 'brand') == 'neutral' ? 'neutral' : 'brand' }}">
+    <div ui-block-inner>
+        <div ui-cta-text>
+            <h2 ui-block-title>{{ title }}</h2>
+            {%- if (text ?? '') != '' %}<p ui-block-lead>{{ text }}</p>{% endif %}
+        </div>
+        {{ include('@platform-ui/components/runtime/blocks/_actions.html.twig', {actions: actions ?? []}, with_context = false) }}
+    </div>
+</section>

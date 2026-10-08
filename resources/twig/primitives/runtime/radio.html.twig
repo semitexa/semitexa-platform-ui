@@ -1,0 +1,12 @@
+{#- platform.radio — a <label> root, so the whole label toggles the control. -#}
+<label ui="{{ _primitive.ui }}" data-ui-primitive="{{ _primitive.name }}">
+<input type="radio" value="{{ value|default('') }}"
+{%- if part|default(null) %} data-ui-part="{{ part }}"{% endif -%}
+{%- if name|default(null) %} name="{{ name }}"{% endif -%}
+{%- if id|default(null) %} id="{{ id }}"{% endif -%}
+{%- if checked|default(false) %} checked{% endif -%}
+{%- if required|default(false) %} required{% endif -%}
+{%- if disabled|default(false) %} disabled{% endif -%}
+>
+{%- if label|default(null) %}<span ui-choice-label>{{ label }}</span>{% endif -%}
+</label>

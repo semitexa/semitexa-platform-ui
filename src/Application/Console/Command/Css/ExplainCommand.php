@@ -54,7 +54,7 @@ final class ExplainCommand extends Command
                     'states' => $primitive->states,
                     'tokens_referenced' => $tokens,
                     'bytes' => strlen($css),
-                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), OutputInterface::OUTPUT_RAW);
                 return Command::SUCCESS;
             }
 
@@ -95,7 +95,7 @@ final class ExplainCommand extends Command
                 'css' => $slice->css,
                 'tokens_referenced' => $tokens,
                 'sibling_values' => array_values(array_diff($emitter->allowedValues(), [$value])),
-            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), OutputInterface::OUTPUT_RAW);
             return Command::SUCCESS;
         }
 

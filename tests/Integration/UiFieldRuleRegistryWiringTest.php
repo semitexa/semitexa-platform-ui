@@ -36,7 +36,7 @@ use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult;
  *   - UiInteractionDispatcher's UsesUiFieldRuleRegistry bridge
  *     hands the active registry to FieldComponent before
  *     onInputChanged() runs.
- *   - Custom slug rule survives a full render→sign→dispatch
+ *   - Custom handle rule survives a full render→sign→dispatch
  *     round-trip when the active registry is swapped.
  *   - Default behaviour is unchanged when no custom registry is set.
  */
@@ -145,23 +145,23 @@ final class UiFieldRuleRegistryWiringTest extends TestCase
     }
 
     #[Test]
-    public function helper_path_rejects_slug_under_default_registry(): void
+    public function helper_path_rejects_handle_under_default_registry(): void
     {
         $this->expectException(UiFieldValidationRuleException::class);
-        $this->expectExceptionMessageMatches('/Unknown rule "slug"/');
+        $this->expectExceptionMessageMatches('/Unknown rule "handle"/');
         (new UiFieldRuleParser(UiFieldRuleRegistry::getActive()))
-            ->parseAllToWire(['slug']);
+            ->parseAllToWire(['handle']);
     }
 
     #[Test]
-    public function helper_path_accepts_slug_under_custom_registry(): void
+    public function helper_path_accepts_handle_under_custom_registry(): void
     {
-        UiFieldRuleRegistry::setActive(new RuleWiringSlugRegistry());
+        UiFieldRuleRegistry::setActive(new RuleWiringHandleRegistry());
         $wire = (new UiFieldRuleParser(UiFieldRuleRegistry::getActive()))
-            ->parseAllToWire(['required', 'slug']);
+            ->parseAllToWire(['required', 'handle']);
         self::assertSame([
             ['n' => 'required'],
-            ['n' => 'slug'],
+            ['n' => 'handle'],
         ], $wire);
     }
 
@@ -170,7 +170,7 @@ final class UiFieldRuleRegistryWiringTest extends TestCase
     {
         // Pin the wire shape (regression — must not drift even after
         // the registry was rewired through DI).
-        UiFieldRuleRegistry::setActive(new RuleWiringSlugRegistry());
+        UiFieldRuleRegistry::setActive(new RuleWiringHandleRegistry());
         $wire = (new UiFieldRuleParser(UiFieldRuleRegistry::getActive()))
             ->parseAllToWire([['minLength', 5], ['maxLength', 30]]);
         self::assertSame([
@@ -200,15 +200,15 @@ final class UiFieldRuleRegistryWiringTest extends TestCase
         // Pin: a component implementing UsesUiFieldRuleRegistry gets
         // the dispatcher's active registry handed to it BEFORE the
         // handler method runs. We rely on the side effect — the
-        // dispatcher resolves a slug rule via the custom registry.
-        $custom = new RuleWiringSlugRegistry();
-        $ctx = $this->ctxForRulesWithRegistry($custom, ['required', 'slug']);
+        // dispatcher resolves a handle rule via the custom registry.
+        $custom = new RuleWiringHandleRegistry();
+        $ctx = $this->ctxForRulesWithRegistry($custom, ['required', 'handle']);
 
         $dispatcher = $this->newDispatcher($custom);
-        $result = $dispatcher->dispatch($ctx, $this->freshDispatchId(), ['value' => 'Bad Slug']);
-        self::assertSame('Please enter a valid slug.', $this->validationMessage($result));
+        $result = $dispatcher->dispatch($ctx, $this->freshDispatchId(), ['value' => 'Bad Handle']);
+        self::assertSame('Please enter a valid handle.', $this->validationMessage($result));
         // ui-state patch flips to invalid → side-effect proof that
-        // the slug rule fired through the registry bridge.
+        // the handle rule fired through the registry bridge.
         self::assertSame('invalid', $result->patches[1]->value);
     }
 
@@ -219,20 +219,20 @@ final class UiFieldRuleRegistryWiringTest extends TestCase
         // in that case the bridge reaches into the UiFieldRuleRegistry
         // static holder (matching the production path where the boot
         // listener has already called setActive()).
-        UiFieldRuleRegistry::setActive(new RuleWiringSlugRegistry());
-        $ctx = $this->ctxWithRules(['required', 'slug']);
+        UiFieldRuleRegistry::setActive(new RuleWiringHandleRegistry());
+        $ctx = $this->ctxWithRules(['required', 'handle']);
 
         // NOTE: no ruleRegistry passed to the dispatcher constructor.
         $dispatcher = $this->newDispatcher();
-        $result = $dispatcher->dispatch($ctx, $this->freshDispatchId(), ['value' => 'Bad Slug']);
-        self::assertSame('Please enter a valid slug.', $this->validationMessage($result));
+        $result = $dispatcher->dispatch($ctx, $this->freshDispatchId(), ['value' => 'Bad Handle']);
+        self::assertSame('Please enter a valid handle.', $this->validationMessage($result));
     }
 
     #[Test]
-    public function dispatch_with_valid_slug_returns_valid_result(): void
+    public function dispatch_with_valid_handle_returns_valid_result(): void
     {
-        $custom = new RuleWiringSlugRegistry();
-        $ctx = $this->ctxForRulesWithRegistry($custom, ['required', 'slug']);
+        $custom = new RuleWiringHandleRegistry();
+        $ctx = $this->ctxForRulesWithRegistry($custom, ['required', 'handle']);
         $dispatcher = $this->newDispatcher($custom);
 
         $result = $dispatcher->dispatch($ctx, $this->freshDispatchId(), ['value' => 'platform-ui-2026']);
@@ -241,15 +241,15 @@ final class UiFieldRuleRegistryWiringTest extends TestCase
     }
 
     #[Test]
-    public function default_dispatcher_rejects_signed_slug_when_registry_does_not_know_it(): void
+    public function default_dispatcher_rejects_signed_handle_when_registry_does_not_know_it(): void
     {
-        // Build the ctx with a custom registry (so it CAN sign a slug
+        // Build the ctx with a custom registry (so it CAN sign a handle
         // rule), then dispatch through a dispatcher wired with the
         // DEFAULT registry. The handler must surface 422
         // invalid_validation_rule because the active registry rejects
-        // the slug rule name at resolve time.
-        $custom = new RuleWiringSlugRegistry();
-        $ctx = $this->ctxForRulesWithRegistry($custom, ['slug']);
+        // the handle rule name at resolve time.
+        $custom = new RuleWiringHandleRegistry();
+        $ctx = $this->ctxForRulesWithRegistry($custom, ['handle']);
         $dispatcher = $this->newDispatcher(new DefaultUiFieldRuleRegistry());
 
         $this->expectException(\Semitexa\PlatformUi\Domain\Exception\UiInteractionUnprocessableException::class);
@@ -259,7 +259,7 @@ final class UiFieldRuleRegistryWiringTest extends TestCase
             self::assertSame('invalid_validation_rule', $e->reason);
             // Safe message — no class FQCN / file path.
             self::assertStringNotContainsString('Semitexa\\', $e->getMessage());
-            self::assertStringNotContainsString('SlugRule', $e->getMessage());
+            self::assertStringNotContainsString('HandleRule', $e->getMessage());
             throw $e;
         }
     }
@@ -326,16 +326,16 @@ final class UiFieldRuleRegistryWiringTest extends TestCase
 }
 
 /**
- * Test fixture: slug rule + registry composing the built-ins. Same
+ * Test fixture: handle rule + registry composing the built-ins. Same
  * design as CustomRuleRegistryFixtureTest but distinct names so the
  * two test files don't collide if PHPUnit runs them in the same
  * process.
  */
-final class RuleWiringSlugRule implements UiFieldValidationRuleInterface
+final class RuleWiringHandleRule implements UiFieldValidationRuleInterface
 {
-    public const NAME = 'slug';
+    public const NAME = 'handle';
     public const PATTERN = '/\A[a-z0-9]+(?:-[a-z0-9]+)*\z/';
-    public const MESSAGE = 'Please enter a valid slug.';
+    public const MESSAGE = 'Please enter a valid handle.';
 
     public function validate(mixed $value, UiFieldValidationContext $context): ?UiFieldValidationResult
     {
@@ -350,7 +350,7 @@ final class RuleWiringSlugRule implements UiFieldValidationRuleInterface
     }
 }
 
-final class RuleWiringSlugRegistry implements UiFieldRuleRegistryInterface
+final class RuleWiringHandleRegistry implements UiFieldRuleRegistryInterface
 {
     private DefaultUiFieldRuleRegistry $builtins;
 
@@ -361,14 +361,14 @@ final class RuleWiringSlugRegistry implements UiFieldRuleRegistryInterface
 
     public function resolve(UiFieldRuleSpec $spec): UiFieldValidationRuleInterface
     {
-        if ($spec->name === RuleWiringSlugRule::NAME) {
+        if ($spec->name === RuleWiringHandleRule::NAME) {
             if ($spec->params !== []) {
                 throw new UiFieldValidationRuleException(
-                    'Rule "slug" takes no parameters.',
+                    'Rule "handle" takes no parameters.',
                     $spec->name,
                 );
             }
-            return new RuleWiringSlugRule();
+            return new RuleWiringHandleRule();
         }
         return $this->builtins->resolve($spec);
     }
@@ -376,6 +376,6 @@ final class RuleWiringSlugRegistry implements UiFieldRuleRegistryInterface
     /** @return list<string> */
     public function knownRuleNames(): array
     {
-        return [...$this->builtins->knownRuleNames(), RuleWiringSlugRule::NAME];
+        return [...$this->builtins->knownRuleNames(), RuleWiringHandleRule::NAME];
     }
 }

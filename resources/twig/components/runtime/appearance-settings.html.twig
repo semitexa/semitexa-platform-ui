@@ -1,0 +1,12 @@
+{#- platform.appearance-settings — props: title, description. -#}
+<div data-ui-component="platform.appearance-settings" ui-behavior="skin-mode" sx-layout="stack" sx-gap="2">
+    <div sx-layout="stack" sx-gap="1">
+        <strong>{{ title|default('Theme') }}</strong>
+        <span ui-text="muted" style="font-size:0.875rem;">{{ description|default('Choose how the interface looks on this device.') }}</span>
+    </div>
+    {{ primitive('segmented', {name: 'skin_mode', label: title|default('Theme'), value: 'auto', options: [
+        {value: 'light', label: 'Light'},
+        {value: 'dark', label: 'Dark'},
+        {value: 'auto', label: 'System'},
+    ]}) }}
+</div>

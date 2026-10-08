@@ -1,0 +1,16 @@
+{#- platform.block-stats — props: title, lead, items [{value, label, caption}]. A <dl>: each number keeps its label. -#}
+{{- asset_require('platform-ui:css:blocks') -}}
+<section data-ui-component="platform.block-stats" ui-block="stats">
+    <div ui-block-inner>
+        {{ include('@platform-ui/components/runtime/blocks/_head.html.twig', {title: title ?? '', lead: lead ?? ''}, with_context = false) }}
+        <dl ui-stats-list>
+            {%- for item in items ?? [] %}
+            <div ui-stats-item>
+                <dt ui-stats-label>{{ item.label }}</dt>
+                <dd ui-stats-value>{{ item.value }}</dd>
+                {%- if (item.caption ?? '') != '' %}<dd ui-stats-caption>{{ item.caption }}</dd>{% endif %}
+            </div>
+            {%- endfor %}
+        </dl>
+    </div>
+</section>

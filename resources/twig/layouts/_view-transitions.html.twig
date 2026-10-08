@@ -1,0 +1,13 @@
+{#- Cross-document view transitions between one app's pages, shared by the
+    app-shell and auth layouts (both read appViewTransitions and appHome).
+    Both documents must opt in, so a module turns this on only where every page
+    under appHome uses one of these layouts; app-shell.js (loaded here) skips the
+    transition for a link outside appHome or to a nav item marked `outside`. -#}
+{%- if appViewTransitions|default(false) %}
+    {{ asset_require('platform-ui:js:app-shell') }}
+    <style{{ csp_nonce_attr() }}>
+        @view-transition { navigation: auto; }
+        ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 160ms; }
+        @media (prefers-reduced-motion: reduce) { @view-transition { navigation: none; } }
+    </style>
+{%- endif %}

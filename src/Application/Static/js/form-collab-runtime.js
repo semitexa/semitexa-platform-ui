@@ -4,13 +4,13 @@
  * The browser half of live collaborative forms. The document-feed sibling of
  * grid-runtime-v2.js: where the grid runtime subscribes a list route and
  * re-renders rows on `ui.collection.data`, this subscribes ONE collaborative
- * document at `/__ui/form-doc` and re-applies field values on
+ * document (feed `platform-ui.form-doc`) and re-applies field values on
  * `ui.document.data`. Both runtimes ride the SAME transport —
  * core.openFeedChannel in ui-core.js (shared KISS subscribe, dedicated
  * EventSource degrade, stream-id adoption, backoff reconnect) — plus a
  * DOMContentLoaded + MutationObserver boot scan; this adds the form-specific
  * behaviour: apply remote field deltas, render the presence roster, and emit
- * each local edit back as a `field.edit` event on the canonical `/__ui/event`
+ * each local edit back as a `field.edit` event on the canonical HUG (`POST /__semitexa_hug`)
  * write path (the same signed-context envelope event-runtime.js uses).
  *
  * TRUST: every server call carries a signed context token minted server-side
@@ -31,15 +31,15 @@
  *   {
  *     v, i,                       schema version + render instance id
  *     scope, mode, self,          document scope, collaboration mode, my id
- *     feedUrl, feedCtx,           SSE read feed + its signed cfg token
- *     eventUrl, events,           write endpoint + { "field.edit": ctx, "presence.ping": ctx }
+ *     feed, feedCtx,              the read feed's route name + its signed cfg token
+ *     events,                     { "field.edit": ctx, "presence.ping": ctx } — posted to HUG
  *     fields, heartbeatMs         managed field names + presence cadence
  *   }
  */
 // ES module: the live-feed transport + CSRF plumbing arrive through the
 // import map ('platform-ui/core' -> fingerprinted URL); the import graph
 // guarantees the core is initialized before this executes.
-import { withCsrf, openFeedChannel } from 'platform-ui/core';
+import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
 
 (function () {
     'use strict';
@@ -50,33 +50,11 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
     var PRESENCE_SELECTOR = '[data-ui-collab-presence]';
     var STATUS_SELECTOR = '[data-ui-collab-status]';
     var DEFAULT_HEARTBEAT_MS = 15000;
-    var MAX_BACKOFF_MS = 30000;
 
     /** Booted instances, keyed by render instance id, so a re-scan is idempotent. */
     var booted = Object.create(null);
 
     // ---- small helpers ----------------------------------------------------
-
-    function mintHexId(prefix, hexLen) {
-        var hex = '';
-        try {
-            var buf = new Uint8Array(hexLen / 2);
-            (window.crypto || window.msCrypto).getRandomValues(buf);
-            for (var i = 0; i < buf.length; i++) {
-                hex += ('0' + buf[i].toString(16)).slice(-2);
-            }
-        } catch (e) {
-            while (hex.length < hexLen) {
-                hex += Math.floor(Math.random() * 16).toString(16);
-            }
-        }
-        return prefix + hex.slice(0, hexLen);
-    }
-
-    function nowIso() {
-        // Date is unavailable in some sandboxes only; the browser always has it.
-        return new Date().toISOString();
-    }
 
     function parseManifest(scriptEl) {
         var raw = scriptEl.textContent || '';
@@ -86,7 +64,7 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
         } catch (e) {
             return null;
         }
-        if (!data || data.v !== SCHEMA_VERSION || typeof data.feedUrl !== 'string' || typeof data.feedCtx !== 'string') {
+        if (!data || data.v !== SCHEMA_VERSION || typeof data.feed !== 'string' || typeof data.feedCtx !== 'string') {
             return null;
         }
         return data;
@@ -158,10 +136,8 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
         }
     };
 
-    // -- transport: openFeedChannel (platform-ui/core) owns the whole connection dance —
-    //    shared KISS subscribe first, dedicated EventSource degrade with
-    //    stream-id adoption + backoff reconnect (this file used to mirror
-    //    grid-runtime-v2's copy verbatim) ------------------------------------
+    // -- transport: openFeedChannel (platform-ui/core) — the document feed on
+    //    the page's KISS stream, subscribed through HUG by name ---------------
 
     CollabForm.prototype.subscribe = function () {
         if (this.closed) {
@@ -169,17 +145,17 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
         }
         var self = this;
         this.channel = openFeedChannel({
-            url: this.m.feedUrl,
+            feed: this.m.feed,
             params: { ctx: this.m.feedCtx },
             dataEvent: 'ui.document.data',
             errorEvent: 'ui.document.error',
-            maxBackoffMs: MAX_BACKOFF_MS,
-            // The envelope is the same `{_type, data, meta}` shape on both
-            // paths, so applySnapshot/onDocumentError are shared.
             onData: function (envelope) { self.applySnapshot(envelope); },
             onError: function (envelope) { self.onDocumentError(envelope || {}); },
             onStreamId: function (id) { self.streamId = id; },
-            onStatus: function (status) { self.setStatus(status); }
+            onStatus: function (status) { self.setStatus(status); },
+            // Collaboration is live or nothing: a page without a KISS session
+            // says so instead of showing a stale document as shared.
+            onPull: function () { self.setStatus('offline'); }
         });
     };
 
@@ -691,25 +667,11 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
         this.postEvent('presence.ping', ctx, { role: 'editor' });
     };
 
+    // Events go to HUG through the one client (core.envelope + core.hug).
     CollabForm.prototype.postEvent = function (semanticEvent, ctx, payload) {
-        var body = {
-            schemaVersion: 1,
-            eventId: mintHexId('ui_evt_', 32),
-            correlationId: mintHexId('ui_cor_', 32),
-            semanticEvent: semanticEvent,
-            signedContext: ctx,
-            timestamp: nowIso(),
-            payload: payload
-        };
         try {
-            fetch(this.m.eventUrl, {
-                method: 'POST',
-                credentials: 'same-origin',
-                // CsrfListener rejects authenticated writes without the token.
-                headers: withCsrf('POST', { 'Content-Type': 'application/json' }),
-                body: JSON.stringify(body),
-                keepalive: true
-            }).catch(function () { /* best-effort; the next edit/heartbeat retries state */ });
+            hug(envelope({ semanticEvent: semanticEvent, signedContext: ctx, payload: payload }), { keepalive: true })
+                .catch(function () { /* best-effort; the next edit/heartbeat retries state */ });
         } catch (e) { /* noop */ }
     };
 
@@ -717,24 +679,10 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
 
     /** Like postEvent, but resolves with the parsed dispatch response (or null). */
     CollabForm.prototype.postEventAwait = function (semanticEvent, ctx, payload) {
-        var body = {
-            schemaVersion: 1,
-            eventId: mintHexId('ui_evt_', 32),
-            correlationId: mintHexId('ui_cor_', 32),
-            semanticEvent: semanticEvent,
-            signedContext: ctx,
-            timestamp: nowIso(),
-            payload: payload
-        };
         try {
-            return fetch(this.m.eventUrl, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: withCsrf('POST', { 'Content-Type': 'application/json' }),
-                body: JSON.stringify(body)
-            }).then(function (r) {
-                return r.json().catch(function () { return null; });
-            }).catch(function () { return null; });
+            return hug(envelope({ semanticEvent: semanticEvent, signedContext: ctx, payload: payload }))
+                .then(function (r) { return r.data; })
+                .catch(function () { return null; });
         } catch (e) {
             return Promise.resolve(null);
         }
@@ -940,75 +888,27 @@ import { withCsrf, openFeedChannel } from 'platform-ui/core';
         instance.start();
     }
 
+    // The one element lifecycle (core.mount): a collab manifest now and later
+    // boots its form; when it leaves the page the form unsubscribes so the
+    // server reaps its subscription (the shared KISS stream survives).
+    var collabForms = mount(MANIFEST_SELECTOR, {
+        connect: function (scriptEl) {
+            bootScript(scriptEl);
+            var manifest = parseManifest(scriptEl);
+            var key = manifest ? String(manifest.i || '') : '';
+            return {
+                destroy: function () {
+                    if (key !== '' && booted[key]) {
+                        try { booted[key].destroy(); } catch (e) { /* noop */ }
+                        delete booted[key];
+                    }
+                }
+            };
+        }
+    });
+
     function bootAll(root) {
-        var scope = root || document;
-        var scripts = scope.querySelectorAll(MANIFEST_SELECTOR);
-        for (var i = 0; i < scripts.length; i++) {
-            bootScript(scripts[i]);
-        }
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () { bootAll(document); });
-    } else {
-        bootAll(document);
-    }
-
-    // Late-arriving (SSR-deferred) components announce themselves, exactly as
-    // the grid runtime listens for.
-    document.addEventListener('semitexa:component:rendered', function (ev) {
-        bootAll((ev && ev.target) || document);
-    });
-    document.addEventListener('semitexa:block:rendered', function (ev) {
-        bootAll((ev && ev.target) || document);
-    });
-
-    // Tear down (and unsubscribe) every booted collab form inside a removed node.
-    function teardownWithin(node) {
-        var roots = [];
-        if (node.matches && node.matches('[data-ui-component-instance-id]')) {
-            roots.push(node);
-        }
-        if (node.querySelectorAll) {
-            var found = node.querySelectorAll('[data-ui-component-instance-id]');
-            for (var i = 0; i < found.length; i++) {
-                roots.push(found[i]);
-            }
-        }
-        for (var k = 0; k < roots.length; k++) {
-            var id = roots[k].getAttribute('data-ui-component-instance-id');
-            if (id && booted[id]) {
-                try { booted[id].destroy(); } catch (e) { /* noop */ }
-                delete booted[id];
-            }
-        }
-    }
-
-    if (typeof MutationObserver === 'function') {
-        new MutationObserver(function (mutations) {
-            for (var i = 0; i < mutations.length; i++) {
-                var added = mutations[i].addedNodes || [];
-                for (var j = 0; j < added.length; j++) {
-                    var node = added[j];
-                    if (node.nodeType !== 1) {
-                        continue;
-                    }
-                    if (node.matches && node.matches(MANIFEST_SELECTOR)) {
-                        bootScript(node);
-                    } else if (node.querySelectorAll) {
-                        bootAll(node);
-                    }
-                }
-                // A collab form removed from the DOM must unsubscribe so its
-                // server-side record is reaped (the shared connection survives).
-                var removed = mutations[i].removedNodes || [];
-                for (var r = 0; r < removed.length; r++) {
-                    if (removed[r].nodeType === 1) {
-                        teardownWithin(removed[r]);
-                    }
-                }
-            }
-        }).observe(document.documentElement, { childList: true, subtree: true });
+        collabForms.scan(root);
     }
 
     window.SemitexaUi = window.SemitexaUi || {};

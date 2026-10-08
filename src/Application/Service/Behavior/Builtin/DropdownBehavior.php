@@ -11,8 +11,10 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiBehaviorOption;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
 
 /**
- * A floating panel anchored to a trigger, positioned via CSS Anchor Positioning
- * (JS fallback). Composes useTogglable + useFloating + useDismiss.
+ * A floating panel anchored to a trigger. The panel is a native popover (top
+ * layer, light dismiss, Esc), invoked with commandfor where buttons support it,
+ * positioned via CSS Anchor Positioning (JS fallback). Composes
+ * usePopoverPanel + useMenuKeys — the same base as platform.menu.
  *
  * A panel of [ui-behavior-item]s is a WAI-ARIA menu button: the runtime adds
  * aria-haspopup/aria-controls on the trigger and role=menu/menuitem on the

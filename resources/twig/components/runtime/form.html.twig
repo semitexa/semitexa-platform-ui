@@ -47,6 +47,8 @@
  #                            interaction (default "No fields validated yet.").
  #   showSubmit             — render the submit button (default false).
  #   submitText             — label for the submit button (default "Submit").
+#   submitTone             — the button's tone (default "brand"; "danger"
+#                            for a form that deletes).
  #   ariaLabel              — accessible name when the visual title is absent.
  #   fields                 — manual list of submit field definitions
  #                            (server-owned). When provided, signed
@@ -143,7 +145,7 @@
                 role="status"
                 ui-text="muted"
                 style="min-height:1.4em;display:block;font-size:0.875rem;"
-            >{{ statusInitialMessage|default('No fields validated yet.') }}</div>
+            >{{ statusInitialMessage ?? 'No fields validated yet.' }}</div>
         {% endif %}
 
         {% if showSubmit ?? false %}
@@ -151,7 +153,7 @@
                 {{ primitive('button', {
                     text: submitText|default('Submit'),
                     type: 'submit',
-                    tone: 'brand',
+                    tone: submitTone|default('brand'),
                     variant: 'solid'
                 }) }}
             </div>

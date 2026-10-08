@@ -1,0 +1,9 @@
+{#- platform.divider — label, orientation (horizontal|vertical). -#}
+{%- set _vertical = orientation|default('horizontal') == 'vertical' -%}
+{%- if label|default(null) or _vertical -%}
+<div ui="{{ _primitive.ui }}" data-ui-primitive="{{ _primitive.name }}" role="separator" aria-orientation="{{ _vertical ? 'vertical' : 'horizontal' }}"{% if label|default(null) %} ui-divider-label{% endif %}>
+{%- if label|default(null) %}<span>{{ label }}</span>{% endif -%}
+</div>
+{%- else -%}
+<hr ui="{{ _primitive.ui }}" data-ui-primitive="{{ _primitive.name }}">
+{%- endif -%}
