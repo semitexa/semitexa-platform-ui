@@ -156,6 +156,12 @@ final class WorkbenchViewBuilder
             ];
         }
 
+        // A behavior is a contract on markup: without its own template there is
+        // nothing to render it with, and it is not a component.
+        if ($item->kind === 'behavior') {
+            return $base + ['render' => 'none', 'snippet' => ''];
+        }
+
         if ($item->kind === 'primitive') {
             return $base + [
                 'render' => 'primitive',
@@ -165,11 +171,13 @@ final class WorkbenchViewBuilder
         }
 
         $args = TwigLiteral::export($item->name());
-        if ($props !== [] || $example->slots !== []) {
+        if ($props !== [] || $slots !== []) {
             $args .= ', ' . TwigLiteral::export($props);
         }
-        if ($example->slots !== []) {
-            $args .= ', ' . TwigLiteral::export($example->slots);
+        // The copied Twig must render what the stage shows: slots are rendered
+        // raw, so it carries the same escaped text the preview was given.
+        if ($slots !== []) {
+            $args .= ', ' . TwigLiteral::export($slots);
         }
         return $base + [
             'render' => 'component',

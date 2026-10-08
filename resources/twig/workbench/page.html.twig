@@ -10,8 +10,10 @@
         {{ primitive(name, ex.props) }}
     {%- elseif ex.render == 'component' -%}
         {{ component(name, ex.props, ex.slots) }}
-    {%- else -%}
+    {%- elseif ex.render == 'template' -%}
         {% include ex.template with ex.context only %}
+    {%- else -%}
+        <div ui="alert" ui-tone="warning" role="status"><div data-alert-body><div data-alert-title>Not rendered</div>A behavior example needs <code>template:</code>, the markup the behavior applies to.</div></div>
     {%- endif -%}
 {% endmacro %}
 
