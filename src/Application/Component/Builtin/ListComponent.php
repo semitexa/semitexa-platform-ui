@@ -42,7 +42,7 @@ use Semitexa\PlatformUi\Attribute\UiSlot;
             new UiProp('title', required: true),
             new UiProp('description', nullable: true),
             new UiProp('meta', nullable: true, description: 'Short trailing text ("2h ago").'),
-            new UiProp('href', nullable: true, description: 'A same-site path the item links to.'),
+            new UiProp('href', nullable: true, description: 'A same-site path the item links to.', sitePath: true),
         ])),
     ],
     examples: [

@@ -21,7 +21,7 @@ use Semitexa\PlatformUi\Attribute\AsUiPrimitive;
     summary: 'A button, or a link styled as one when it has an href.',
     props: [
         new UiProp('text', required: true),
-        new UiProp('href', nullable: true, description: 'A same-site path; makes it a link.'),
+        new UiProp('href', nullable: true, description: 'A same-site path; makes it a link.', sitePath: true),
         new UiProp('variant', default: 'solid', values: ['solid', 'soft', 'outline', 'ghost', 'link']),
         new UiProp('tone', default: 'neutral', values: ['neutral', 'brand', 'info', 'success', 'warning', 'danger']),
         new UiProp('size', default: 'md', values: ['sm', 'md', 'lg']),
