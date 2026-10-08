@@ -8,6 +8,7 @@ use Semitexa\PlatformUi\Application\Service\Validation\UiFieldValue;
 
 use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\FormRootPrimitive;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionAuthorizer;
+use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionInterface;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistry;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitLifecycle;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitSecurityPolicy;
@@ -449,7 +450,7 @@ final class FormComponent implements UsesUiFieldRuleRegistry
                 'Signed form submit action name has the wrong shape.',
             );
         }
-        if (preg_match('/\A[A-Za-z_][A-Za-z0-9_.-]{0,127}\z/', $signed) !== 1) {
+        if (preg_match(UiFormSubmitActionInterface::NAME_PATTERN, $signed) !== 1) {
             throw new UiInteractionUnprocessableException(
                 'invalid_signed_form_action',
                 'Signed form submit action name has the wrong shape.',
