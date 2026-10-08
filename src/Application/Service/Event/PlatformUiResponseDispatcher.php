@@ -99,8 +99,8 @@ use Throwable;
  *   - environment variable names, framework internals
  *
  * It sits behind HUG (`POST /__semitexa_hug`), the single inbound door;
- * `event-runtime.js` posts every UI event there. The former HUG (`POST /__semitexa_hug`)
- * and HUG (`POST /__semitexa_hug`) doors are gone (KISS/HUG are the whole transport).
+ * `event-runtime.js` posts every UI event there. The former `POST /__ui/event`
+ * and `POST /__ui/dispatch` doors are gone (KISS/HUG are the whole transport).
  */
 #[SatisfiesServiceContract(of: UiResponseDispatcherInterface::class)]
 final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterface

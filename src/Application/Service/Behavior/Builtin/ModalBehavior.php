@@ -16,7 +16,9 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
  * transitions and events on top.
  *
  * With `urlParam`, the dialog is part of the address (`?create`), so it can
- * be linked to, reloaded and closed with back:
+ * be linked to and reloaded. Opening rewrites the history entry rather than
+ * pushing one, so Back leaves the page instead of only closing the dialog;
+ * back/forward onto an entry with or without the parameter opens or closes it:
  *
  *   <a href="?create" ui-behavior-open="#create">New</a>
  *   <dialog id="create" ui-behavior="modal" ui-modal="urlParam: create"> … </dialog>

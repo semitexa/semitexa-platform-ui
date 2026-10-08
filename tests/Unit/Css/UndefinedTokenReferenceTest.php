@@ -32,7 +32,8 @@ final class UndefinedTokenReferenceTest extends TestCase
             if (str_contains($file, '/tests/')) {
                 continue;
             }
-            $text = (string) file_get_contents($file);
+            $text = @file_get_contents($file);
+            self::assertIsString($text, 'cannot read ' . $file . ' — a gate that cannot read a file must not pass it');
             if (str_ends_with($file, '.css')) {
                 preg_match_all('/(--ui-[a-z0-9-]+)\s*:/', $text, $m);
                 array_push($defined, ...$m[1]);
