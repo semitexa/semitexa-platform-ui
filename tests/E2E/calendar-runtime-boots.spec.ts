@@ -38,7 +38,13 @@ test.describe('platform-ui · calendar runtime', () => {
         });
 
         await signIn(page);
+        // The month grid renders even when the events pull is refused, so the
+        // grid alone kept this green while every OS user got a 403.
+        const pull = page.waitForResponse(
+            (response) => response.url().includes('/platform/calendar/events') && response.request().method() === 'GET',
+        );
         await page.goto('/os/app/calendar', { waitUntil: 'domcontentloaded' });
+        expect((await pull).status(), 'a signed-in user reads their own events').toBe(200);
 
         const shell = page.locator('[data-ui-calendar]');
         await expect(shell).toHaveAttribute('data-ui-calendar-live', '0');

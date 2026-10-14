@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Payload\Request;
 
 use Semitexa\Authorization\Attribute\AsProtectedPayload;
-use Semitexa\Authorization\Attribute\RequiresPermission;
-use Semitexa\PlatformUi\Domain\Enum\CalendarPermission;
 use Semitexa\Core\Contract\ValidatablePayloadInterface;
 use Semitexa\Core\Http\Response\ResourceResponse;
 
@@ -20,7 +18,6 @@ use Semitexa\Core\Http\Response\ResourceResponse;
     consumes: ['application/json'],
     produces: ['application/json'],
 )]
-#[RequiresPermission(CalendarPermission::Write->value)]
 final class CalendarEventDeletePayload implements ValidatablePayloadInterface
 {
     private string $id = '';

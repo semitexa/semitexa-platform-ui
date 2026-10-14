@@ -19,33 +19,34 @@ use Semitexa\PlatformUi\Application\Payload\Request\CalendarEventSavePayload;
 use Semitexa\PlatformUi\Application\Payload\Request\CalendarEventsFeedPayload;
 use Semitexa\PlatformUi\Domain\Contract\CalendarEventRepositoryInterface;
 use Semitexa\PlatformUi\Domain\Model\CalendarEvent;
-use Semitexa\PlatformUi\Domain\Enum\CalendarPermission;
 
 /**
  * The calendar endpoints used to be public: anyone could read, create, change
- * or delete any user's events. Access now goes through configured
- * permissions, and a user only ever acts on their own events.
+ * or delete any user's events. Now every endpoint needs a signed-in user, and a
+ * user only ever acts on their own events. No permission slug: a calendar is
+ * personal, so every registered user has one (a slug that nothing granted kept
+ * the OS Calendar answering 403 to everyone).
  */
 final class CalendarAccessTest extends TestCase
 {
-    /** @return iterable<string, array{class-string, string}> */
+    /** @return iterable<string, array{class-string}> */
     public static function endpoints(): iterable
     {
-        yield 'feed' => [CalendarEventsFeedPayload::class, CalendarPermission::Read->value];
-        yield 'save' => [CalendarEventSavePayload::class, CalendarPermission::Write->value];
-        yield 'delete' => [CalendarEventDeletePayload::class, CalendarPermission::Write->value];
+        yield 'feed' => [CalendarEventsFeedPayload::class];
+        yield 'save' => [CalendarEventSavePayload::class];
+        yield 'delete' => [CalendarEventDeletePayload::class];
     }
 
     #[Test]
     #[DataProvider('endpoints')]
-    public function every_endpoint_is_protected_by_its_permission(string $payloadClass, string $permission): void
+    public function every_endpoint_needs_a_signed_in_user_and_no_permission(string $payloadClass): void
     {
         $resolver = new PayloadAccessPolicyResolver();
         $payload = (new \ReflectionClass($payloadClass))->newInstanceWithoutConstructor();
 
         $resolver->assertValidMetadata($payload);
         self::assertSame(PayloadAccessType::Protected, $resolver->accessType($payload));
-        self::assertSame([$permission], $resolver->requiredPermissions($payload));
+        self::assertSame([], $resolver->requiredPermissions($payload));
     }
 
     #[Test]
