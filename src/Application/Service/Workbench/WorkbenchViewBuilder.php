@@ -68,6 +68,7 @@ final class WorkbenchViewBuilder
                     'summary' => $item->contract->summary ?? '',
                     'typed' => $item->contract !== null,
                     'examples' => $examples,
+                    'broken' => $item->contract === null ? 0 : count($item->contract->brokenExamples),
                 ];
             }
             usort($entries, static fn (array $a, array $b): int => strcmp($a['short'], $b['short']));
@@ -77,7 +78,7 @@ final class WorkbenchViewBuilder
     }
 
     /**
-     * @return array{name: string, short: string, kind: string, summary: mixed, class: string, source: mixed, template: ?string, props: list<array<string, mixed>>, slots: array<mixed>, a11y: mixed, examples: list<array<string, mixed>>}|null
+     * @return array{name: string, short: string, kind: string, summary: mixed, class: string, source: mixed, template: ?string, props: list<array<string, mixed>>, slots: array<mixed>, a11y: mixed, examples: list<array<string, mixed>>, broken_examples: mixed}|null
      */
     public function entry(string $name): ?array
     {
@@ -104,6 +105,7 @@ final class WorkbenchViewBuilder
             'slots' => (array) $described['slots'],
             'a11y' => $described['a11y'] ?? [],
             'examples' => $examples,
+            'broken_examples' => $described['broken_examples'] ?? [],
         ];
     }
 

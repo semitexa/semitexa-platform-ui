@@ -26,7 +26,7 @@ final class GridComponentTest extends TestCase
 
         $contract = $ref->getAttributes(AsUiContract::class)[0]->newInstance();
         $props = array_map(static fn ($p): string => $p->name, $contract->props);
-        self::assertSame(['endpoint', 'gridId', 'emptyMessage', 'actions', 'rowActions', 'urlState', 'serverActions', 'actionHandler'], $props);
+        self::assertSame(['endpoint', 'gridId', 'emptyMessage', 'actions', 'rowActions', 'urlState', 'serverActions', 'actionHandler', 'context'], $props);
         self::assertFalse($contract->previewSafe, 'a grid needs a live feed of the host application');
     }
 

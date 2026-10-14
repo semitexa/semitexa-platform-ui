@@ -29,6 +29,9 @@ use Semitexa\PlatformUi\Domain\Model\Contract\UiPropType;
         new UiProp('size', default: 'md', values: ['sm', 'md']),
         new UiProp('iconOnly', UiPropType::Boolean, default: false, description: 'Show only the icons; each label stays as the radio\'s accessible name.'),
         new UiProp('disabled', UiPropType::Boolean, default: false),
+        new UiProp('part', default: null, nullable: true, description: 'The component part this control is (data-ui-part), when a field renders it.'),
+        new UiProp('aria_invalid', UiPropType::Boolean, default: false, description: 'Marks the group invalid (aria-invalid).'),
+        new UiProp('aria_describedby', default: null, nullable: true, description: 'Id of the element that describes the group (help or error text).'),
     ],
     examples: [
         new UiExample('default', 'View', ['name' => 'view', 'label' => 'View', 'value' => 'list', 'options' => [['value' => 'list', 'label' => 'List'], ['value' => 'grid', 'label' => 'Grid'], ['value' => 'map', 'label' => 'Map']]]),

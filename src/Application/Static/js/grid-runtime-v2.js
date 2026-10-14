@@ -233,6 +233,17 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
         return href;
     }
 
+    // A navigation href in the page's language. The server prints the page's
+    // locale prefix ('/uk', or '' for the default locale or when prefixing is
+    // off); a root-relative link from the contract or a row action that does
+    // not carry it yet gets it, so a Ukrainian CRM does not drop to English on
+    // the first row click. Action routes are not navigations and stay as written.
+    function inPageLocale(href, prefix) {
+        if (href === '' || prefix === '') return href;
+        if (href === prefix || href.indexOf(prefix + '/') === 0 || href.indexOf(prefix + '?') === 0 || href.indexOf(prefix + '#') === 0) return href;
+        return prefix + href;
+    }
+
     // ------------------------------------------------------------------
     // Grid instance
     // ------------------------------------------------------------------
@@ -315,6 +326,9 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
     }
 
     function createInstance(root, gridId, endpoint, contract, shellActions, emptyMessage, rowActions, serverActions) {
+        // The page's locale prefix, printed by the server (see inPageLocale).
+        var localePrefix = root.getAttribute('data-ui-grid-locale-prefix') || '';
+        if (!/^(\/[A-Za-z]{2,3}([_-][A-Za-z0-9]{2,8})?)?$/.test(localePrefix)) localePrefix = '';
         var collection = contract.collection || {};
         var paginationPolicy = collection.pagination || {};
         var sortFields = (collection.sort && Array.isArray(collection.sort.fields)) ? collection.sort.fields : [];
@@ -934,7 +948,7 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
             rowActions.forEach(function (action, index) {
                 if (index > 0) td.appendChild(document.createTextNode(' '));
                 if (typeof action.href === 'string') {
-                    var href = interpolateHref(action.href, row);
+                    var href = inPageLocale(interpolateHref(action.href, row), localePrefix);
                     if (href !== '') td.appendChild(el('a', { 'data-ui-grid-row-action': action.label, href: href, style: LINK_CELL_STYLE }, action.label));
                     return;
                 }
@@ -1166,7 +1180,19 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
         }
 
         // ---- rendering ---------------------------------------------------
+        // A throw while drawing must end in the error state, not leave the
+        // grid in 'loading' (or, on the pull path, be reported as an
+        // unreachable feed).
         function render(envelope) {
+            try {
+                renderView(envelope);
+            } catch (err) {
+                console.error('[platform.grid] render failed', err);
+                showError('The grid could not draw its rows: ' + (err && err.message ? err.message : String(err)));
+            }
+        }
+
+        function renderView(envelope) {
             var rows = envelope.data;
             var meta = envelope.meta || {};
             var pagination = meta.pagination || {};
@@ -1339,7 +1365,7 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
                         var badgeText = col.labels && typeof col.labels[value] === 'string' ? col.labels[value] : value;
                         td.appendChild(el('span', { 'data-ui-grid-badge': variant, 'data-ui-grid-value': value, style: BADGE_VARIANTS[variant] }, badgeText));
                     } else if (col.format === 'link' && col.href !== '') {
-                        var href = interpolateHref(col.href, row);
+                        var href = inPageLocale(interpolateHref(col.href, row), localePrefix);
                         if (href !== '') {
                             td.appendChild(el('a', { 'data-ui-grid-link': '', href: href, style: LINK_CELL_STYLE }, value));
                         } else {

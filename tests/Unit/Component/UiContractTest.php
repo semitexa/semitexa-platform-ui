@@ -11,7 +11,6 @@ use PHPUnit\Framework\TestCase;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentMetadataFactory;
 use Semitexa\PlatformUi\Attribute\AsUiContract;
 use Semitexa\PlatformUi\Attribute\UiSlot;
-use Semitexa\PlatformUi\Domain\Exception\UiComponentRegistryException;
 use Semitexa\PlatformUi\Domain\Model\Contract\UiContract;
 use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
 use Semitexa\PlatformUi\Domain\Model\Contract\UiProp;
@@ -65,11 +64,36 @@ final class UiContractTest extends TestCase
     /** @param array<string, mixed> $props */
     #[Test]
     #[DataProvider('examplesTheSchemaRejects')]
-    public function an_example_the_schema_would_reject_is_rejected(array $props, string $reason): void
+    public function an_example_the_schema_would_reject_is_left_out_and_named(array $props, string $reason): void
     {
+        // Contracts are built at registry boot: a throw here took the catalog
+        // (or the worker) down for one bad example. The example is dropped and
+        // named instead, and the strict check still refuses it.
+        $contract = new UiContract('Fixture', self::exampleProps(), [
+            new UiExample('good', 'Good', ['rows' => []]),
+            new UiExample('bad', 'Bad', $props),
+        ]);
+
+        self::assertSame(['good'], array_keys($contract->examples));
+        self::assertArrayHasKey('bad', $contract->brokenExamples);
+        self::assertStringContainsString($reason, $contract->brokenExamples['bad']);
+
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage($reason);
-        new UiContract('Fixture', self::exampleProps(), [new UiExample('bad', 'Bad', $props)]);
+        $this->expectExceptionMessage('UI example bad: ');
+        $contract->assertExamplesValid();
+    }
+
+    #[Test]
+    public function a_duplicate_or_foreign_example_is_left_out_and_named(): void
+    {
+        $contract = new UiContract('Fixture', self::exampleProps(), [
+            new UiExample('one', 'One', ['rows' => []]),
+            new UiExample('one', 'One again', ['rows' => []]),
+            'not an example',
+        ]);
+
+        self::assertSame(['one'], array_keys($contract->examples));
+        self::assertSame(['one' => 'is declared more than once', '#2' => 'is not a UiExample declaration'], $contract->brokenExamples);
     }
 
     #[Test]
@@ -92,12 +116,8 @@ final class UiContractTest extends TestCase
         self::assertSame(['integral'], array_keys($contract->examples));
 
         foreach ([['count' => 3.5], ['scale' => 2], ['label' => 1]] as $props) {
-            try {
-                new UiContract('Fixture', array_values($contract->props), [new UiExample('bad', 'Bad', $props)]);
-                self::fail('Accepted ' . json_encode($props));
-            } catch (InvalidArgumentException) {
-                $this->addToAssertionCount(1);
-            }
+            $rejected = new UiContract('Fixture', array_values($contract->props), [new UiExample('bad', 'Bad', $props)]);
+            self::assertArrayHasKey('bad', $rejected->brokenExamples, 'Accepted ' . json_encode($props));
         }
     }
 
@@ -142,10 +162,13 @@ final class UiContractTest extends TestCase
     }
 
     #[Test]
-    public function example_cannot_reference_a_slot_the_component_does_not_have(): void
+    public function an_example_naming_a_slot_the_component_does_not_have_is_left_out(): void
     {
-        $this->expectException(UiComponentRegistryException::class);
-        (new UiComponentMetadataFactory())->fromClass(InvalidContractFixture::class);
+        $metadata = (new UiComponentMetadataFactory())->fromClass(InvalidContractFixture::class);
+
+        self::assertNotNull($metadata->contract);
+        self::assertArrayNotHasKey('default', $metadata->contract->examples);
+        self::assertStringContainsString('uses unknown slot', $metadata->contract->brokenExamples['default'] ?? '');
     }
 }
 

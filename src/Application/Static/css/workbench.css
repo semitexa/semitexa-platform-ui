@@ -52,6 +52,7 @@
     font-variant-numeric: tabular-nums;
   }
   .wb-pill-muted { background: var(--ui-surface-sunken); color: var(--ui-text-muted); }
+  .wb-pill-broken { background: var(--ui-state-danger); color: var(--ui-text-on-danger); }
 
   .wb-main { min-width: 0; display: grid; gap: var(--ui-space-8); }
   .wb-toolbar { display: flex; flex-wrap: wrap; gap: var(--ui-space-3); }

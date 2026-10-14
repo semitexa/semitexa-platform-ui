@@ -44,7 +44,7 @@
                                {% if entry and entry.name == e.name %}aria-current="page"{% endif %}
                                data-workbench-link="{{ e.name }}">
                                 <span>{{ e.short }}</span>
-                                {% if e.examples > 0 %}<span class="wb-pill">{{ e.examples }}</span>{% elseif not e.typed %}<span class="wb-pill wb-pill-muted">untyped</span>{% endif %}
+                                {% if e.broken > 0 %}<span class="wb-pill wb-pill-broken" title="{{ e.broken }} broken example(s)">!</span>{% endif %}{% if e.examples > 0 %}<span class="wb-pill">{{ e.examples }}</span>{% elseif not e.typed %}<span class="wb-pill wb-pill-muted">untyped</span>{% endif %}
                             </a>
                         </li>
                     {% endfor %}
@@ -79,6 +79,15 @@
                 {% if wb.showSource %}<p ui-text="caption">{{ entry.class }} · {{ entry.source.file }}:{{ entry.source.line }}</p>{% endif %}
             </header>
 
+            {% if entry.broken_examples is not empty %}
+                <div ui="alert" ui-tone="danger" role="alert" data-workbench-broken-examples>
+                    <div data-alert-body>
+                        <div data-alert-title>{{ entry.broken_examples|length }} example(s) left out</div>
+                        <ul>{% for b in entry.broken_examples %}<li><code>{{ b.name }}</code> {{ b.reason }}</li>{% endfor %}</ul>
+                        <code>lint:ui-contracts</code> fails until the contract is fixed.
+                    </div>
+                </div>
+            {% endif %}
             {% if entry.examples is empty %}
                 <div ui="alert" ui-tone="neutral" role="status"><div data-alert-body><div data-alert-title>No examples declared</div>Add <code>examples:</code> to this entry's <code>#[AsUiContract]</code> and it renders here.</div></div>
             {% endif %}

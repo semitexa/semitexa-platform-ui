@@ -1,13 +1,14 @@
-import { test, expect } from '@playwright/test';
-import * as http from 'node:http';
+import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 
 /**
- * Two-tenant SSE isolation — the standing proof for the whole tenant chain.
+ * Two-tenant live isolation — the standing proof for the whole tenant chain.
  *
  * The calendar feed is #[TenantScoped] and live-bound (#[WatchScopes
- * 'platform_calendar_events']). Two subdomain tenants (default + demo, via
- * the Host header) each hold an open SSE stream while both tenants write.
- * Four invariants, each of which has ACTUALLY failed at least once:
+ * 'platform_calendar_events']). The SAME permitted user is signed in on two
+ * subdomain tenants (default + demo, by Host), each with the calendar page
+ * open: its component subscribes to the feed through HUG and is pushed frames
+ * on that page's KISS stream. Both tenants write. Four invariants, each of
+ * which has ACTUALLY failed at least once:
  *
  *  1. initial paint is tenant-filtered (the tenant-blind-query audit hole);
  *  2. a write wakes ONLY the writer's tenant stream (channel scoping);
@@ -17,172 +18,136 @@ import * as http from 'node:http';
  *     (fixed via ReRunContext tenant capture + RouteReRunner swap +
  *     ContainerTenancyBootstrapper binding);
  *  4. no frame on either stream ever carries the other tenant's rows.
+ *
+ * One user on both tenants is the strict form: the feed already narrows to
+ * the signed-in owner (c7711b8), so only the tenant boundary keeps the two
+ * calendars apart.
+ *
+ * tk-calendar-isolation-e2e-auth: until 2026-10-14 this opened the feed
+ * anonymously over a raw SSE door, which the permission check (c7711b8) and
+ * the KISS/HUG-only transport both closed; it sat as a fixme.
  */
 
-const DEMO_HOST = 'demo.dev.semitexa.test';
-const RANGE = 'from=2036-01-01&to=2036-01-31';
+test.use({ launchOptions: { args: ['--host-resolver-rules=MAP *.semitexa.test 127.0.0.1'] } });
 
-/** Node http (undici's fetch forbids overriding Host, which is the whole point). */
-type SseCapture = { frames: Array<{ count: number; titles: string[] }>; close: () => void };
+const CALENDAR_PAGE = '/ui-playground/components/calendar';
 
-function baseUrl(): URL {
-    return new URL(process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:9502');
+function origins(): { default: string; demo: string } {
+    const base = new URL(process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:9502');
+    return { default: base.origin, demo: `${base.protocol}//demo.dev.semitexa.test:${base.port}` };
 }
 
-function openStream(host: string | null): Promise<SseCapture> {
-    const base = baseUrl();
-    return new Promise((resolve, reject) => {
-        const req = http.request(
-            {
-                hostname: base.hostname,
-                port: base.port,
-                path: `/platform/calendar/events?${RANGE}`,
-                headers: {
-                    Accept: 'text/event-stream',
-                    ...(host ? { Host: host } : {}),
-                },
-            },
-            (res) => {
-                const capture: SseCapture = { frames: [], close: () => req.destroy() };
-                let buffer = '';
-                res.setEncoding('utf8');
-                res.on('data', (chunk: string) => {
-                    buffer += chunk;
-                    let idx: number;
-                    while ((idx = buffer.indexOf('\n\n')) !== -1) {
-                        const block = buffer.slice(0, idx);
-                        buffer = buffer.slice(idx + 2);
-                        const dataLine = block.split('\n').find((l) => l.startsWith('data:'));
-                        if (!dataLine) continue;
-                        try {
-                            const payload = JSON.parse(dataLine.slice(5));
-                            if (payload._type === 'ui.collection.data') {
-                                capture.frames.push({
-                                    count: payload.meta?.count ?? -1,
-                                    titles: (payload.data ?? []).map((e: { title: string }) => e.title),
-                                });
-                            }
-                        } catch {
-                            /* heartbeats / non-JSON frames are irrelevant */
-                        }
-                    }
-                });
-                resolve(capture);
-            },
-        );
-        req.on('error', reject);
-        req.end();
-    });
-}
-
-async function api(path: string, body: object, host: string | null): Promise<{ ok: boolean; event?: { id: string } }> {
-    const base = baseUrl();
-    const raw = JSON.stringify(body);
-    return new Promise((resolve, reject) => {
-        const req = http.request(
-            {
-                method: 'POST',
-                hostname: base.hostname,
-                port: base.port,
-                path,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Content-Length': Buffer.byteLength(raw),
-                    ...(host ? { Host: host } : {}),
-                },
-            },
-            (res) => {
-                let out = '';
-                res.setEncoding('utf8');
-                res.on('data', (c: string) => (out += c));
-                res.on('end', () => {
+/** Every calendar data frame the page's KISS stream delivers, as event titles. */
+async function recordFrames(context: BrowserContext): Promise<void> {
+    await context.addInitScript(() => {
+        const Native = window.EventSource;
+        (window as unknown as { __calendarFrames: string[][] }).__calendarFrames = [];
+        window.EventSource = class extends Native {
+            constructor(url: string | URL, init?: EventSourceInit) {
+                super(url, init);
+                this.addEventListener('ui.collection.data', (ev) => {
                     try {
-                        resolve(JSON.parse(out));
-                    } catch (e) {
-                        reject(new Error(`non-JSON response for ${path}: ${out.slice(0, 200)}`));
+                        const frame = JSON.parse((ev as MessageEvent).data);
+                        if (!Array.isArray(frame.data)) return;
+                        (window as unknown as { __calendarFrames: string[][] }).__calendarFrames.push(
+                            frame.data.map((row: { title?: string }) => String(row.title ?? '')),
+                        );
+                    } catch {
+                        /* not a data frame */
                     }
                 });
-            },
-        );
-        req.on('error', reject);
-        req.end(raw);
+            }
+        } as typeof EventSource;
     });
 }
 
-function saveEvent(title: string, startsAt: string, host: string | null) {
-    return api('/platform/calendar/events/save', { title, startsAt, endsAt: startsAt.replace(' 10:', ' 11:') }, host);
+async function signedInCalendar(browser: Browser, origin: string): Promise<{ context: BrowserContext; page: Page }> {
+    const context = await browser.newContext({ baseURL: origin });
+    await recordFrames(context);
+    const page = await context.newPage();
+    await page.goto('/playground/auth/login', { waitUntil: 'domcontentloaded' });
+    await page.locator('input[name="username"]').fill('admin');
+    await page.locator('input[name="password"]').fill('changeme');
+    await Promise.all([
+        page.waitForURL(/login=ok/),
+        page.locator('[data-ui-component="platform.sign-in"] button[type="submit"]').click(),
+    ]);
+    return { context, page };
 }
 
-async function waitFor(predicate: () => boolean, ms: number): Promise<boolean> {
-    const deadline = Date.now() + ms;
-    while (Date.now() < deadline) {
-        if (predicate()) return true;
-        await new Promise((r) => setTimeout(r, 250));
-    }
-    return predicate();
+const frames = (page: Page) => page.evaluate(() => (window as unknown as { __calendarFrames: string[][] }).__calendarFrames);
+
+/** POST to a calendar endpoint the way the runtime does: same origin, CSRF header from the cookie. */
+function post(page: Page, path: string, body: object): Promise<{ status: number; json: { event?: { id: string } } | null }> {
+    return page.evaluate(async ({ path, body }) => {
+        const token = decodeURIComponent((document.cookie.split(/;\s*/).find((c) => c.startsWith('XSRF-TOKEN=')) ?? '').slice(11));
+        const res = await fetch(path, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-Token': token },
+            body: JSON.stringify(body),
+        });
+        const text = await res.text();
+        let json = null;
+        try { json = JSON.parse(text); } catch { /* reported by status */ }
+        return { status: res.status, json };
+    }, { path, body });
 }
 
-test.describe('calendar two-tenant SSE isolation', () => {
-    test('streams are tenant-isolated in data AND in live re-runs', async () => {
-        // tk-calendar-isolation-e2e-auth: red since 2026-09-26 (c7711b8 put the
-        // calendar behind a permission; this spec still connects anonymously and
-        // gets 401). Its rewrite logs in one permitted user per tenant and
-        // subscribes through HUG onto each tenant's KISS stream. The owning-worker
-        // tenant-mismatch refusal is pinned by ControlFrameReRunTest.
-        test.fixme(true, 'tk-calendar-isolation-e2e-auth');
-        test.setTimeout(60_000);
+test.describe('calendar two-tenant live isolation', () => {
+    test('streams are tenant-isolated in data AND in live re-runs', async ({ browser }) => {
+        test.setTimeout(90_000);
         const run = Date.now().toString(36);
         const t = (name: string) => `e2e-${run} ${name}`;
-        const created: Array<{ id: string; host: string | null }> = [];
-        const track = (res: { event?: { id: string } }, host: string | null) => {
-            if (res.event?.id) created.push({ id: res.event.id, host });
+        // Inside the month the calendar opens on, so the visible window holds them.
+        const month = new Date().toISOString().slice(0, 7);
+        const at = (day: string) => `${month}-${day} 10:00:00`;
+        const created: Array<{ id: string; page: Page }> = [];
+
+        const host = origins();
+        const a = await signedInCalendar(browser, host.default);
+        const b = await signedInCalendar(browser, host.demo);
+        const save = async (page: Page, title: string, startsAt: string) => {
+            const res = await post(page, '/platform/calendar/events/save', { title, startsAt, endsAt: startsAt.replace(' 10:', ' 11:') });
+            expect(res.status, `save ${title}`).toBeLessThan(300);
+            if (res.json?.event?.id) created.push({ id: res.json.event.id, page });
         };
 
-        let defaultStream: SseCapture | null = null;
-        let demoStream: SseCapture | null = null;
         try {
-            // Seed one event per tenant BEFORE connecting, then open both streams.
-            track(await saveEvent(t('default-seed'), '2036-01-05 10:00:00', null), null);
-            track(await saveEvent(t('demo-seed'), '2036-01-05 10:00:00', DEMO_HOST), DEMO_HOST);
+            // Seed one event per tenant BEFORE the calendars open.
+            await save(a.page, t('default-seed'), at('05'));
+            await save(b.page, t('demo-seed'), at('05'));
 
-            defaultStream = await openStream(null);
-            demoStream = await openStream(DEMO_HOST);
+            for (const { page } of [a, b]) {
+                await page.goto(CALENDAR_PAGE, { waitUntil: 'domcontentloaded' });
+                await expect(page.locator('[data-ui-calendar]')).toBeVisible();
+            }
 
             // 1. Initial paint: each stream sees its own seed and NOT the other's.
-            expect(await waitFor(() => defaultStream!.frames.length >= 1, 8_000)).toBe(true);
-            expect(await waitFor(() => demoStream!.frames.length >= 1, 8_000)).toBe(true);
-            expect(defaultStream.frames[0].titles).toContain(t('default-seed'));
-            expect(demoStream.frames[0].titles).toContain(t('demo-seed'));
+            await expect.poll(async () => (await frames(a.page)).flat(), { timeout: 15_000 }).toContain(t('default-seed'));
+            await expect.poll(async () => (await frames(b.page)).flat(), { timeout: 15_000 }).toContain(t('demo-seed'));
 
             // 2+3. Write in DEMO: the demo stream re-runs AS DEMO...
-            track(await saveEvent(t('demo-live'), '2036-01-06 10:00:00', DEMO_HOST), DEMO_HOST);
-            expect(
-                await waitFor(() => demoStream!.frames.some((f) => f.titles.includes(t('demo-live'))), 10_000),
-            ).toBe(true);
+            await save(b.page, t('demo-live'), at('06'));
+            await expect.poll(async () => (await frames(b.page)).flat(), { timeout: 15_000 }).toContain(t('demo-live'));
 
             // ...and write in DEFAULT: the default stream re-runs AS DEFAULT.
-            track(await saveEvent(t('default-live'), '2036-01-06 10:00:00', null), null);
-            expect(
-                await waitFor(() => defaultStream!.frames.some((f) => f.titles.includes(t('default-live'))), 10_000),
-            ).toBe(true);
+            await save(a.page, t('default-live'), at('06'));
+            await expect.poll(async () => (await frames(a.page)).flat(), { timeout: 15_000 }).toContain(t('default-live'));
 
             // 4. No frame on either stream ever carried the other tenant's rows —
             //    this is the assertion that caught the real foreign-context re-run bug.
-            const demoTitles = [t('demo-seed'), t('demo-live')];
-            const defaultTitles = [t('default-seed'), t('default-live')];
-            for (const frame of defaultStream.frames) {
-                for (const foreign of demoTitles) expect(frame.titles).not.toContain(foreign);
-            }
-            for (const frame of demoStream.frames) {
-                for (const foreign of defaultTitles) expect(frame.titles).not.toContain(foreign);
-            }
+            const defaultSeen = (await frames(a.page)).flat();
+            const demoSeen = (await frames(b.page)).flat();
+            for (const foreign of [t('demo-seed'), t('demo-live')]) expect(defaultSeen).not.toContain(foreign);
+            for (const foreign of [t('default-seed'), t('default-live')]) expect(demoSeen).not.toContain(foreign);
         } finally {
-            defaultStream?.close();
-            demoStream?.close();
-            // Tenant-scoped delete: each row must be deleted AS its owner.
+            // Tenant-scoped delete: each row must be deleted AS its owner, on its tenant.
             for (const row of created) {
-                await api('/platform/calendar/events/delete', { id: row.id }, row.host).catch(() => undefined);
+                await post(row.page, '/platform/calendar/events/delete', { id: row.id }).catch(() => undefined);
             }
+            await a.context.close();
+            await b.context.close();
         }
     });
 });

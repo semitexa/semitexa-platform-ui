@@ -2588,7 +2588,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             var s = SSE_SUBSCRIPTIONS[ids[i]];
             delete SSE_SUBSCRIPTIONS[ids[i]];
             if (s && typeof s.onUnavailable === 'function') {
-                try { s.onUnavailable(); } catch (cbErr) { /* one feed must not break the rest */ }
+                try { s.onUnavailable(); } catch (cbErr) { reportCallbackError(cbErr); /* one feed must not break the rest */ }
             }
         }
     }
@@ -2607,6 +2607,15 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         }
     }
 
+    /** Report a consumer's exception without unwinding the caller (the demux loop). */
+    function reportCallbackError(err) {
+        if (typeof window !== 'undefined' && typeof window.reportError === 'function') {
+            window.reportError(err);
+            return;
+        }
+        setTimeout(function () { throw err; }, 0);
+    }
+
     /** Route a demuxed data frame to its subscription callback. True iff handled. */
     function routeSubscriptionFrame(parsed) {
         if (!parsed || typeof parsed._type !== 'string') {
@@ -2621,7 +2630,12 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         }
         try {
             SSE_SUBSCRIPTIONS[sid].onFrame(parsed);
-        } catch (cbErr) { /* a consumer callback must never break the demux loop */ }
+        } catch (cbErr) {
+            // A consumer callback must never break the demux loop, but its
+            // failure must still be seen: swallowed, a grid that threw while
+            // drawing rows sat in 'loading' with nothing in the console.
+            reportCallbackError(cbErr);
+        }
         return true;
     }
 

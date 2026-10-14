@@ -27,6 +27,13 @@ use Semitexa\PlatformUi\Attribute\AsUiPrimitive;
         new UiProp('size', default: 'md', values: ['sm', 'md', 'lg']),
         new UiProp('icon', nullable: true, description: 'A Lucide icon name shown before the text.'),
         new UiProp('disabled', UiPropType::Boolean, default: false),
+        // What the template already read and callers already passed, found
+        // undeclared by lint:ui-contracts on 2026-10-14.
+        new UiProp('type', default: 'button', values: ['button', 'submit', 'reset'], description: 'The button type; ignored when href makes it a link.'),
+        new UiProp('iconEnd', nullable: true, description: 'A Lucide icon name shown after the text.'),
+        new UiProp('loading', UiPropType::Boolean, default: false, description: 'Busy: ui-state=loading and aria-busy.'),
+        new UiProp('pressed', UiPropType::Boolean, default: null, nullable: true, description: 'A toggle button\'s state (aria-pressed); null for an ordinary button.'),
+        new UiProp('shape', default: null, nullable: true, values: ['square'], description: 'square: icon-only; text stays as its accessible name.'),
     ],
     examples: [
         new UiExample('default', 'New order', ['text' => 'New order', 'href' => '/orders?create', 'tone' => 'brand']),
