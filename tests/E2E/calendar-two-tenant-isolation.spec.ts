@@ -75,6 +75,23 @@ async function signedInCalendar(browser: Browser, origin: string): Promise<{ con
     return { context, page };
 }
 
+/** Wait until no new frame arrives on any of the pages for quietMs (at most maxMs). */
+async function quiet(pages: Page[], quietMs = 3_000, maxMs = 15_000): Promise<void> {
+    const count = async () => (await Promise.all(pages.map(async (page) => (await frames(page)).length))).join(',');
+    const started = Date.now();
+    let last = await count();
+    let since = Date.now();
+    while (Date.now() - started < maxMs && Date.now() - since < quietMs) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const now = await count();
+        if (now !== last) {
+            last = now;
+            since = Date.now();
+        }
+    }
+    expect(Date.now() - since, 'the streams went quiet before the foreign-row check').toBeGreaterThanOrEqual(quietMs);
+}
+
 const frames = (page: Page) => page.evaluate(() => (window as unknown as { __calendarFrames: string[][] }).__calendarFrames);
 
 /** POST to a calendar endpoint the way the runtime does: same origin, CSRF header from the cookie. */
@@ -103,6 +120,7 @@ test.describe('calendar two-tenant live isolation', () => {
         const month = new Date().toISOString().slice(0, 7);
         const at = (day: string) => `${month}-${day} 10:00:00`;
         const created: Array<{ id: string; page: Page }> = [];
+        let passed = false;
 
         const host = origins();
         const a = await signedInCalendar(browser, host.default);
@@ -137,13 +155,15 @@ test.describe('calendar two-tenant live isolation', () => {
 
             // 4. No frame on either stream ever carried the other tenant's rows —
             //    this is the assertion that caught the real foreign-context re-run bug.
-            //    A leaked frame may arrive after the owner's own, so both streams
-            //    are given a settle window after the last write before the check.
-            await a.page.waitForTimeout(3_000);
+            //    A leaked frame may arrive after the owner's own, so the check
+            //    waits for both streams to go quiet: every new frame on either
+            //    one restarts the quiet period.
+            await quiet([a.page, b.page]);
             const defaultSeen = (await frames(a.page)).flat();
             const demoSeen = (await frames(b.page)).flat();
             for (const foreign of [t('demo-seed'), t('demo-live')]) expect(defaultSeen).not.toContain(foreign);
             for (const foreign of [t('default-seed'), t('default-live')]) expect(demoSeen).not.toContain(foreign);
+            passed = true;
         } finally {
             // Tenant-scoped delete: each row must be deleted AS its owner, on its tenant.
             const leftovers: string[] = [];
@@ -153,7 +173,13 @@ test.describe('calendar two-tenant live isolation', () => {
             }
             await a.context.close();
             await b.context.close();
-            expect(leftovers, 'every fixture event was deleted by its owner').toEqual([]);
+            // Only when the test itself passed: a cleanup failure must not
+            // replace the isolation failure that a red run is about.
+            if (passed) {
+                expect(leftovers, 'every fixture event was deleted by its owner').toEqual([]);
+            } else if (leftovers.length > 0) {
+                console.warn(`fixture events left behind: ${leftovers.join(', ')}`);
+            }
         }
     });
 });
