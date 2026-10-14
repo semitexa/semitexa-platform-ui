@@ -24,7 +24,7 @@ import { test, expect, type Browser, type BrowserContext, type Page } from '@pla
  * calendars apart.
  *
  * tk-calendar-isolation-e2e-auth: until 2026-10-14 this opened the feed
- * anonymously over a raw SSE door, which the permission check (c7711b8) and
+ * anonymously over a raw SSE door, which the sign-in requirement (c7711b8) and
  * the KISS/HUG-only transport both closed; it sat as a fixme.
  */
 
