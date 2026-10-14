@@ -1182,13 +1182,19 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
         // ---- rendering ---------------------------------------------------
         // A throw while drawing must end in the error state, not leave the
         // grid in 'loading' (or, on the pull path, be reported as an
-        // unreachable feed).
+        // unreachable feed). renderView() changes the DOM in steps, so a
+        // throw half-way would leave new rows beside an old pager: the table
+        // is emptied and hidden instead. The detail goes to the console, the
+        // visitor gets a sentence.
         function render(envelope) {
             try {
                 renderView(envelope);
             } catch (err) {
                 console.error('[platform.grid] render failed', err);
-                showError('The grid could not draw its rows: ' + (err && err.message ? err.message : String(err)));
+                while (refs.tbody.firstChild) refs.tbody.removeChild(refs.tbody.firstChild);
+                refs.tableWrap.setAttribute('hidden', '');
+                refs.empty.setAttribute('hidden', '');
+                showError('The grid could not draw its rows.');
             }
         }
 

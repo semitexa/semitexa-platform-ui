@@ -137,17 +137,23 @@ test.describe('calendar two-tenant live isolation', () => {
 
             // 4. No frame on either stream ever carried the other tenant's rows —
             //    this is the assertion that caught the real foreign-context re-run bug.
+            //    A leaked frame may arrive after the owner's own, so both streams
+            //    are given a settle window after the last write before the check.
+            await a.page.waitForTimeout(3_000);
             const defaultSeen = (await frames(a.page)).flat();
             const demoSeen = (await frames(b.page)).flat();
             for (const foreign of [t('demo-seed'), t('demo-live')]) expect(defaultSeen).not.toContain(foreign);
             for (const foreign of [t('default-seed'), t('default-live')]) expect(demoSeen).not.toContain(foreign);
         } finally {
             // Tenant-scoped delete: each row must be deleted AS its owner, on its tenant.
+            const leftovers: string[] = [];
             for (const row of created) {
-                await post(row.page, '/platform/calendar/events/delete', { id: row.id }).catch(() => undefined);
+                const res = await post(row.page, '/platform/calendar/events/delete', { id: row.id }).catch(() => ({ status: 0 }));
+                if (res.status >= 300 || res.status === 0) leftovers.push(`${row.id} (${res.status})`);
             }
             await a.context.close();
             await b.context.close();
+            expect(leftovers, 'every fixture event was deleted by its owner').toEqual([]);
         }
     });
 });

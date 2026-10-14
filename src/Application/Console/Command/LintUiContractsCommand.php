@@ -139,16 +139,21 @@ final class LintUiContractsCommand extends Command
         $issues = [];
         foreach ($this->templates() as $path) {
             $code = @file_get_contents($path);
+            $relative = str_starts_with($path, $root) ? substr($path, strlen($root)) : $path;
             if (!is_string($code)) {
+                // A template the lint could not open is not one it cleared.
                 $usage['unparsed']++;
+                $issues[] = self::unchecked($relative, 'could not be read');
                 continue;
             }
             $usage['templates']++;
-            $relative = str_starts_with($path, $root) ? substr($path, strlen($root)) : $path;
             $result = $validator->validate($twig, new Source($code, $relative, $relative));
             $usage['checked'] += $result['checked'];
             $usage['unresolved'] += $result['unresolved'];
-            $usage['unparsed'] += $result['unparsed'] ? 1 : 0;
+            if ($result['unparsed']) {
+                $usage['unparsed']++;
+                $issues[] = self::unchecked($relative, 'does not parse as Twig');
+            }
             foreach ($result['issues'] as $issue) {
                 $issues[] = [
                     'entry' => $issue['entry'],
@@ -164,6 +169,21 @@ final class LintUiContractsCommand extends Command
         }
 
         return $issues;
+    }
+
+    /** @return array{entry: string, example: string, reason: string, path: string, line: int, code: string, at: string, expected: string} */
+    private static function unchecked(string $path, string $why): array
+    {
+        return [
+            'entry' => '(template)',
+            'example' => '',
+            'reason' => "{$why}, so its component() and primitive() calls were not checked.",
+            'path' => $path,
+            'line' => 0,
+            'code' => 'unchecked',
+            'at' => '-',
+            'expected' => 'a readable, parseable template',
+        ];
     }
 
     /** @return list<string> every *.twig under the module template roots */
