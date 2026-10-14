@@ -118,6 +118,14 @@ final class UiCatalogProjector
             'examples' => $contract === null ? [] : array_values(array_map($contract->exampleArray(...), $contract->examples)),
             'preview_safe' => $contract->previewSafe ?? false,
         ];
+        // Only when there is something to say, so a clean entry's
+        // contract_version does not move.
+        if (($contract?->brokenExamples ?? []) !== []) {
+            $result['broken_examples'] = [];
+            foreach ($contract->brokenExamples as $name => $reason) {
+                $result['broken_examples'][] = ['name' => (string) $name, 'reason' => $reason];
+            }
+        }
         if ($metadata instanceof BehaviorMetadata) {
             $result += $metadata->toArray();
         } elseif ($metadata instanceof PrimitiveMetadata) {

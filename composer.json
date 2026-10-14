@@ -35,9 +35,10 @@
     "extra": {
         "semitexa": {
             "floors": {
-                "semitexa/core": "2026.10.08.0620",
+                "semitexa/core": "next",
                 "semitexa/ssr": "2026.10.08.0620",
-                "semitexa/llm": "2026.10.08.0620"
+                "semitexa/llm": "2026.10.08.0620",
+                "semitexa/theme": "next"
             }
         },
         "semitexa-module": {

@@ -52,6 +52,7 @@ use Semitexa\Ssr\Attribute\AsComponent;
         new UiProp('urlState', default: null, description: 'A namespace that keeps the view (q, sort, filter, page size, page) in the address bar.'),
         new UiProp('serverActions', type: UiPropType::Array, default: [], description: 'Actions run on the server through HUG: [{id, label, scopes: [row|bulk|header], confirm?, tone?}] (UiGridAction::toProps()). A bulk action adds row selection.'),
         new UiProp('actionHandler', default: null, description: 'The #[AsGridAction] name that runs serverActions.'),
+        new UiProp('context', type: UiPropType::Object, default: [], description: 'Values signed into the grid with its props for the actionHandler to read (semitexa/crud passes {crud: screen id}); never trusted from the client.'),
     ],
     examples: [
         new UiExample('default', 'Feed-backed grid', ['endpoint' => '/ui-playground/components/grid/feed', 'gridId' => 'example']),

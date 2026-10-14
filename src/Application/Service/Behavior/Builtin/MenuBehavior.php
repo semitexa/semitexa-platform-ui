@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Behavior\Builtin;
 
 use Semitexa\PlatformUi\Attribute\AsUiBehavior;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiBehaviorOption;
 use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
 
@@ -38,5 +40,13 @@ use Semitexa\PlatformUi\Domain\Model\Behavior\UiOptionType;
         new UiBehaviorOption('offset', UiOptionType::Number, default: 4, description: 'Gap between trigger and panel, in px.'),
     ],
     a11y: ['aria-expanded', 'aria-haspopup', 'menu-roles', 'esc-dismiss', 'arrow-nav', 'typeahead', 'focus-return'],
+)]
+#[AsUiContract(
+    summary: 'A menu button with checkable items, a radio group and a submenu.',
+    examples: [
+        new UiExample('checkable', 'Checkable items and a submenu', [], template: '@platform-ui/examples/menu.html.twig'),
+        new UiExample('end', 'Aligned to the end', ['pos' => 'bottom-end'], template: '@platform-ui/examples/menu.html.twig'),
+    ],
+    previewSafe: true,
 )]
 final class MenuBehavior {}

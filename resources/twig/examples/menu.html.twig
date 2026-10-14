@@ -1,0 +1,23 @@
+<div ui-behavior="menu" ui-menu="{{ opts }}">
+    <button type="button" ui="button" ui-variant="outline" ui-behavior-toggle>View {{ icon('chevron-down', {size: 14}) }}</button>
+    <div ui-behavior-content>
+        <div ui-menu="label">Show</div>
+        <button type="button" ui-behavior-item role="menuitemcheckbox" aria-checked="true" data-value="sidebar">Sidebar</button>
+        <button type="button" ui-behavior-item role="menuitemcheckbox" aria-checked="false" data-value="minimap">Minimap</button>
+        <hr>
+        <div ui-menu="label">Sort by</div>
+        <div role="group" aria-label="Sort by">
+            <button type="button" ui-behavior-item role="menuitemradio" aria-checked="true" data-value="newest">Newest</button>
+            <button type="button" ui-behavior-item role="menuitemradio" aria-checked="false" data-value="oldest">Oldest</button>
+        </div>
+        <hr>
+        <div ui-behavior="menu">
+            <button type="button" ui-behavior-item ui-behavior-toggle>Export as</button>
+            <div ui-behavior-content>
+                <button type="button" ui-behavior-item data-value="csv">CSV</button>
+                <button type="button" ui-behavior-item data-value="json">JSON</button>
+            </div>
+        </div>
+        <button type="button" ui-behavior-item data-value="reset">Reset view</button>
+    </div>
+</div>
