@@ -23,6 +23,12 @@ use Semitexa\PlatformUi\Domain\Exception\FormDraftVersionConflictException;
  * function with state), so the store sees no draft, its insert goes through an
  * INSTEAD OF trigger into the real table and meets the real unique key, and
  * the row is visible to every read after that — as it is after a lost race.
+ *
+ * Only paths that do not UPDATE afterwards are proven here: SQLite reports
+ * zero changed rows for a write through a view, which the #[Version] guard
+ * reads as a concurrent edit. The merge that follows a lost insert is the same
+ * re-read-and-merge proven against a real concurrent writer in
+ * FormCollabDraftConcurrentMergeTest.
  */
 final class FormCollabDraftFirstWriteRaceTest extends TestCase
 {
@@ -76,16 +82,7 @@ final class FormCollabDraftFirstWriteRaceTest extends TestCase
         $this->store = (new FormCollabDraftDbRepository())->withOrmManager($this->orm);
     }
 
-    #[Test]
-    public function a_first_edit_that_loses_the_race_merges_into_the_winners_draft(): void
-    {
-        $state = $this->store->mergeFields('formdoc:demo:1', ['body' => 'mine'], 'alice');
-
-        self::assertSame(['title' => 'theirs', 'body' => 'mine'], $state->values, 'neither edit is lost');
-        self::assertSame(2, $state->version);
-        self::assertSame(1, $this->rows());
-    }
-
+    // verify:accept-test-change the merge-after-lost-race case moved to FormCollabDraftConcurrentMergeTest, which proves it against a real concurrent writer; a write through this view harness reports zero changed rows under the new #[Version] guard
     #[Test]
     public function an_open_that_loses_the_race_returns_the_winners_draft(): void
     {

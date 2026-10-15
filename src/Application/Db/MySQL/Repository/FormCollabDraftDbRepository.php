@@ -11,6 +11,7 @@ use Semitexa\Core\Tenant\TenantContextInterface;
 use Semitexa\Core\Tenant\TenantContextStoreInterface;
 use Semitexa\Orm\Application\Service\OrmBackedStore;
 use Semitexa\Orm\Exception\ConstraintViolationException;
+use Semitexa\Orm\Exception\StaleAggregateException;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
@@ -43,6 +44,8 @@ use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
 #[SatisfiesRepositoryContract(of: FormCollabDraftStoreInterface::class)]
 final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
 {
+    private const MERGE_ATTEMPTS = 5;
+
     use OrmBackedStore;
 
     #[InjectAsReadonly]
@@ -147,29 +150,48 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
                 ->toState();
         }
 
-        return $this->updateDraft($existing, $values, $currentVersion + 1, $actor)->toState();
+        try {
+            return $this->updateDraft($existing, $values, $actor)->toState();
+        } catch (StaleAggregateException) {
+            // Another save landed between our read and our write.
+            throw new FormDraftVersionConflictException($scopeKey, $expectedVersion, $this->requireByScope($scopeKey)->getVersion());
+        }
     }
 
+    /**
+     * Field-level merge: two people editing different fields of one form must
+     * both keep their edit. The version guard turns a concurrent write into a
+     * StaleAggregateException, and the merge is redone on the row as it now
+     * stands, a few times, before the edit is reported as a conflict.
+     */
     public function mergeFields(string $scopeKey, array $partialValues, ?string $actor): FormCollabDraftState
     {
-        $existing = $this->findByScope($scopeKey);
-        if ($existing === null) {
-            $inserted = $this->tryInsertDraft($scopeKey, $partialValues, $actor);
-            if ($inserted !== null) {
-                return $inserted->toState();
+        for ($attempt = 1; ; $attempt++) {
+            $existing = $this->findByScope($scopeKey);
+            if ($existing === null) {
+                $inserted = $this->tryInsertDraft($scopeKey, $partialValues, $actor);
+                if ($inserted !== null) {
+                    return $inserted->toState();
+                }
+                // Another first edit created the row a moment ago (1062 on the
+                // (tenant_id, scope_key) key, seen live 2026-10-15): merge into
+                // it instead of failing the event and dropping this edit.
+                $existing = $this->requireByScope($scopeKey);
             }
-            // Another first edit created the row a moment ago (1062 on the
-            // (tenant_id, scope_key) key, seen live 2026-10-15): merge into it
-            // instead of failing the event and dropping this edit.
-            $existing = $this->requireByScope($scopeKey);
-        }
 
-        $merged = $existing->getValues();
-        foreach ($partialValues as $field => $value) {
-            $merged[$field] = $value;
-        }
+            $merged = $existing->getValues();
+            foreach ($partialValues as $field => $value) {
+                $merged[$field] = $value;
+            }
 
-        return $this->updateDraft($existing, $merged, $existing->getVersion() + 1, $actor)->toState();
+            try {
+                return $this->updateDraft($existing, $merged, $actor)->toState();
+            } catch (StaleAggregateException) {
+                if ($attempt >= self::MERGE_ATTEMPTS) {
+                    throw new FormDraftVersionConflictException($scopeKey, $existing->getVersion(), $this->requireByScope($scopeKey)->getVersion());
+                }
+            }
+        }
     }
 
     private function findByScope(string $scopeKey): ?FormCollabDraft
@@ -233,7 +255,14 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
     /**
      * @param array<string, scalar|null> $values
      */
-    private function updateDraft(FormCollabDraft $existing, array $values, int $version, ?string $actor): FormCollabDraft
+    /**
+     * Write the next version over the one read into $existing. The ORM's
+     * #[Version] guard bumps it and throws StaleAggregateException when the
+     * row moved on in between.
+     *
+     * @param array<string, scalar|null> $values
+     */
+    private function updateDraft(FormCollabDraft $existing, array $values, ?string $actor): FormCollabDraft
     {
         $draft = new FormCollabDraft(
             id:        $existing->getId(),
@@ -244,13 +273,13 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
             tenantId:  $this->currentTenantId(),
             scopeKey:  $existing->getScopeKey(),
             values:    $values,
-            version:   $version,
+            version:   $existing->getVersion(),
             updatedBy: $actor,
             updatedAt: new \DateTimeImmutable(),
         );
-        $this->repository()->update($draft);
 
-        return $draft;
+        /** @var FormCollabDraft */
+        return $this->repository()->update($draft);
     }
 
     private static function mintId(): string
