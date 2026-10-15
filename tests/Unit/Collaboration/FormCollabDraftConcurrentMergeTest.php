@@ -43,7 +43,7 @@ final class FormCollabDraftConcurrentMergeTest extends TestCase
         $aliceOrm = new OrmManager(config: new ConnectionConfig(driver: 'sqlite', sqlitePath: $this->file));
         $bobOrm = new OrmManager(config: new ConnectionConfig(driver: 'sqlite', sqlitePath: $this->file));
 
-        $aliceOrm->getAdapter()->getPdo()->sqliteCreateFunction('bob_moves', function (): int {
+        self::createFunction($aliceOrm->getAdapter()->getPdo(), 'bob_moves', function (): int {
             $edit = $this->bobDuringAlicesRead;
             $this->bobDuringAlicesRead = null;
             if ($edit !== null) {
@@ -51,8 +51,8 @@ final class FormCollabDraftConcurrentMergeTest extends TestCase
             }
 
             return 0;
-        }, 0, \PDO::SQLITE_DETERMINISTIC);
-        $bobOrm->getAdapter()->getPdo()->sqliteCreateFunction('bob_moves', static fn (): int => 0, 0, \PDO::SQLITE_DETERMINISTIC);
+        });
+        self::createFunction($bobOrm->getAdapter()->getPdo(), 'bob_moves', static fn (): int => 0);
 
         $aliceOrm->getAdapter()->execute(
             'CREATE TABLE form_collab_draft (
@@ -117,5 +117,15 @@ final class FormCollabDraftConcurrentMergeTest extends TestCase
         self::assertSame(['seed' => 'x', 'a' => '1', 'b' => '2'], $state->values);
         self::assertSame(3, $state->version);
         self::assertSame(3, $this->bob->load(self::SCOPE)?->version);
+    }
+    /** Register a SQL function on whichever PDO the adapter opened. */
+    private static function createFunction(\PDO $pdo, string $name, callable $fn): void
+    {
+        if ($pdo instanceof \Pdo\Sqlite) {
+            $pdo->createFunction($name, $fn, 0, \Pdo\Sqlite::DETERMINISTIC);
+
+            return;
+        }
+        $pdo->sqliteCreateFunction($name, $fn, 0, \PDO::SQLITE_DETERMINISTIC);
     }
 }

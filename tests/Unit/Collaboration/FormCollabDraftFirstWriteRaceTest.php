@@ -51,9 +51,9 @@ final class FormCollabDraftFirstWriteRaceTest extends TestCase
 
         $reads = 0;
         $pdo = $db->getPdo();
-        $pdo->sqliteCreateFunction('rival_visible', static function () use (&$reads): int {
+        self::createFunction($pdo, 'rival_visible', static function () use (&$reads): int {
             return $reads++ > 0 ? 1 : 0;
-        }, 0);
+        });
         $db->execute(
             "CREATE VIEW form_collab_draft AS
              SELECT * FROM draft_base WHERE id NOT LIKE 'rival%' OR rival_visible() = 1",
@@ -120,5 +120,15 @@ final class FormCollabDraftFirstWriteRaceTest extends TestCase
         $rows = $this->orm->getAdapter()->execute('SELECT COUNT(*) AS n FROM draft_base')->fetchAll();
 
         return (int) ($rows[0]['n'] ?? -1);
+    }
+    /** Register a SQL function on whichever PDO the adapter opened. */
+    private static function createFunction(\PDO $pdo, string $name, callable $fn): void
+    {
+        if ($pdo instanceof \Pdo\Sqlite) {
+            $pdo->createFunction($name, $fn, 0, \Pdo\Sqlite::DETERMINISTIC);
+
+            return;
+        }
+        $pdo->sqliteCreateFunction($name, $fn, 0, \PDO::SQLITE_DETERMINISTIC);
     }
 }
