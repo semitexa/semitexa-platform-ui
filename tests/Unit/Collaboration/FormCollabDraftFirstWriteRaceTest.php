@@ -6,6 +6,7 @@ namespace Semitexa\PlatformUi\Tests\Unit\Collaboration;
 
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Semitexa\Orm\Adapter\SqliteAdapter;
 use Semitexa\Orm\Domain\Model\ConnectionConfig;
 use Semitexa\Orm\OrmManager;
 use Semitexa\PlatformUi\Application\Db\MySQL\Repository\FormCollabDraftDbRepository;
@@ -50,7 +51,7 @@ final class FormCollabDraftFirstWriteRaceTest extends TestCase
         $db->execute('CREATE UNIQUE INDEX uniq_draft_tenant_scope ON draft_base (tenant_id, scope_key)');
 
         $reads = 0;
-        $pdo = $db->getPdo();
+        $pdo = self::pdoOf($this->orm);
         self::createFunction($pdo, 'rival_visible', static function () use (&$reads): int {
             return $reads++ > 0 ? 1 : 0;
         });
@@ -119,7 +120,9 @@ final class FormCollabDraftFirstWriteRaceTest extends TestCase
     {
         $rows = $this->orm->getAdapter()->execute('SELECT COUNT(*) AS n FROM draft_base')->fetchAll();
 
-        return (int) ($rows[0]['n'] ?? -1);
+        $n = $rows[0]['n'] ?? -1;
+
+        return is_numeric($n) ? (int) $n : -1;
     }
     /** Register a SQL function on whichever PDO the adapter opened. */
     private static function createFunction(\PDO $pdo, string $name, callable $fn): void
@@ -130,5 +133,12 @@ final class FormCollabDraftFirstWriteRaceTest extends TestCase
             return;
         }
         $pdo->sqliteCreateFunction($name, $fn, 0, \PDO::SQLITE_DETERMINISTIC);
+    }
+    private static function pdoOf(OrmManager $orm): \PDO
+    {
+        $adapter = $orm->getAdapter();
+        self::assertInstanceOf(SqliteAdapter::class, $adapter);
+
+        return $adapter->getPdo();
     }
 }

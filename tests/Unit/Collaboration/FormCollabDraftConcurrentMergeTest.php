@@ -6,6 +6,7 @@ namespace Semitexa\PlatformUi\Tests\Unit\Collaboration;
 
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Semitexa\Orm\Adapter\SqliteAdapter;
 use Semitexa\Orm\Domain\Model\ConnectionConfig;
 use Semitexa\Orm\OrmManager;
 use Semitexa\PlatformUi\Application\Db\MySQL\Repository\FormCollabDraftDbRepository;
@@ -34,7 +35,7 @@ final class FormCollabDraftConcurrentMergeTest extends TestCase
 
     private FormCollabDraftDbRepository $bob;
 
-    /** @var (\Closure(): void)|null Bob's edit, run once inside Alice's next read. */
+    /** @var (\Closure(): mixed)|null Bob's edit, run once inside Alice's next read; its result is ignored. */
     private ?\Closure $bobDuringAlicesRead = null;
 
     protected function setUp(): void
@@ -43,7 +44,7 @@ final class FormCollabDraftConcurrentMergeTest extends TestCase
         $aliceOrm = new OrmManager(config: new ConnectionConfig(driver: 'sqlite', sqlitePath: $this->file));
         $bobOrm = new OrmManager(config: new ConnectionConfig(driver: 'sqlite', sqlitePath: $this->file));
 
-        self::createFunction($aliceOrm->getAdapter()->getPdo(), 'bob_moves', function (): int {
+        self::createFunction(self::pdoOf($aliceOrm), 'bob_moves', function (): int {
             $edit = $this->bobDuringAlicesRead;
             $this->bobDuringAlicesRead = null;
             if ($edit !== null) {
@@ -52,7 +53,7 @@ final class FormCollabDraftConcurrentMergeTest extends TestCase
 
             return 0;
         });
-        self::createFunction($bobOrm->getAdapter()->getPdo(), 'bob_moves', static fn (): int => 0);
+        self::createFunction(self::pdoOf($bobOrm), 'bob_moves', static fn (): int => 0);
 
         $aliceOrm->getAdapter()->execute(
             'CREATE TABLE form_collab_draft (
@@ -127,5 +128,12 @@ final class FormCollabDraftConcurrentMergeTest extends TestCase
             return;
         }
         $pdo->sqliteCreateFunction($name, $fn, 0, \PDO::SQLITE_DETERMINISTIC);
+    }
+    private static function pdoOf(OrmManager $orm): \PDO
+    {
+        $adapter = $orm->getAdapter();
+        self::assertInstanceOf(SqliteAdapter::class, $adapter);
+
+        return $adapter->getPdo();
     }
 }
