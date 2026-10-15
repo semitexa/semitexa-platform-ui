@@ -10,6 +10,7 @@ use Semitexa\Core\Tenant\TenantContextAccess;
 use Semitexa\Core\Tenant\TenantContextInterface;
 use Semitexa\Core\Tenant\TenantContextStoreInterface;
 use Semitexa\Orm\Application\Service\OrmBackedStore;
+use Semitexa\Orm\Exception\ConstraintViolationException;
 use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
@@ -28,7 +29,11 @@ use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
  * lazy `DomainRepository` memoisation, a `withOrmManager()` test seam, and
  * `values_json` as the same safe `json_encode()` shape.
  *
- * Concurrency: {@see apply()} is read-check-write (optimistic). Two saves that
+ * Concurrency: two first writes to one scope race to the INSERT; the loser
+ * sees the unique key, re-reads, and merges into the winner's row (open() and
+ * mergeFields()) or reports a version conflict (apply()).
+ *
+ * {@see apply()} is read-check-write (optimistic). Two saves that
  * both read version N race to a last-write-wins on the row, but each carries a
  * version stamp, so a client that read an OLDER version is always rejected —
  * the common stale-edit case is caught. True per-scope serialisation of
@@ -120,7 +125,8 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
             return $existing->toState();
         }
 
-        return $this->insertDraft($scopeKey, $seedValues, 1, $actor)->toState();
+        // A concurrent open() may have seeded it first: theirs stands.
+        return ($this->tryInsertDraft($scopeKey, $seedValues, $actor) ?? $this->requireByScope($scopeKey))->toState();
     }
 
     public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor): FormCollabDraftState
@@ -134,7 +140,11 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
 
         if ($existing === null) {
             // expectedVersion === 0 → first write seeds the draft at version 1.
-            return $this->insertDraft($scopeKey, $values, 1, $actor)->toState();
+            // Losing that race to another first write is a version conflict:
+            // the draft is now at version 1, not the 0 this client read.
+            return ($this->tryInsertDraft($scopeKey, $values, $actor)
+                ?? throw new FormDraftVersionConflictException($scopeKey, $expectedVersion, $this->requireByScope($scopeKey)->getVersion()))
+                ->toState();
         }
 
         return $this->updateDraft($existing, $values, $currentVersion + 1, $actor)->toState();
@@ -144,7 +154,14 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
     {
         $existing = $this->findByScope($scopeKey);
         if ($existing === null) {
-            return $this->insertDraft($scopeKey, $partialValues, 1, $actor)->toState();
+            $inserted = $this->tryInsertDraft($scopeKey, $partialValues, $actor);
+            if ($inserted !== null) {
+                return $inserted->toState();
+            }
+            // Another first edit created the row a moment ago (1062 on the
+            // (tenant_id, scope_key) key, seen live 2026-10-15): merge into it
+            // instead of failing the event and dropping this edit.
+            $existing = $this->requireByScope($scopeKey);
         }
 
         $merged = $existing->getValues();
@@ -166,6 +183,32 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
             ->fetchOneAs(FormCollabDraft::class, $this->mapperRegistry());
 
         return $resource;
+    }
+
+    /**
+     * Seed the draft at version 1, or return null when a concurrent writer
+     * created the same (tenant, scope) row first. Any other constraint
+     * failure is rethrown.
+     *
+     * @param array<string, scalar|null> $values
+     */
+    private function tryInsertDraft(string $scopeKey, array $values, ?string $actor): ?FormCollabDraft
+    {
+        try {
+            return $this->insertDraft($scopeKey, $values, 1, $actor);
+        } catch (ConstraintViolationException $e) {
+            if ($this->findByScope($scopeKey) === null) {
+                throw $e;
+            }
+
+            return null;
+        }
+    }
+
+    private function requireByScope(string $scopeKey): FormCollabDraft
+    {
+        return $this->findByScope($scopeKey)
+            ?? throw new \LogicException("Draft '{$scopeKey}' vanished right after a duplicate-key insert.");
     }
 
     /**
