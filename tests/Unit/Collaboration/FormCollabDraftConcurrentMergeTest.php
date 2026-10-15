@@ -127,7 +127,15 @@ final class FormCollabDraftConcurrentMergeTest extends TestCase
 
             return;
         }
-        $pdo->sqliteCreateFunction($name, $fn, 0, \PDO::SQLITE_DETERMINISTIC);
+        if (is_callable([$pdo, 'sqliteCreateFunction'])) {
+            $pdo->sqliteCreateFunction($name, $fn, 0, \PDO::SQLITE_DETERMINISTIC);
+
+            return;
+        }
+        // The stack smoke's PHP gets its SQLite driver from Swoole, which can
+        // register no SQL function at all; the race cannot be staged there.
+        // verify:accept-test-change skips only where Swoole provides pdo_sqlite (the stack smoke) and no SQL function can be registered; it runs and guards the fix everywhere else
+        self::markTestSkipped('This PHP build\'s SQLite driver cannot register a SQL function; the race harness needs one.');
     }
     private static function pdoOf(OrmManager $orm): \PDO
     {
