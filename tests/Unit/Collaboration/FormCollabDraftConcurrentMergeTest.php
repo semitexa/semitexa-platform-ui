@@ -127,10 +127,12 @@ final class FormCollabDraftConcurrentMergeTest extends TestCase
 
             return;
         }
-        if (is_callable([$pdo, 'sqliteCreateFunction'])) {
+        try {
             $pdo->sqliteCreateFunction($name, $fn, 0, \PDO::SQLITE_DETERMINISTIC);
 
             return;
+        } catch (\Error) {
+            // Undefined on this driver: fall through to the skip.
         }
         // The stack smoke's PHP gets its SQLite driver from Swoole, which can
         // register no SQL function at all; the race cannot be staged there.
