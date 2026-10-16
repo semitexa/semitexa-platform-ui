@@ -34,6 +34,12 @@
             <strong>UI Workbench</strong>
         </a>
         <p class="wb-count" ui-text="caption">{{ wb.index.total }} entries · {{ wb.index.previewable }} with live examples</p>
+        {#- Hidden until workbench.js runs: without it the box would do nothing. -#}
+        {{ asset_require('platform-ui:js:workbench') }}
+        <search class="wb-search" data-workbench-search hidden>
+            <input type="search" id="wb-search" aria-label="Search the catalog" placeholder="Search the catalog" autocomplete="off" spellcheck="false" aria-describedby="wb-search-status">
+            <p id="wb-search-status" class="wb-search-status" ui-text="caption" aria-live="polite" data-workbench-search-status></p>
+        </search>
         {% for group in wb.index.groups %}
             <nav class="wb-group" aria-label="{{ group.label }}">
                 <h2 ui-text="overline">{{ group.label }}</h2>
@@ -42,7 +48,8 @@
                         <li>
                             <a href="?{{ q|merge({ entry: e.name })|url_encode }}"
                                {% if entry and entry.name == e.name %}aria-current="page"{% endif %}
-                               data-workbench-link="{{ e.name }}">
+                               data-workbench-link="{{ e.name }}"
+                               data-workbench-text="{{ (e.short ~ ' ' ~ e.name ~ ' ' ~ (e.summary ?? ''))|lower }}">
                                 <span>{{ e.short }}</span>
                                 {% if e.broken > 0 %}<span class="wb-pill wb-pill-broken" title="{{ e.broken }} broken example(s)">!</span>{% endif %}{% if e.examples > 0 %}<span class="wb-pill">{{ e.examples }}</span>{% elseif not e.typed %}<span class="wb-pill wb-pill-muted">untyped</span>{% endif %}
                             </a>

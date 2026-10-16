@@ -139,3 +139,9 @@
   }
   .wb-card:hover { box-shadow: var(--ui-hairline), var(--ui-elevation-2); }
 }
+
+/* Index search: sits under the entry count, as wide as the nav. */
+.wb-search { display: block; margin: var(--ui-space-2) 0 var(--ui-space-3); }
+.wb-search[hidden] { display: none; }
+.wb-search input { inline-size: 100%; box-sizing: border-box; padding: var(--ui-space-1) var(--ui-space-2); border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-sm); background: var(--ui-surface-raised); color: var(--ui-text-primary); font: inherit; font-size: var(--ui-text-sm); }
+.wb-search-status { margin: var(--ui-space-1) 0 0; color: var(--ui-text-muted); }
