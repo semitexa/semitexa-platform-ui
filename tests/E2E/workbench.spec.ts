@@ -290,4 +290,66 @@ test.describe('platform-ui · UI Workbench', () => {
         await page.keyboard.press('Escape');
         await expect(dialog).toBeHidden();
     });
+    test('the index search narrows the catalog as you type and says how much is left', async ({ page }) => {
+        await catalog(page);
+        await page.goto('/__ui/workbench', { waitUntil: 'networkidle' });
+        const search = page.getByRole('searchbox', { name: 'Search the catalog' });
+        await expect(search).toBeVisible();
+        const links = page.locator('.wb-nav [data-workbench-link]');
+        const all = await links.count();
+
+        // By the short name, the full name, or a word of the summary.
+        await search.fill('accordion');
+        await expect(page.locator('.wb-nav [data-workbench-link="platform.accordion"]')).toBeVisible();
+        const narrowed = await links.evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null).length);
+        expect(narrowed).toBeGreaterThan(0);
+        expect(narrowed).toBeLessThan(all);
+        await expect(page.locator('[data-workbench-search-status]')).toHaveText(`${narrowed} of ${all} entries`);
+        // A group with nothing left goes, heading and all.
+        const emptyGroups = await page.locator('.wb-nav .wb-group').evaluateAll((groups) =>
+            groups.filter((g) => !(g as HTMLElement).hidden && [...g.querySelectorAll('[data-workbench-link]')].every((a) => (a.closest('li') as HTMLElement).hidden)).length);
+        expect(emptyGroups).toBe(0);
+
+        await search.fill('no-such-thing-at-all');
+        await expect(page.locator('[data-workbench-search-status]')).toHaveText('No entries match');
+
+        // Escape clears it and the whole catalog is back.
+        await search.press('Escape');
+        await expect(search).toHaveValue('');
+        await expect(page.locator('[data-workbench-search-status]')).toHaveText(`${all} entries`);
+        expect(await links.evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null).length)).toBe(all);
+    });
+    test('an accordion opens and closes with a height animation, and snaps under reduced motion', async ({ page }) => {
+        await catalog(page);
+        await page.goto('/__ui/workbench?entry=platform.accordion', { waitUntil: 'networkidle' });
+        const first = page.locator('[data-workbench-example="single"] [ui-behavior-toggle]').first();
+        const region = page.locator(`#${await first.getAttribute('aria-controls')}`);
+
+        // Opening: one frame in, the panel is shorter than where it ends.
+        const opening = await first.evaluate(async (button) => {
+            const panel = document.getElementById(button.getAttribute('aria-controls') ?? '') as HTMLElement;
+            button.click();
+            await new Promise((r) => requestAnimationFrame(() => r(null)));
+            const early = panel.getBoundingClientRect().height;
+            await Promise.all(panel.getAnimations().map((a) => a.finished));
+            return { early, final: panel.getBoundingClientRect().height };
+        });
+        expect(opening.final).toBeGreaterThan(0);
+        expect(opening.early).toBeLessThan(opening.final);
+
+        // Closing: the panel is still on screen a frame after the click, then gone.
+        const closingVisible = await first.evaluate(async (button) => {
+            const panel = document.getElementById(button.getAttribute('aria-controls') ?? '') as HTMLElement;
+            button.click();
+            await new Promise((r) => requestAnimationFrame(() => r(null)));
+            return panel.getBoundingClientRect().height > 0;
+        });
+        expect(closingVisible).toBe(true);
+        await expect(region).toBeHidden();
+
+        // Reduced motion: no transition at all.
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        const duration = await region.evaluate((panel) => getComputedStyle(panel).transitionDuration);
+        expect(duration.split(',').every((d) => parseFloat(d) === 0)).toBe(true);
+    });
 });
