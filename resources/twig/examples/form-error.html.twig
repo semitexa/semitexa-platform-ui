@@ -1,0 +1,6 @@
+{#- platform.form example: what a refused submit leaves on the page — the field's error and the form status. -#}
+{% set fields %}
+    {{ component('platform.field', {label: 'Name', name: 'error_name', value: 'Jane Doe'}) }}
+    {{ component('platform.field', {label: 'Email', name: 'error_email', type: 'email', value: 'jane@', error: 'Enter a complete email address.'}) }}
+{% endset %}
+{{ component('platform.form', {title: 'Create an account', statusInitialMessage: 'One field needs attention.', showSubmit: true, submitText: 'Create account'}, {content: fields}) }}

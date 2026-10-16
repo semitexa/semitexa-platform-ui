@@ -15,10 +15,14 @@ use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistryInterf
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldValidationContext;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldValidator;
 use Semitexa\PlatformUi\Application\Service\Validation\UsesUiFieldRuleRegistry;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
 use Semitexa\PlatformUi\Attribute\ProvidesUiPart;
 use Semitexa\PlatformUi\Attribute\UiOn;
 use Semitexa\PlatformUi\Attribute\UiPart;
 use Semitexa\PlatformUi\Attribute\UiSlot;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiProp;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiPropType;
 use Semitexa\PlatformUi\Domain\Exception\UiFieldValidationRuleException;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionUnprocessableException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFieldValidationResult;
@@ -71,6 +75,49 @@ use Semitexa\Ssr\Attribute\AsComponent;
 )]
 #[UiSlot(name: 'prefix', description: 'Optional content rendered immediately before the input — typically an icon or short label.')]
 #[UiSlot(name: 'suffix', description: 'Optional content rendered immediately after the input — typically a small button or hint.')]
+#[AsUiContract(
+    summary: 'A labelled form control — text, textarea, select, choices, switch or file — with help, error and server-checked rules.',
+    props: [
+        new UiProp('label', nullable: true, description: 'Visible label; a legend for radio/checkbox groups.'),
+        new UiProp('name', nullable: true, description: 'Form key; also keys the field in the form snapshot.'),
+        new UiProp('id', nullable: true, description: 'Defaults to name.'),
+        new UiProp('control', default: 'input', values: ['input', 'textarea', 'select', 'checkbox', 'switch', 'checkboxes', 'radio', 'segmented', 'file']),
+        new UiProp('type', default: 'text', values: ['text', 'email', 'password', 'search', 'url', 'tel', 'number', 'date', 'datetime-local', 'time', 'month', 'week', 'color', 'range', 'hidden'], description: 'Input type when control is input.'),
+        new UiProp('value', UiPropType::Scalar, nullable: true, description: 'Current value; true or "1" checks a checkbox or switch.'),
+        new UiProp('values', UiPropType::Array, nullable: true, items: new UiProp('value', UiPropType::Scalar), description: 'Selected values of a multiple select or checkbox group.'),
+        new UiProp('placeholder', nullable: true),
+        new UiProp('size', default: 'md', values: ['sm', 'md', 'lg']),
+        new UiProp('state', nullable: true, values: ['default', 'invalid']),
+        new UiProp('required', UiPropType::Boolean, default: false),
+        new UiProp('disabled', UiPropType::Boolean, default: false),
+        new UiProp('help', nullable: true, description: 'Muted help text, linked by aria-describedby.'),
+        new UiProp('error', nullable: true, description: 'Error text; sets the invalid state and aria-invalid.'),
+        new UiProp('options', UiPropType::Array, default: [], items: new UiProp('option', UiPropType::Object), description: 'Choices as {value, label} for select, checkboxes, radio and segmented.'),
+        new UiProp('multiple', UiPropType::Boolean, default: false, description: 'A multiple select.'),
+        new UiProp('checkboxLabel', nullable: true, description: 'Text beside a checkbox or switch when label is the heading.'),
+        new UiProp('rows', UiPropType::Integer, default: 6, description: 'Textarea height.'),
+        new UiProp('accept', UiPropType::Array, nullable: true, items: new UiProp('mime'), description: 'File control: accepted MIME patterns (default image/*).'),
+        new UiProp('maxBytes', UiPropType::Integer, nullable: true, description: 'File control: size limit in bytes (default 1 MiB).'),
+        new UiProp('rules', UiPropType::Array, default: [], description: 'Validation rules, signed into the page: "required", ["minLength", 5], …'),
+        new UiProp('inputProps', UiPropType::Object, default: [], description: 'Overrides merged onto the input primitive last.'),
+        new UiProp('showValidationTarget', UiPropType::Boolean, default: false, description: 'Render the live validation message the server patches.'),
+        new UiProp('showServerAckTarget', UiPropType::Boolean, default: false, description: 'Render the server echo of each change (demo).'),
+        new UiProp('instanceId', nullable: true, description: 'A stable instance id; generated when omitted.'),
+    ],
+    examples: [
+        new UiExample('default', 'Email', ['label' => 'Email', 'name' => 'email', 'type' => 'email', 'placeholder' => 'you@example.com', 'help' => 'We never share it.']),
+        new UiExample('required', 'Required, checked live', ['label' => 'Display name', 'name' => 'display_name', 'required' => true, 'rules' => ['required', ['minLength', 3]], 'showValidationTarget' => true]),
+        new UiExample('error', 'With error', ['label' => 'Email', 'name' => 'email_bad', 'type' => 'email', 'value' => 'jane@', 'error' => 'Enter a complete email address.']),
+        new UiExample('disabled', 'Disabled', ['label' => 'Workspace', 'name' => 'workspace', 'value' => 'Acme', 'disabled' => true, 'help' => 'Only an owner can rename it.']),
+        new UiExample('select', 'Select', ['label' => 'Plan', 'name' => 'plan', 'control' => 'select', 'value' => 'team', 'options' => [['value' => 'solo', 'label' => 'Solo'], ['value' => 'team', 'label' => 'Team'], ['value' => 'enterprise', 'label' => 'Enterprise']]]),
+        new UiExample('radio', 'Radio group', ['label' => 'Billing', 'name' => 'billing', 'control' => 'radio', 'value' => 'monthly', 'options' => [['value' => 'monthly', 'label' => 'Monthly'], ['value' => 'yearly', 'label' => 'Yearly']]]),
+        new UiExample('switch', 'Switch', ['label' => 'Notifications', 'name' => 'notify', 'control' => 'switch', 'checkboxLabel' => 'Email me about replies', 'value' => '1']),
+        new UiExample('textarea', 'Textarea', ['label' => 'Message', 'name' => 'message', 'control' => 'textarea', 'rows' => 4, 'placeholder' => 'Write a few lines…']),
+    ],
+    previewSafe: true,
+    // A Workbench preview, not yet a block an AI-composed screen may use.
+    agent: false,
+)]
 final class FieldComponent implements UsesUiFieldRuleRegistry
 {
     /**

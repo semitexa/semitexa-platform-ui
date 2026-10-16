@@ -94,7 +94,7 @@ final class UiUsageValidator
 
         $props = $this->argument($arguments, 1, 'props');
         if ($props instanceof ArrayExpression) {
-            $this->props($props, $item->contract->props, $entry, $file, $line);
+            $this->props($props, $item->contract->props, $entry, $file, $line, $item->contract->extraProps !== null);
         } elseif ($props !== null) {
             $this->unresolved++;
         }
@@ -116,7 +116,7 @@ final class UiUsageValidator
     }
 
     /** @param array<string, UiProp> $declared */
-    private function props(ArrayExpression $props, array $declared, string $entry, string $file, int $line): void
+    private function props(ArrayExpression $props, array $declared, string $entry, string $file, int $line, bool $open = false): void
     {
         $given = [];
         $complete = true;
@@ -130,6 +130,9 @@ final class UiUsageValidator
             $prop = (string) $key->getAttribute('value');
             $given[$prop] = true;
             if (!isset($declared[$prop])) {
+                if ($open) {
+                    continue;
+                }
                 $this->issue('unknown_prop', "props.{$prop}", 'one of: ' . implode(', ', array_keys($declared)), "{$entry} has no prop named {$prop}.", $entry, $file, $line);
                 continue;
             }

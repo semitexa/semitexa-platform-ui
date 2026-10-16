@@ -49,6 +49,10 @@
  #   submitText             — label for the submit button (default "Submit").
 #   submitTone             — the button's tone (default "brand"; "danger"
 #                            for a form that deletes).
+ #   busy                   — render as a submit in flight: aria-busy on the
+ #                            root and a loading submit button (default
+ #                            false). The runtime sets the same state itself
+ #                            while a submit is on the wire.
  #   ariaLabel              — accessible name when the visual title is absent.
  #   fields                 — manual list of submit field definitions
  #                            (server-owned). When provided, signed
@@ -118,6 +122,7 @@
     sx-layout="stack"
     sx-gap="4"
     role="group"
+    {%- if busy|default(false) %} aria-busy="true"{% endif %}
     {%- if ariaLabel|default(null) %} aria-label="{{ ariaLabel }}"{% endif %}
 >
     {% if title|default(null) %}
@@ -154,7 +159,8 @@
                     text: submitText|default('Submit'),
                     type: 'submit',
                     tone: submitTone|default('brand'),
-                    variant: 'solid'
+                    variant: 'solid',
+                    loading: busy|default(false)
                 }) }}
             </div>
         {% endif %}

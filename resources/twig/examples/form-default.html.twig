@@ -1,0 +1,6 @@
+{#- platform.form example: two fields checked by the server as they change and again on submit. No submitAction, so a submit only validates. -#}
+{% set fields %}
+    {{ component('platform.field', {label: 'Name', name: 'signup_name', required: true, rules: ['required', ['minLength', 2]], showValidationTarget: true}) }}
+    {{ component('platform.field', {label: 'Email', name: 'signup_email', type: 'email', placeholder: 'you@example.com', required: true, rules: ['required', 'email'], showValidationTarget: true}) }}
+{% endset %}
+{{ component('platform.form', {title: 'Create an account', showSubmit: true, submitText: 'Create account', autoFields: true}, {content: fields}) }}

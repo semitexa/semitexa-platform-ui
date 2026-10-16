@@ -12,6 +12,18 @@ enum UiPropType: string
     case Number = 'number';
     case Array = 'array';
     case Object = 'object';
+    /** A string, number or boolean — a form value that may arrive as any of them. */
+    case Scalar = 'scalar';
+
+    /**
+     * The JSON Schema type(s): `scalar` is not one, so it is spelled out.
+     *
+     * @return list<string>
+     */
+    public function jsonTypes(): array
+    {
+        return $this === self::Scalar ? ['string', 'number', 'boolean'] : [$this->value];
+    }
 
     public function accepts(mixed $value): bool
     {
@@ -23,6 +35,7 @@ enum UiPropType: string
             self::Number => is_int($value) || (is_float($value) && is_finite($value)),
             self::Array => is_array($value) && array_is_list($value),
             self::Object => is_array($value) && ($value === [] || !array_is_list($value)),
+            self::Scalar => is_string($value) || is_bool($value) || is_int($value) || (is_float($value) && is_finite($value)),
         };
     }
 

@@ -38,6 +38,42 @@ final class UiContractTest extends TestCase
     }
 
     #[Test]
+    public function a_scalar_prop_is_spelled_out_as_json_schema_types(): void
+    {
+        $schema = (new UiContract('Fixture', [
+            new UiProp('value', UiPropType::Scalar, nullable: true),
+            new UiProp('pick', UiPropType::Scalar, default: 1),
+        ]))->schema();
+
+        self::assertSame(['string', 'number', 'boolean', 'null'], $schema['properties']->value['type']);
+        self::assertSame(['string', 'number', 'boolean'], $schema['properties']->pick['type']);
+        self::assertTrue(UiPropType::Scalar->accepts(false));
+        self::assertFalse(UiPropType::Scalar->accepts([1]));
+        self::assertFalse(UiPropType::Scalar->accepts(NAN));
+    }
+
+    #[Test]
+    public function extra_props_open_the_schema_and_keep_examples_that_use_them(): void
+    {
+        $props = [new UiProp('title', nullable: true)];
+        $example = new UiExample('edit', 'Edit', ['title' => 'Edit', 'articleId' => 7]);
+
+        $closed = new UiContract('Closed', $props, [$example]);
+        self::assertSame([], $closed->examples);
+        self::assertStringContainsString('no prop named articleId', $closed->brokenExamples['edit']);
+        self::assertFalse($closed->schema()['additionalProperties']);
+
+        $open = new UiContract('Open', $props, [$example], extraProps: 'Context for the action.');
+        self::assertSame(['edit'], array_keys($open->examples));
+        self::assertSame(['description' => 'Context for the action.'], $open->schema()['additionalProperties']);
+        // A declared prop is still checked in an open contract.
+        $bad = new UiContract('Open', $props, [new UiExample('bad', 'Bad', ['title' => 3])], extraProps: 'Context.');
+        self::assertArrayHasKey('bad', $bad->brokenExamples);
+        // Dropping an example keeps the contract open.
+        self::assertSame('Context for the action.', $open->withBrokenExample('edit', 'unknown slot')->extraProps);
+    }
+
+    #[Test]
     public function duplicate_props_are_rejected_instead_of_silently_overwriting(): void
     {
         $this->expectException(InvalidArgumentException::class);
