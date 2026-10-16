@@ -8,6 +8,7 @@ use Semitexa\Orm\Adapter\MySqlType;
 use Semitexa\Orm\Attribute\Column;
 use Semitexa\Orm\Attribute\FromTable;
 use Semitexa\Orm\Attribute\Index;
+use Semitexa\Orm\Attribute\Version;
 use Semitexa\Orm\Attribute\PrimaryKey;
 use Semitexa\Orm\Metadata\HasColumnReferences;
 use Semitexa\Orm\Metadata\HasRelationReferences;
@@ -57,6 +58,9 @@ final readonly class FormCollabDraftResource
         #[Column(type: MySqlType::LongText)]
         public string $values_json,
 
+        // Optimistic lock: every UPDATE guards on the version it read and
+        // bumps it, so two concurrent edits cannot silently overwrite each other.
+        #[Version]
         #[Column(type: MySqlType::Int)]
         public int $version,
 
