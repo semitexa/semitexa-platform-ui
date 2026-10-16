@@ -278,6 +278,31 @@
     color: color-mix(in oklab, var(--ui-text-primary) 85%, var(--ui-text-muted));
     overflow: hidden;
   }
+  /* Height motion, progressive: interpolate-size lets block-size run to and
+     from auto; allow-discrete holds display until a close has finished, and
+     @starting-style gives an open its first frame. A browser without them
+     opens and closes at once, as before. */
+  @supports (interpolate-size: allow-keywords) {
+    [ui-behavior~="accordion"] { interpolate-size: allow-keywords; }
+    [ui-behavior~="accordion"] [ui-behavior-content] {
+      block-size: auto;
+      transition:
+        block-size var(--ui-motion-duration-normal) var(--ui-motion-easing-emphasized),
+        padding-block-end var(--ui-motion-duration-normal) var(--ui-motion-easing-emphasized),
+        display var(--ui-motion-duration-normal) allow-discrete;
+    }
+    [ui-behavior~="accordion"] [ui-behavior-content][hidden] {
+      display: none;
+      block-size: 0;
+      padding-block-end: 0;
+    }
+    @starting-style {
+      [ui-behavior~="accordion"] [ui-behavior-content]:not([hidden]) {
+        block-size: 0;
+        padding-block-end: 0;
+      }
+    }
+  }
 
   /* ---- modal (native <dialog>) ---------------------------------------- */
   dialog[ui-behavior~="modal"] {
@@ -363,7 +388,8 @@
     [role="tooltip"],
     dialog[ui-behavior~="modal"],
     [ui-behavior~="tabs"] [ui-behavior-tab]::after,
-    [ui-behavior~="accordion"] [ui-behavior-toggle]::after {
+    [ui-behavior~="accordion"] [ui-behavior-toggle]::after,
+    [ui-behavior~="accordion"] [ui-behavior-content] {
       transition: none;
     }
   }

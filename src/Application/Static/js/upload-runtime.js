@@ -19,8 +19,13 @@
  * into the context) is refused here, before any byte is sent: a request over the
  * server's own limit would be dropped by Swoole and read as a network failure.
  * The server still checks — this only spares the visitor the wait.
+ *
+ * With `data-ui-upload-shrink` (the field's `shrinkImages`, on by default) a
+ * photo is first shrunk in the browser (image-shrink.js), so a phone shot fits
+ * a limit it would have been refused at. The size check judges what is sent.
  */
 import { withCsrf, mount, HUG_PATH } from 'platform-ui/core';
+import { shrinkImage } from 'platform-ui/image-shrink';
 
 function emit(root, name, detail) {
     root.dispatchEvent(new CustomEvent(name, { bubbles: true, detail: detail || {} }));
@@ -110,19 +115,52 @@ function connect(fileInput) {
         request.send(body);
     }
 
+    // Each choice gets a number, so a shrink that finishes after the visitor
+    // chose again does not send the older file.
+    let choice = 0;
+
+    async function prepare(file) {
+        const mine = ++choice;
+        if (xhr) xhr.abort();
+        // Shrinking takes a moment on a phone: a submit waits for it as it
+        // waits for the upload.
+        root.setAttribute('data-ui-uploading', '');
+        const max = parseInt(fileInput.getAttribute('data-ui-upload-max') || '', 10);
+        const accept = (fileInput.getAttribute('accept') || '').split(',').filter((a) => a.trim() !== '');
+        let outgoing = file;
+        try {
+            outgoing = await shrinkImage(file, { accept, maxBytes: max > 0 ? max : undefined });
+        } catch (e) {
+            outgoing = file; // fail open: the server decides
+        }
+        if (mine !== choice) return;
+        send(outgoing);
+    }
+
     const onChange = () => {
         const file = fileInput.files && fileInput.files[0];
-        if (file) { send(file); return; }
+        if (file && fileInput.hasAttribute('data-ui-upload-shrink')) { prepare(file); return; }
+        if (file) { choice++; send(file); return; }
+        choice++;
         // Selection cleared mid-upload: that upload must not land a ticket.
         // The value is cleared before finish(): its ui-upload:end releases
         // waiting submits, which read the form's values at once.
         settle('', '');
-        if (xhr) { xhr.abort(); finish(); }
+        if (xhr) xhr.abort();
+        // A shrink still running holds data-ui-uploading too, with no xhr.
+        if (root.hasAttribute('data-ui-uploading')) finish();
     };
     fileInput.addEventListener('change', onChange);
     // A form reset clears the chosen file; the ticket goes with it.
     const form = fileInput.form;
-    const onReset = () => setTimeout(() => { value.value = ''; if (status) status.textContent = ''; }, 0);
+    // A shrink or an upload still running belongs to the reset form's past:
+    // it must not land a ticket in it afterwards.
+    const onReset = () => {
+        choice++;
+        if (xhr) xhr.abort();
+        if (root.hasAttribute('data-ui-uploading')) finish();
+        setTimeout(() => { value.value = ''; if (status) status.textContent = ''; }, 0);
+    };
     if (form) form.addEventListener('reset', onReset);
 
     return {

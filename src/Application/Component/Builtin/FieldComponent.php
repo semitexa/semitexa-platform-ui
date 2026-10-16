@@ -98,6 +98,7 @@ use Semitexa\Ssr\Attribute\AsComponent;
         new UiProp('rows', UiPropType::Integer, default: 6, description: 'Textarea height.'),
         new UiProp('accept', UiPropType::Array, nullable: true, items: new UiProp('mime'), description: 'File control: accepted MIME patterns (default image/*).'),
         new UiProp('maxBytes', UiPropType::Integer, nullable: true, description: 'File control: size limit in bytes (default 1 MiB).'),
+        new UiProp('shrinkImages', UiPropType::Boolean, default: true, description: 'File control: shrink a photo in the browser before upload (2400 px, JPEG, EXIF dropped); GIF, SVG, transparent images and fields that do not take JPEG are sent as chosen.'),
         new UiProp('rules', UiPropType::Array, default: [], description: 'Validation rules, signed into the page: "required", ["minLength", 5], …'),
         new UiProp('inputProps', UiPropType::Object, default: [], description: 'Overrides merged onto the input primitive last.'),
         new UiProp('showValidationTarget', UiPropType::Boolean, default: false, description: 'Render the live validation message the server patches.'),

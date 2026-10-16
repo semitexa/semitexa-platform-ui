@@ -114,6 +114,23 @@
         "type": "module"
       }
     },
+    "js/image-shrink.js": {
+      "scope": "global",
+      "position": "body",
+      "priority": 63,
+      "attributes": {
+        "type": "module"
+      },
+      "specifier": "platform-ui/image-shrink"
+    },
+    "js/workbench.js": {
+      "scope": "page",
+      "position": "body",
+      "priority": 80,
+      "attributes": {
+        "type": "module"
+      }
+    },
     "js/upload-runtime.js": {
       "scope": "page",
       "position": "body",

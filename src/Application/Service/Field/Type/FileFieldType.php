@@ -19,7 +19,7 @@ class FileFieldType extends AbstractUiFieldType
 
     public function description(): string
     {
-        return 'A file uploaded through HUG; the value is a one-time ticket the save action redeems. Settings: accept (MIME patterns), maxBytes.';
+        return 'A file uploaded through HUG; the value is a one-time ticket the save action redeems. Settings: accept (MIME patterns), maxBytes, shrinkImages.';
     }
 
     protected function controlProps(UiField $field): array
@@ -27,6 +27,9 @@ class FileFieldType extends AbstractUiFieldType
         $props = ['control' => 'file', 'accept' => $field->setting('accept', $this->defaultAccept())];
         if (is_int($field->setting('maxBytes'))) {
             $props['maxBytes'] = $field->setting('maxBytes');
+        }
+        if (is_bool($field->setting('shrinkImages'))) {
+            $props['shrinkImages'] = $field->setting('shrinkImages');
         }
 
         return $props;

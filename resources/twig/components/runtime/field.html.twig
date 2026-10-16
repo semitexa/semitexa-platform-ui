@@ -111,7 +111,7 @@
             {%- set _accept = accept|default(['image/*']) -%}
             {%- set _maxBytes = maxBytes ?? constant('Semitexa\\PlatformUi\\Application\\Service\\Upload\\UiUploadTickets::DEFAULT_MAX_BYTES') -%}
             <div ui-component="upload" sx-layout="stack" sx-gap="1" data-ui-upload-root>
-                <input type="file" data-ui-upload="{{ ui_upload_context(_ui_instance, _name, _accept, _maxBytes) }}" data-ui-upload-max="{{ _maxBytes }}" accept="{{ _accept|join(',') }}"{% if _id %} id="{{ _id }}"{% endif %}{% if _disabled %} disabled{% endif %}{% if _aria_invalid %} aria-invalid="true"{% endif %}{% if _aria_describedby %} aria-describedby="{{ _aria_describedby }}"{% endif %}>
+                <input type="file" data-ui-upload="{{ ui_upload_context(_ui_instance, _name, _accept, _maxBytes) }}" data-ui-upload-max="{{ _maxBytes }}"{% if shrinkImages ?? true %} data-ui-upload-shrink{% endif %} accept="{{ _accept|join(',') }}"{% if _id %} id="{{ _id }}"{% endif %}{% if _disabled %} disabled{% endif %}{% if _aria_invalid %} aria-invalid="true"{% endif %}{% if _aria_describedby %} aria-describedby="{{ _aria_describedby }}"{% endif %}>
                 <input data-ui-part="input" type="hidden" name="{{ _name }}" value="">
                 <progress data-ui-upload-progress max="100" value="0" hidden></progress>
                 <span data-ui-upload-status ui-text="muted" aria-live="polite"></span>
