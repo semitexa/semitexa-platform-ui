@@ -153,7 +153,14 @@ function connect(fileInput) {
     fileInput.addEventListener('change', onChange);
     // A form reset clears the chosen file; the ticket goes with it.
     const form = fileInput.form;
-    const onReset = () => setTimeout(() => { value.value = ''; if (status) status.textContent = ''; }, 0);
+    // A shrink or an upload still running belongs to the reset form's past:
+    // it must not land a ticket in it afterwards.
+    const onReset = () => {
+        choice++;
+        if (xhr) xhr.abort();
+        if (root.hasAttribute('data-ui-uploading')) finish();
+        setTimeout(() => { value.value = ''; if (status) status.textContent = ''; }, 0);
+    };
     if (form) form.addEventListener('reset', onReset);
 
     return {

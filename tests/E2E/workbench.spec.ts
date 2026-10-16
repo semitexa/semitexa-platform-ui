@@ -312,6 +312,9 @@ test.describe('platform-ui · UI Workbench', () => {
 
         await search.fill('no-such-thing-at-all');
         await expect(page.locator('[data-workbench-search-status]')).toHaveText('No entries match');
+        // The status is not the result: nothing of the catalog may be left on screen.
+        expect(await links.evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null).length)).toBe(0);
+        await expect(page.locator('.wb-nav .wb-group:not([hidden])')).toHaveCount(0);
 
         // Escape clears it and the whole catalog is back.
         await search.press('Escape');

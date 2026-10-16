@@ -150,6 +150,30 @@ export async function shrinkImages(files, options = {}) {
     return out;
 }
 
+// Submit buttons a form's shrinking inputs hold, counted per form so two
+// inputs (or two choices) release them only when the last one is done, and
+// each button gets back the disabled state the page gave it.
+const formHolds = new WeakMap();
+
+function holdSubmitters(form) {
+    if (!form) return;
+    let hold = formHolds.get(form);
+    if (!hold) {
+        const buttons = Array.from(form.querySelectorAll('button[type="submit"], input[type="submit"]'));
+        hold = { count: 0, before: new Map(buttons.map((b) => [b, b.disabled])) };
+        formHolds.set(form, hold);
+        buttons.forEach((b) => { b.disabled = true; b.setAttribute('aria-busy', 'true'); });
+    }
+    hold.count++;
+}
+
+function releaseSubmitters(form) {
+    const hold = form ? formHolds.get(form) : null;
+    if (!hold || --hold.count > 0) return;
+    formHolds.delete(form);
+    hold.before.forEach((wasDisabled, b) => { b.disabled = wasDisabled; b.removeAttribute('aria-busy'); });
+}
+
 registerBehavior({
     name: 'platform.photo-shrink',
     ui: 'photo-shrink',
@@ -160,20 +184,26 @@ registerBehavior({
         const form = el.form;
         const accept = (el.getAttribute('accept') || '').split(',').filter((a) => a.trim() !== '');
         let busy = null;
+        // Each choice gets a number; a shrink that finishes after a newer
+        // choice, a cleared input or a form reset must not put its files back.
+        let current = 0;
         // A change we caused by assigning el.files must not loop.
         let replacing = false;
 
-        const submitters = () => (form ? Array.from(form.querySelectorAll('button[type="submit"], input[type="submit"]')) : []);
-
         function onChange() {
-            if (replacing || !el.files || el.files.length === 0) return;
+            if (replacing) return;
+            const mine = ++current;
+            if (!el.files || el.files.length === 0) {
+                busy = null;
+                return;
+            }
 
             const picked = Array.from(el.files);
-            submitters().forEach((b) => { b.disabled = true; b.setAttribute('aria-busy', 'true'); });
+            holdSubmitters(form);
 
-            busy = shrinkImages(picked, { accept })
+            const run = shrinkImages(picked, { accept })
                 .then((out) => {
-                    if (out.every((f, i) => f === picked[i])) return;
+                    if (mine !== current || out.every((f, i) => f === picked[i])) return;
                     const dt = new DataTransfer();
                     out.forEach((f) => dt.items.add(f));
                     replacing = true;
@@ -189,9 +219,15 @@ registerBehavior({
                 })
                 .catch(() => { /* fail open: the originals stay in the input */ })
                 .finally(() => {
-                    busy = null;
-                    submitters().forEach((b) => { b.disabled = false; b.removeAttribute('aria-busy'); });
+                    if (mine === current) busy = null;
+                    releaseSubmitters(form);
                 });
+            busy = run;
+        }
+
+        function onReset() {
+            current++;
+            busy = null;
         }
 
         // Enter in another field can still submit while photos are shrinking:
@@ -205,7 +241,10 @@ registerBehavior({
 
         ctx.on(el, 'change', onChange);
         // Capture phase, so this runs before a document-level submit handler.
-        if (form) ctx.on(form, 'submit', onSubmit, { capture: true });
+        if (form) {
+            ctx.on(form, 'submit', onSubmit, { capture: true });
+            ctx.on(form, 'reset', onReset);
+        }
 
         return {};
     },
