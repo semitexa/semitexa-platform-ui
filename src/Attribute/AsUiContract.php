@@ -42,10 +42,16 @@ final readonly class AsUiContract
         public ?bool $agent = null,
         /** The permission a visitor needs for a screen to contain it; null: anyone the screen is for. */
         public ?string $permission = null,
+        /**
+         * What props beyond the declared ones are for, when the component
+         * accepts any (platform.form hands them to its submit action as
+         * signed context). Null: the declared props are all there are.
+         */
+        public ?string $extraProps = null,
     ) {}
 
     public function metadata(): UiContract
     {
-        return new UiContract($this->summary, $this->props, $this->examples, $this->previewSafe, $this->agent ?? $this->previewSafe, $this->permission);
+        return new UiContract($this->summary, $this->props, $this->examples, $this->previewSafe, $this->agent ?? $this->previewSafe, $this->permission, extraProps: $this->extraProps);
     }
 }

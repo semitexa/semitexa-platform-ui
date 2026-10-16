@@ -20,9 +20,13 @@ use Semitexa\PlatformUi\Application\Service\Validation\UiFieldValidator;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFieldValidationResult;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFormSubmitConfigParser;
 use Semitexa\PlatformUi\Application\Service\Validation\UsesUiFieldRuleRegistry;
+use Semitexa\PlatformUi\Attribute\AsUiContract;
 use Semitexa\PlatformUi\Attribute\UiOn;
 use Semitexa\PlatformUi\Attribute\UiPart;
 use Semitexa\PlatformUi\Attribute\UiSlot;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiProp;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiPropType;
 use Semitexa\PlatformUi\Domain\Exception\UiFieldValidationRuleException;
 use Semitexa\PlatformUi\Domain\Exception\UiFormSubmitActionAuthorizationException;
 use Semitexa\PlatformUi\Domain\Exception\UiFormSubmitActionException;
@@ -85,6 +89,35 @@ use Semitexa\Ssr\Attribute\AsComponent;
 #[UiSlot(
     name: 'content',
     description: 'Caller-provided form body — typically a sequence of FieldComponents whose validation responses feed the form-level aggregate.',
+)]
+#[AsUiContract(
+    summary: 'A form whose fields the server validates as they change and again on submit, then hands to a named #[AsFormSubmitAction].',
+    props: [
+        new UiProp('title', nullable: true),
+        new UiProp('description', nullable: true, description: 'Muted text under the title.'),
+        new UiProp('ariaLabel', nullable: true, description: 'Accessible name when there is no visible title.'),
+        new UiProp('showStatus', UiPropType::Boolean, default: true, description: 'Render the live form-status line.'),
+        new UiProp('statusInitialMessage', nullable: true, description: 'Status text before any interaction (default "No fields validated yet.").'),
+        new UiProp('showSubmit', UiPropType::Boolean, default: false),
+        new UiProp('submitText', default: 'Submit'),
+        new UiProp('submitTone', default: 'brand', values: ['neutral', 'brand', 'info', 'success', 'warning', 'danger'], description: 'danger for a form that deletes.'),
+        new UiProp('busy', UiPropType::Boolean, default: false, description: 'Render as a submit in flight: aria-busy and a loading button.'),
+        new UiProp('autoFields', UiPropType::Boolean, default: false, description: 'Sign the fields rendered in the content slot as the submit definition.'),
+        new UiProp('fields', UiPropType::Array, nullable: true, description: 'A manual submit definition; not with autoFields.'),
+        new UiProp('submitAction', nullable: true, description: 'The #[AsFormSubmitAction] run after validation; an unknown name fails the render.'),
+    ],
+    // No example names a submitAction: a submit here validates and stops, so
+    // a preview never writes anything.
+    examples: [
+        new UiExample('default', 'Validated as you type', [], template: '@platform-ui/examples/form-default.html.twig'),
+        new UiExample('error', 'Refused submit', [], template: '@platform-ui/examples/form-error.html.twig'),
+        new UiExample('success', 'Saved', [], template: '@platform-ui/examples/form-success.html.twig'),
+        new UiExample('busy', 'Submitting', [], template: '@platform-ui/examples/form-busy.html.twig'),
+        new UiExample('disabled', 'Read only', [], template: '@platform-ui/examples/form-disabled.html.twig'),
+    ],
+    previewSafe: true,
+    agent: false,
+    extraProps: 'Server-owned context for the submit action, e.g. which record an edit form edits; signed into the page, so the browser cannot change it.',
 )]
 final class FormComponent implements UsesUiFieldRuleRegistry
 {

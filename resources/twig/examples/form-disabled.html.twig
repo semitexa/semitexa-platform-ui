@@ -1,0 +1,6 @@
+{#- platform.form example: a form the visitor may read but not change. -#}
+{% set fields %}
+    {{ component('platform.field', {label: 'Workspace', name: 'locked_workspace', value: 'Acme', disabled: true}) }}
+    {{ component('platform.field', {label: 'Plan', name: 'locked_plan', control: 'select', value: 'team', disabled: true, options: [{value: 'solo', label: 'Solo'}, {value: 'team', label: 'Team'}]}) }}
+{% endset %}
+{{ component('platform.form', {title: 'Workspace settings', description: 'Only an owner can change these.', showStatus: false}, {content: fields}) }}

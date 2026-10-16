@@ -1,0 +1,6 @@
+{#- platform.form example: a submit in flight — aria-busy on the form and a loading button. -#}
+{% set fields %}
+    {{ component('platform.field', {label: 'Name', name: 'busy_name', value: 'Jane Doe'}) }}
+    {{ component('platform.field', {label: 'Email', name: 'busy_email', type: 'email', value: 'jane@example.com'}) }}
+{% endset %}
+{{ component('platform.form', {title: 'Profile', statusInitialMessage: 'Saving…', showSubmit: true, submitText: 'Save', busy: true}, {content: fields}) }}

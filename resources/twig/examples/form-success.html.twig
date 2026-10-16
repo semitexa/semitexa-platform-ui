@@ -1,0 +1,6 @@
+{#- platform.form example: the status after an accepted submit. -#}
+{% set fields %}
+    {{ component('platform.field', {label: 'Name', name: 'saved_name', value: 'Jane Doe'}) }}
+    {{ component('platform.field', {label: 'Email', name: 'saved_email', type: 'email', value: 'jane@example.com'}) }}
+{% endset %}
+{{ component('platform.form', {title: 'Profile', statusInitialMessage: 'Saved. Your profile is up to date.', showSubmit: true, submitText: 'Save'}, {content: fields}) }}

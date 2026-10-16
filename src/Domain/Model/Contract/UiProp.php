@@ -102,15 +102,19 @@ final readonly class UiProp
     /**
      * An object value against a closed property list — objectSchema() emits
      * additionalProperties: false, so an unknown key is an error, not extra.
+     * `open` accepts unknown keys as they are (a contract with extraProps).
      *
      * @param list<UiProp> $props
      * @param array<array-key, mixed> $value
      */
-    public static function validateObject(array $props, array $value, string $path): void
+    public static function validateObject(array $props, array $value, string $path, bool $open = false): void
     {
         $indexed = self::index($props);
         foreach ($value as $key => $item) {
             if (!isset($indexed[$key])) {
+                if ($open) {
+                    continue;
+                }
                 throw new InvalidArgumentException("{$path} has no prop named {$key}.");
             }
             $indexed[$key]->validate($item, "{$path}.{$key}");
@@ -179,7 +183,11 @@ final readonly class UiProp
     /** @return array<string, mixed> */
     public function schema(): array
     {
-        $schema = ['type' => $this->nullable ? [$this->type->value, 'null'] : $this->type->value];
+        $types = $this->type->jsonTypes();
+        if ($this->nullable) {
+            $types[] = 'null';
+        }
+        $schema = ['type' => count($types) === 1 ? $types[0] : $types];
         if ($this->description !== '') {
             $schema['description'] = $this->description;
         }

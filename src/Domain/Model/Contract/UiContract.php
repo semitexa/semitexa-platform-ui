@@ -41,6 +41,8 @@ final readonly class UiContract
         /** The permission a screen containing it needs; null: none. */
         public ?string $permission = null,
         array $brokenExamples = [],
+        /** What undeclared props are for; null: there are none. */
+        public ?string $extraProps = null,
     ) {
         $this->props = UiProp::index($props);
         $indexed = [];
@@ -56,7 +58,7 @@ final readonly class UiContract
             // An example is emitted next to props_schema as a worked instance
             // of it; one the schema would reject teaches the wrong thing.
             try {
-                UiProp::validateObject(array_values($this->props), $example->props, 'props');
+                UiProp::validateObject(array_values($this->props), $example->props, 'props', open: $extraProps !== null);
             } catch (InvalidArgumentException $e) {
                 $brokenExamples[$example->name] = $e->getMessage();
                 continue;
@@ -81,6 +83,7 @@ final readonly class UiContract
             $this->agent,
             $this->permission,
             $this->brokenExamples + [$name => $reason],
+            $this->extraProps,
         );
     }
 
@@ -99,7 +102,11 @@ final readonly class UiContract
 
     public function schema(): array
     {
-        return ['$schema' => 'https://json-schema.org/draft/2020-12/schema'] + UiProp::objectSchema(array_values($this->props));
+        $schema = ['$schema' => 'https://json-schema.org/draft/2020-12/schema'] + UiProp::objectSchema(array_values($this->props));
+        if ($this->extraProps !== null) {
+            $schema['additionalProperties'] = ['description' => $this->extraProps];
+        }
+        return $schema;
     }
 
     /**

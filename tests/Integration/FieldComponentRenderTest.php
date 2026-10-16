@@ -216,6 +216,9 @@ final class FieldComponentRenderTest extends TestCase
         // of the template: its upload context and its runtime script.
         $this->twig->addFunction(new TwigFunction('ui_upload_context', static fn (): string => 'sc1.stub'));
         $this->twig->addFunction(new TwigFunction('asset_require', static fn (): string => ''));
+        // The segmented bar draws an option's icon; Twig compiles the call even
+        // where no option has one, so the function has to exist.
+        $this->twig->addFunction(new TwigFunction('icon', static fn (): string => '', ['is_safe' => ['html']]));
 
         // Validation rule helper used by the field template's signed
         // manifest. In the harness we wire a minimal pass-through to
