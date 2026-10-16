@@ -159,7 +159,9 @@ function holdSubmitters(form) {
     if (!form) return;
     let hold = formHolds.get(form);
     if (!hold) {
-        const buttons = Array.from(form.querySelectorAll('button[type="submit"], input[type="submit"]'));
+        // form.elements and .type, not a selector: a <button> without a type
+        // attribute submits too, and a button outside the form joins it by form="".
+        const buttons = Array.from(form.elements).filter((e) => e.type === 'submit' || e.type === 'image');
         hold = { count: 0, before: new Map(buttons.map((b) => [b, b.disabled])) };
         formHolds.set(form, hold);
         buttons.forEach((b) => { b.disabled = true; b.setAttribute('aria-busy', 'true'); });
@@ -193,6 +195,7 @@ registerBehavior({
         function onChange() {
             if (replacing) return;
             const mine = ++current;
+            queuedFor = 0;
             if (!el.files || el.files.length === 0) {
                 busy = null;
                 return;
@@ -225,9 +228,14 @@ registerBehavior({
             busy = run;
         }
 
+        // At most one submit waits for a shrink, and only for that shrink: a
+        // newer choice, a cleared input or a reset drops it.
+        let queuedFor = 0;
+
         function onReset() {
             current++;
             busy = null;
+            queuedFor = 0;
         }
 
         // Enter in another field can still submit while photos are shrinking:
@@ -236,7 +244,14 @@ registerBehavior({
             if (!busy) return;
             e.preventDefault();
             e.stopImmediatePropagation();
-            busy.then(() => form.requestSubmit());
+            if (queuedFor === current) return;
+            const forChoice = current;
+            queuedFor = forChoice;
+            busy.then(() => {
+                if (queuedFor !== forChoice || forChoice !== current) return;
+                queuedFor = 0;
+                form.requestSubmit();
+            });
         }
 
         ctx.on(el, 'change', onChange);
