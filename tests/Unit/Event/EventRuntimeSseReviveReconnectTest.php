@@ -108,4 +108,19 @@ final class EventRuntimeSseReviveReconnectTest extends TestCase
             'the close handler must reopen a non-drain stream closed for max_age.',
         );
     }
+
+    #[Test]
+    public function re_arms_subscriptions_again_once_the_dead_connection_is_reaped(): void
+    {
+        $code = $this->jsCode();
+        // The server reaps a dead connection's session on its next failed
+        // heartbeat, taking the subscriptions the reconnect just re-armed with it.
+        self::assertMatchesRegularExpression('/var SSE_RESUBSCRIBE_SETTLE_MS = (\\d+);/', $code);
+        preg_match('/var SSE_RESUBSCRIBE_SETTLE_MS = (\\d+);/', $code, $m);
+        self::assertGreaterThan(20000, (int) $m[1], 'the second re-arm must come after the 20 s server heartbeat.');
+        self::assertMatchesRegularExpression(
+            '/resubscribeSettleTimer = setTimeout\\(function \\(\\) \\{\\s*resubscribeSettleTimer = null;\\s*resubscribeAll\\(\\);\\s*\\}, SSE_RESUBSCRIBE_SETTLE_MS\\);/',
+            $code,
+        );
+    }
 }
