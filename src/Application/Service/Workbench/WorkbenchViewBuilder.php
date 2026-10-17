@@ -271,7 +271,7 @@ final class WorkbenchViewBuilder
         // raw, so the Workbench escapes them on the way in.
         $slots = array_map(static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'), $example->slots);
 
-        $base = ['name' => $example->name, 'label' => $example->label, 'uid' => $uid];
+        $base = ['name' => $example->name, 'label' => $example->label, 'uid' => $uid, 'provenance' => self::provenance($item, $example->props)];
 
         if ($example->template !== null) {
             $opts = self::optionString($props);
@@ -352,5 +352,33 @@ final class WorkbenchViewBuilder
     private static function shortName(string $name): string
     {
         return str_starts_with($name, 'platform.') ? substr($name, 9) : $name;
+    }
+
+    /**
+     * Where each prop's value comes from in an example, read from the
+     * contract alone — nothing is rendered or resolved to answer. An explicit
+     * null is the example's own choice and is named apart from a prop the
+     * example left out; a left-out prop takes the contract default, or is
+     * not set at all.
+     *
+     * @param array<string, mixed> $props
+     * @return list<array{name: string, value: string, source: string}>
+     */
+    private static function provenance(UiCatalogItem $item, array $props): array
+    {
+        if ($item->contract === null) {
+            return [];
+        }
+        $rows = [];
+        foreach ($item->contract->props as $prop) {
+            $rows[] = match (true) {
+                array_key_exists($prop->name, $props) && $props[$prop->name] === null => ['name' => $prop->name, 'value' => 'null', 'source' => 'explicit null'],
+                array_key_exists($prop->name, $props) => ['name' => $prop->name, 'value' => TwigLiteral::export($props[$prop->name]), 'source' => 'example'],
+                $prop->hasDefault() => ['name' => $prop->name, 'value' => TwigLiteral::export($prop->normalize($prop->default)), 'source' => 'default'],
+                default => ['name' => $prop->name, 'value' => '', 'source' => 'not set'],
+            };
+        }
+
+        return $rows;
     }
 }

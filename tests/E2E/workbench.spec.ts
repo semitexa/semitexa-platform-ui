@@ -261,6 +261,15 @@ test.describe('platform-ui · UI Workbench', () => {
         await expect(tree.locator('[data-workbench-slot="prefix"]')).toBeVisible();
     });
 
+    test('each example says where its prop values come from', async ({ page }) => {
+        await catalog(page);
+        await page.goto('/__ui/workbench?entry=platform.stat', { waitUntil: 'domcontentloaded' });
+        const first = page.locator('[data-workbench-example]').first().locator('[data-workbench-provenance]');
+        await first.locator('summary').click();
+        await expect(first.locator('[data-workbench-prop="label"]')).toHaveAttribute('data-source', 'example');
+        await expect(first.locator('[data-workbench-prop="trend"]')).toHaveAttribute('data-source', /^(example|default)$/);
+    });
+
     test('dropdown is a keyboard menu that returns focus', async ({ page }) => {
         await catalog(page);
         await page.goto('/__ui/workbench?entry=platform.dropdown', { waitUntil: 'networkidle' });

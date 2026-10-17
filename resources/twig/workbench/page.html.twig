@@ -106,9 +106,21 @@
                     <div class="wb-stage" data-workbench-stage style="color-scheme: {{ wb.mode }}">
                         {{ wbm.render(ex, entry.name) }}
                     </div>
-                    <details class="wb-code">
-                        <summary>Twig</summary>
+                    <details class="wb-code" data-workbench-provenance>
+                        <summary>Twig{% if ex.provenance is not empty %} · props{% endif %}</summary>
                         <pre><code data-workbench-snippet>{{ ex.snippet }}</code></pre>
+                    {% if ex.provenance is not empty %}
+                            <div class="wb-table-wrap" tabindex="0" role="region" aria-label="Props of {{ ex.label }}">
+                                <table class="wb-table">
+                                    <thead><tr><th scope="col">Prop</th><th scope="col">Value</th><th scope="col">From</th></tr></thead>
+                                    <tbody>
+                                        {% for p in ex.provenance %}
+                                            <tr data-workbench-prop="{{ p.name }}" data-source="{{ p.source }}"><td><code>{{ p.name }}</code></td><td>{% if p.value != '' %}<code>{{ p.value }}</code>{% endif %}</td><td>{{ p.source }}</td></tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                    {% endif %}
                     </details>
                 </section>
             {% endfor %}

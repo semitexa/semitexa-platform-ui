@@ -110,6 +110,22 @@ final class WorkbenchViewBuilderTest extends TestCase
     }
 
     #[Test]
+    public function provenance_names_the_example_the_default_an_explicit_null_and_what_is_not_set(): void
+    {
+        $metadata = (new UiComponentMetadataFactory())->fromClass(StatComponent::class);
+        $item = new UiCatalogItem('component', $metadata, $metadata->contract, null, '', 0, '');
+
+        $view = self::example($item, new UiExample('p', 'P', ['label' => 'MRR', 'value' => '42k', 'delta' => null]));
+        $by = array_column($view['provenance'], null, 'name');
+
+        self::assertSame(['name' => 'label', 'value' => "'MRR'", 'source' => 'example'], $by['label']);
+        self::assertSame(['name' => 'delta', 'value' => 'null', 'source' => 'explicit null'], $by['delta']);
+        self::assertSame(['name' => 'trend', 'value' => "'flat'", 'source' => 'default'], $by['trend']);
+        // caption is nullable and not required: its default is null, not "unset".
+        self::assertSame('default', $by['caption']['source']);
+    }
+
+    #[Test]
     public function a_behavior_example_without_a_template_is_not_rendered_as_a_component(): void
     {
         $metadata = (new UiBehaviorMetadataFactory())->fromClass(DropdownBehavior::class);
@@ -117,6 +133,6 @@ final class WorkbenchViewBuilderTest extends TestCase
 
         $view = self::example($item, new UiExample('plain', 'Plain'));
 
-        self::assertSame(['name' => 'plain', 'label' => 'Plain', 'uid' => 'wb-dropdown-plain', 'render' => 'none', 'snippet' => ''], $view);
+        self::assertSame(['name' => 'plain', 'label' => 'Plain', 'uid' => 'wb-dropdown-plain', 'provenance' => [], 'render' => 'none', 'snippet' => ''], $view);
     }
 }
