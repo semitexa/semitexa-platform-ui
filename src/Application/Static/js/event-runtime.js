@@ -2601,6 +2601,10 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         }
     }
 
+    // Past the server's 20 s heartbeat, by which a dead connection is reaped.
+    var SSE_RESUBSCRIBE_SETTLE_MS = 30000;
+    var resubscribeSettleTimer = null;
+
     /** Re-POST every active subscribe (same ids) after the shared connection reconnects. */
     function resubscribeAll() {
         var sessionId = readPageSseSessionId();
@@ -2652,6 +2656,17 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         // every subscription server-side with the same id.
         document.addEventListener('semitexa:ui-sse:reconnected', function () {
             resubscribeAll();
+            // The server tears a dead connection down only when its next
+            // heartbeat write fails, and that teardown reaps every subscription
+            // of the session: the ones just re-armed on the new connection too.
+            // Re-arm once more after it has surely run.
+            if (resubscribeSettleTimer !== null) {
+                clearTimeout(resubscribeSettleTimer);
+            }
+            resubscribeSettleTimer = setTimeout(function () {
+                resubscribeSettleTimer = null;
+                resubscribeAll();
+            }, SSE_RESUBSCRIBE_SETTLE_MS);
         }, false);
     }
 
