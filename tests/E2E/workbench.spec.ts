@@ -231,6 +231,27 @@ test.describe('platform-ui · UI Workbench', () => {
         }
     });
 
+    test('the Try panel re-renders an entry from typed props, and names a value the contract refuses', async ({ page }) => {
+        await catalog(page);
+        await page.goto('/__ui/workbench?entry=platform.stat', { waitUntil: 'domcontentloaded' });
+        const panel = page.locator('[data-workbench-try]');
+        await expect(panel.locator('[data-workbench-try-stage]')).toHaveCount(0);
+
+        await panel.locator('[data-workbench-try-control="trend"] select').selectOption('down');
+        await panel.locator('[data-workbench-try-control="label"] input').fill('Churn');
+        await Promise.all([page.waitForURL(/try%5Btrend%5D=down/), panel.getByRole('button', { name: 'Render' }).click()]);
+
+        const stage = page.locator('[data-workbench-try] [data-workbench-try-stage]');
+        await expect(stage).toContainText('Churn');
+        // The form keeps what was chosen, and the copied Twig is what the stage shows.
+        await expect(page.locator('[data-workbench-try-control="trend"] select')).toHaveValue('down');
+        await expect(page.locator('[data-workbench-try] [data-workbench-snippet]')).toContainText("trend: 'down'");
+
+        await page.goto('/__ui/workbench?entry=platform.stat&try%5Btrend%5D=sideways', { waitUntil: 'domcontentloaded' });
+        await expect(page.locator('[data-workbench-try-error]')).toContainText('props.trend is not one of the declared values.');
+        await expect(page.locator('[data-workbench-try-stage]')).toHaveCount(0);
+    });
+
     test('dropdown is a keyboard menu that returns focus', async ({ page }) => {
         await catalog(page);
         await page.goto('/__ui/workbench?entry=platform.dropdown', { waitUntil: 'networkidle' });

@@ -32,7 +32,7 @@ final class WorkbenchHandler implements TypedHandlerInterface
             return $resource;
         }
 
-        $entry = $payload->entry === '' ? null : $this->view->entry($payload->entry);
+        $entry = $payload->entry === '' ? null : $this->view->entry($payload->entry, $payload->try);
         if ($payload->entry !== '' && $entry === null) {
             $resource->setStatusCode(HttpStatus::NotFound->value);
         }

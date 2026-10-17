@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
 use Semitexa\PlatformUi\Application\Component\Builtin\EmptyStateComponent;
+use Semitexa\PlatformUi\Application\Component\Builtin\StatComponent;
 use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\DropdownBehavior;
 use Semitexa\PlatformUi\Application\Service\Behavior\UiBehaviorMetadataFactory;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentMetadataFactory;
@@ -35,6 +36,56 @@ final class WorkbenchViewBuilderTest extends TestCase
         self::assertSame('component', $view['render']);
         self::assertSame(['actions' => '&lt;em&gt;Save&lt;/em&gt;'], $view['slots']);
         self::assertSame("{{ component('platform.empty-state', { title: 'Empty' }, { actions: '&lt;em&gt;Save&lt;/em&gt;' }) }}", $view['snippet']);
+    }
+
+    /**
+     * @param array<string, string> $try
+     * @return array<string, mixed>|null
+     */
+    private static function tryPanel(array $try): ?array
+    {
+        $metadata = (new UiComponentMetadataFactory())->fromClass(StatComponent::class);
+        $item = new UiCatalogItem('component', $metadata, $metadata->contract, null, '', 0, '');
+
+        /** @var array<string, mixed>|null */
+        return (new ReflectionMethod(WorkbenchViewBuilder::class, 'tryPanel'))->invoke(new WorkbenchViewBuilder(), $item, $try);
+    }
+
+    #[Test]
+    public function the_try_panel_offers_a_control_per_scalar_prop_and_renders_nothing_until_asked(): void
+    {
+        $panel = self::tryPanel([]);
+
+        self::assertNotNull($panel);
+        self::assertSame(['label', 'value', 'delta', 'trend', 'caption'], array_column($panel['controls'], 'name'));
+        $trend = $panel['controls'][3];
+        self::assertSame(['up', 'down', 'flat'], $trend['values']);
+        self::assertNull($panel['example']);
+        self::assertSame('', $panel['error']);
+    }
+
+    #[Test]
+    public function typed_values_render_over_the_first_example(): void
+    {
+        $panel = self::tryPanel(['trend' => 'down', 'label' => 'Churn', 'value' => '']);
+
+        self::assertNotNull($panel);
+        self::assertSame('', $panel['error']);
+        self::assertSame('component', $panel['example']['render']);
+        self::assertSame('down', $panel['example']['props']['trend']);
+        self::assertSame('Churn', $panel['example']['props']['label']);
+        // An emptied control keeps the example's own value instead of dropping a required prop.
+        self::assertNotSame('', $panel['example']['props']['value'] ?? '');
+    }
+
+    #[Test]
+    public function a_value_the_contract_refuses_is_named_instead_of_rendered(): void
+    {
+        $panel = self::tryPanel(['trend' => 'sideways']);
+
+        self::assertNotNull($panel);
+        self::assertNull($panel['example']);
+        self::assertSame('props.trend is not one of the declared values.', $panel['error']);
     }
 
     #[Test]
