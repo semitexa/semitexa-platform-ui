@@ -110,7 +110,56 @@ final class WorkbenchViewBuilder
             'examples' => $examples,
             'broken_examples' => $described['broken_examples'] ?? [],
             'try' => $this->tryPanel($item, $try),
+            'structure' => self::structure($described),
         ];
+    }
+
+    /**
+     * A component's parts and slots as a tree: each part with the primitive it
+     * renders, what it binds and who provides it, and the events wired to it;
+     * then the slots. Events on no declared part hang off the component itself.
+     * Read from the catalog description, so it is the registry's own answer.
+     *
+     * @param array<string, mixed> $described
+     * @return array{parts: list<array{name: string, primitive: string, bind: string, provider: string, events: list<array{event: string, handler: string, transport: string}>}>, slots: list<array{name: string, description: string}>, events: list<array{event: string, handler: string, transport: string}>}|null
+     */
+    private static function structure(array $described): ?array
+    {
+        $parts = (array) ($described['parts'] ?? []);
+        $slots = (array) ($described['slots'] ?? []);
+        if ($parts === [] && $slots === []) {
+            return null;
+        }
+        $byPart = [];
+        foreach ((array) ($described['events'] ?? []) as $event) {
+            $event = (array) $event;
+            $byPart[is_string($event['part'] ?? null) ? $event['part'] : ''][] = [
+                'event' => is_string($event['event'] ?? null) ? $event['event'] : '',
+                'handler' => is_string($event['handler'] ?? null) ? $event['handler'] : '',
+                'transport' => is_string($event['transport'] ?? null) ? $event['transport'] : '',
+            ];
+        }
+        $tree = ['parts' => [], 'slots' => [], 'events' => []];
+        foreach ($parts as $name => $part) {
+            $part = (array) $part;
+            $tree['parts'][] = [
+                'name' => (string) $name,
+                'primitive' => is_string($part['primitive'] ?? null) ? $part['primitive'] : '',
+                'bind' => is_string($part['bind'] ?? null) ? $part['bind'] : '',
+                'provider' => is_string($part['provider'] ?? null) ? $part['provider'] : '',
+                'events' => $byPart[(string) $name] ?? [],
+            ];
+            unset($byPart[(string) $name]);
+        }
+        foreach ($slots as $name => $slot) {
+            $slot = (array) $slot;
+            $tree['slots'][] = ['name' => (string) $name, 'description' => is_string($slot['description'] ?? null) ? $slot['description'] : ''];
+        }
+        foreach ($byPart as $events) {
+            array_push($tree['events'], ...$events);
+        }
+
+        return $tree;
     }
 
     /**

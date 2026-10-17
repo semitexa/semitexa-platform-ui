@@ -89,6 +89,27 @@ final class WorkbenchViewBuilderTest extends TestCase
     }
 
     #[Test]
+    public function the_structure_hangs_events_off_their_part_and_keeps_the_rest_on_the_component(): void
+    {
+        $structure = (new ReflectionMethod(WorkbenchViewBuilder::class, 'structure'))->invoke(null, [
+            'parts' => (object) ['input' => ['primitive' => 'platform.input', 'bind' => 'value', 'provider' => 'Field::inputPart']],
+            'slots' => (object) ['prefix' => ['description' => 'Before the input.']],
+            'events' => (object) [
+                'input.change' => ['part' => 'input', 'event' => 'change', 'handler' => 'Field::onChange', 'transport' => 'hug'],
+                'root.submit' => ['part' => 'root', 'event' => 'submit', 'handler' => 'Field::onSubmit'],
+            ],
+        ]);
+
+        self::assertSame([[
+            'name' => 'input', 'primitive' => 'platform.input', 'bind' => 'value', 'provider' => 'Field::inputPart',
+            'events' => [['event' => 'change', 'handler' => 'Field::onChange', 'transport' => 'hug']],
+        ]], $structure['parts']);
+        self::assertSame([['name' => 'prefix', 'description' => 'Before the input.']], $structure['slots']);
+        self::assertSame([['event' => 'submit', 'handler' => 'Field::onSubmit', 'transport' => '']], $structure['events']);
+        self::assertNull((new ReflectionMethod(WorkbenchViewBuilder::class, 'structure'))->invoke(null, ['parts' => (object) [], 'slots' => (object) []]));
+    }
+
+    #[Test]
     public function a_behavior_example_without_a_template_is_not_rendered_as_a_component(): void
     {
         $metadata = (new UiBehaviorMetadataFactory())->fromClass(DropdownBehavior::class);

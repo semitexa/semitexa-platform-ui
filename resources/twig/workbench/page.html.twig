@@ -176,6 +176,29 @@
                 </section>
             {% endif %}
 
+            {% if entry.structure %}
+                <section class="wb-ref" aria-labelledby="wb-structure" data-workbench-structure>
+                    <h2 id="wb-structure">Structure</h2>
+                    <ul class="wb-tree">
+                        <li><code>{{ entry.name }}</code>
+                            <ul>
+                                {% for p in entry.structure.parts %}
+                                    <li data-workbench-part="{{ p.name }}">part <code>{{ p.name }}</code> renders <code>{{ p.primitive }}</code>{% if p.bind %}, binds <code>{{ p.bind }}</code>{% endif %}{% if p.provider %}, provided by <code title="{{ p.provider }}">{{ p.provider|split('\\')|last }}</code>{% endif %}
+                                        {% if p.events is not empty %}<ul>{% for e in p.events %}<li data-workbench-part-event="{{ p.name }}.{{ e.event }}">on <code>{{ e.event }}</code> → <code title="{{ e.handler }}">{{ e.handler|split('\\')|last }}</code>{% if e.transport %} ({{ e.transport }}){% endif %}</li>{% endfor %}</ul>{% endif %}
+                                    </li>
+                                {% endfor %}
+                                {% for sl in entry.structure.slots %}
+                                    <li data-workbench-slot="{{ sl.name }}">slot <code>{{ sl.name }}</code>{% if sl.description %}: {{ sl.description }}{% endif %}</li>
+                                {% endfor %}
+                                {% for e in entry.structure.events %}
+                                    <li>on <code>{{ e.event }}</code> → <code title="{{ e.handler }}">{{ e.handler|split('\\')|last }}</code>{% if e.transport %} ({{ e.transport }}){% endif %}</li>
+                                {% endfor %}
+                            </ul>
+                        </li>
+                    </ul>
+                </section>
+            {% endif %}
+
             {% if entry.slots is not empty %}
                 <section class="wb-ref" aria-labelledby="wb-slots">
                     <h2 id="wb-slots">Slots</h2>

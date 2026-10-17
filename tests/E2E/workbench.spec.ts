@@ -252,6 +252,15 @@ test.describe('platform-ui · UI Workbench', () => {
         await expect(page.locator('[data-workbench-try-stage]')).toHaveCount(0);
     });
 
+    test('a component page shows its parts, their events and its slots as a tree', async ({ page }) => {
+        await catalog(page);
+        await page.goto('/__ui/workbench?entry=platform.field', { waitUntil: 'domcontentloaded' });
+        const tree = page.locator('[data-workbench-structure]');
+        await expect(tree.locator('[data-workbench-part="input"]')).toContainText('platform.input');
+        await expect(tree.locator('[data-workbench-part-event="input.change"]')).toContainText('onInputChanged');
+        await expect(tree.locator('[data-workbench-slot="prefix"]')).toBeVisible();
+    });
+
     test('dropdown is a keyboard menu that returns focus', async ({ page }) => {
         await catalog(page);
         await page.goto('/__ui/workbench?entry=platform.dropdown', { waitUntil: 'networkidle' });
