@@ -94,4 +94,18 @@ final class EventRuntimeSseReviveReconnectTest extends TestCase
         self::assertMatchesRegularExpression('/if \(prevTs !== 0\) \{/', $code, 'every later connect is a reconnect.');
         self::assertStringNotContainsString('SSE_RECONNECT_MIN_GAP_MS', $code);
     }
+
+    #[Test]
+    public function reopens_a_live_stream_the_server_closed_at_its_age_cap(): void
+    {
+        $code = $this->jsCode();
+        // The server ends every held-open stream at SSE_MAX_CONNECTION_AGE_SECONDS
+        // with `event: close, reason: max_age`. Treated as a teardown, a live
+        // page stopped receiving rows ten minutes after it opened.
+        self::assertMatchesRegularExpression(
+            "/parsed\\.reason === 'max_age'[^\\n]*SSE_TRANSPORT_MODE_DRAIN\\) === -1\\) \\{\\s*attachSse\\(\\{ url: url \\}\\);/",
+            $code,
+            'the close handler must reopen a non-drain stream closed for max_age.',
+        );
+    }
 }

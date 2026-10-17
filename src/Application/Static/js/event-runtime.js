@@ -2042,6 +2042,14 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
                 detail: parsed,
                 url: url
             });
+            // A live stream the server closed only because it reached its age
+            // cap (SSE_MAX_CONNECTION_AGE_SECONDS) is not a teardown: open it
+            // again at once. The fresh `connected` frame is a reconnect, so
+            // every feed re-subscribes. Without this a live page went deaf ten
+            // minutes after it opened, and showed new rows only on reload.
+            if (parsed && parsed.reason === 'max_age' && url.indexOf('mode=' + SSE_TRANSPORT_MODE_DRAIN) === -1) {
+                attachSse({ url: url });
+            }
         });
 
         // SSE transport unification · Phase 3 — multiplex demux. The shared KISS
