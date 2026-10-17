@@ -110,17 +110,18 @@ final class EventRuntimeSseReviveReconnectTest extends TestCase
     }
 
     #[Test]
-    public function re_arms_subscriptions_again_once_the_dead_connection_is_reaped(): void
+    public function a_reconnect_re_arms_subscriptions_once(): void
     {
         $code = $this->jsCode();
-        // The server reaps a dead connection's session on its next failed
-        // heartbeat, taking the subscriptions the reconnect just re-armed with it.
-        self::assertMatchesRegularExpression('/var SSE_RESUBSCRIBE_SETTLE_MS = (\\d+);/', $code);
-        preg_match('/var SSE_RESUBSCRIBE_SETTLE_MS = (\\d+);/', $code, $m);
-        self::assertGreaterThan(20000, (int) $m[1], 'the second re-arm must come after the 20 s server heartbeat.');
-        self::assertMatchesRegularExpression(
-            '/resubscribeSettleTimer = setTimeout\\(function \\(\\) \\{\\s*resubscribeSettleTimer = null;\\s*resubscribeAll\\(\\);\\s*\\}, SSE_RESUBSCRIBE_SETTLE_MS\\);/',
-            $code,
-        );
+        // The server used to reap a dead connection's session on its next
+        // failed heartbeat, taking the subscriptions the reconnect had just
+        // re-armed, so the runtime re-armed them a second time 30 s later. The
+        // reap now spares what the new connection subscribed (mw-2; pinned by
+        // ssr's ConnectCoordinatorTest and kiss-reconnect-keeps-subscriptions),
+        // so one re-arm is the whole story.
+        // verify:accept-test-change the second, delayed resubscribe is gone with the server reap that made it necessary (mw-2)
+        self::assertStringNotContainsString('SSE_RESUBSCRIBE_SETTLE_MS', $code);
+        self::assertStringNotContainsString('resubscribeSettleTimer', $code);
+        self::assertSame(1, substr_count($code, 'resubscribeAll();'), 'the reconnected handler re-arms once');
     }
 }
