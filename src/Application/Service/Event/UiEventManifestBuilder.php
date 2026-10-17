@@ -257,16 +257,19 @@ final class UiEventManifestBuilder
     public const MAX_SIGNED_PROPS_BYTES = 4096;
 
     /**
+     * Props that can ride a signed context: a non-empty map of plain JSON
+     * values, small enough. A component's refresh token reuses the rule.
+     *
      * @param array<array-key, mixed> $props
      * @return array<string, mixed>|null null when the props cannot ride a signed context
      */
-    private static function signableProps(array $props): ?array
+    public static function signableProps(array $props, int $maxBytes = self::MAX_SIGNED_PROPS_BYTES): ?array
     {
         if ($props === [] || array_is_list($props) || !self::isJsonPlain($props)) {
             return null;
         }
         $json = json_encode($props, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($json === false || strlen($json) > self::MAX_SIGNED_PROPS_BYTES) {
+        if ($json === false || strlen($json) > $maxBytes) {
             return null;
         }
 

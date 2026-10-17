@@ -898,7 +898,9 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             if (attachedTransports[a].endpoint === endpoint) return attachedTransports[a].detach;
         }
 
-        var unsubscribe = onCapture(function (captured) {
+        var unsubscribe = onCapture(send);
+
+        function send(captured) {
             // Per-attempt id. Generated CLIENT-SIDE for every captured
             // event so the server replay guard can deduplicate retries
             // (network races, double-click). The signed `ctx` is
@@ -992,6 +994,29 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
                                 console.warn('[semitexa-ui] form aggregate failed', aggErr);
                             }
                         }
+                    } else if (resp.status === 422 && contextExpired(parsed)) {
+                        // A page left open past its contexts' TTL: redraw the
+                        // component and send the action once more, or say
+                        // it is out of date — never a click that does nothing.
+                        rollBackOptimistic(optimistic, captured);
+                        // Still busy while it is redrawn: a second submit
+                        // waits for this one instead of racing it.
+                        var holding = beginLoading(captured);
+                        redrawExpired(captured).then(function (fresh) {
+                            endLoading(holding);
+                            if (fresh !== null) {
+                                send(fresh);
+                                return;
+                            }
+                            markStale(captured.instanceId);
+                            emitTransportEvent('semitexa:ui-event:failed', {
+                                captured: captured,
+                                dispatchId: dispatchId,
+                                status: resp.status,
+                                response: parsed,
+                                phase: 'expired'
+                            });
+                        });
                     } else {
                         rollBackOptimistic(optimistic, captured);
                         emitTransportEvent('semitexa:ui-event:failed', {
@@ -1013,7 +1038,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
                     phase: 'network'
                 });
             });
-        });
+        }
 
         var entry = { endpoint: endpoint, unsubscribe: unsubscribe };
         entry.detach = function detach() {
@@ -1025,6 +1050,129 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         };
         attachedTransports.push(entry);
         return entry.detach;
+    }
+
+    // ---- Expired event contexts --------------------------------------------
+    //
+    // HUG names an authentic context whose TTL ran out apart from a forged one.
+    // The component's root carries a refresh token (`data-ui-refresh`, signed
+    // for a day): sent through HUG like any event, it answers with the
+    // component drawn again — a morph, so fresh contexts — and the action goes
+    // once more with its new context. Once only: a second expiry, a missing
+    // token or a refused redraw marks the component stale with a reload.
+    var CONTEXT_EXPIRED = 'Signed context expired.';
+
+    function contextExpired(parsed) {
+        var errors = parsed && parsed.context && parsed.context.errors;
+        return !!errors && isArray(errors.signedContext) && errors.signedContext.indexOf(CONTEXT_EXPIRED) !== -1;
+    }
+
+    // One redraw per instance at a time: every action that expired on it
+    // waits for the same one, then finds its own fresh context.
+    var REDRAWS = {};
+    // Instances being redrawn keep what the visitor typed: the redraw comes
+    // from the props the component was first drawn with.
+    var KEEP_VALUES = {};
+
+    function redrawExpired(captured) {
+        if (captured.refreshed === true) return Promise.resolve(null);
+        var id = captured.instanceId;
+        if (!REDRAWS[id]) {
+            REDRAWS[id] = requestRedraw(captured).then(function (waitMs) {
+                delete REDRAWS[id];
+                return waitMs;
+            });
+        }
+        return REDRAWS[id].then(function (waitMs) {
+            return waitMs === null ? null : freshContext(captured, waitMs);
+        }).then(function (entry) {
+            if (!REDRAWS[id]) delete KEEP_VALUES[id];
+            if (entry === null) return null;
+            var fresh = {};
+            for (var key in captured) {
+                if (Object.prototype.hasOwnProperty.call(captured, key)) fresh[key] = captured[key];
+            }
+            fresh.ctx = entry.ctx;
+            fresh.refreshed = true;
+            return fresh;
+        });
+    }
+
+    /** Resolves to how long to wait for the redrawn manifest, or null when there is none. */
+    function requestRedraw(captured) {
+        var root = instanceRoot(captured.instanceId);
+        var token = root ? root.getAttribute('data-ui-refresh') : null;
+        if (!token) return Promise.resolve(null);
+        KEEP_VALUES[captured.instanceId] = true;
+        return hug(envelope({
+            eventId: generateDispatchId(),
+            correlationId: generateCorrelationId(),
+            semanticEvent: (captured.component || 'platform.ui') + '.refresh',
+            signedContext: token,
+            payload: {}
+        })).then(function (answer) {
+            if (!answer.ok || !answer.data) return null;
+            var refresh = { instanceId: captured.instanceId, source: 'refresh' };
+            // Announced like any answer: a morph streamed to the page's KISS
+            // session is drained by the same listener.
+            emitTransportEvent('semitexa:ui-event:dispatched', { captured: refresh, status: answer.status, response: answer.data });
+            applyResponsePatches(answer.data, refresh);
+            // On a page with a KISS stream the morph arrives on it, not in
+            // this answer: wait for the redrawn manifest.
+            return answer.data.streamedPatchCount > 0 ? REDRAW_WAIT_MS : 0;
+        }).catch(function () { return null; });
+    }
+
+    var REDRAW_WAIT_MS = 5000;
+
+    function freshContext(captured, waitMs) {
+        return new Promise(function (resolve) {
+            var deadline = Date.now() + waitMs;
+            (function look() {
+                var entry = contextFor(captured.instanceId, captured.part, captured.event);
+                if (entry !== null && entry.ctx !== captured.ctx) return resolve(entry);
+                if (Date.now() >= deadline) return resolve(null);
+                setTimeout(look, 50);
+            })();
+        });
+    }
+
+    function contextFor(instanceId, part, event) {
+        for (var i = parsedManifests.length - 1; i >= 0; i--) {
+            var payload = parsedManifests[i].payload;
+            if (payload.i !== instanceId) continue;
+            for (var j = 0; j < payload.events.length; j++) {
+                if (payload.events[j].p === part && payload.events[j].e === event) return payload.events[j];
+            }
+        }
+        return null;
+    }
+
+    // Roots that cannot hold a notice (a table row, a control) get it before
+    // the nearest element that can.
+    var NOTICE_UNSAFE_ROOT = /^(TR|TD|TH|THEAD|TBODY|TFOOT|INPUT|SELECT|TEXTAREA|BUTTON|IMG)$/;
+
+    function markStale(instanceId) {
+        var root = instanceRoot(instanceId);
+        if (!root || root.hasAttribute('data-ui-stale')) return;
+        root.setAttribute('data-ui-stale', '');
+        var notice = document.createElement('p');
+        notice.className = 'ui-stale-notice';
+        notice.setAttribute('role', 'status');
+        notice.setAttribute('data-ui-stale-notice', '');
+        notice.appendChild(document.createTextNode('This part of the page is out of date. '));
+        var reload = document.createElement('button');
+        reload.type = 'button';
+        reload.textContent = 'Reload';
+        reload.addEventListener('click', function () { window.location.reload(); });
+        notice.appendChild(reload);
+        if (NOTICE_UNSAFE_ROOT.test(root.nodeName)) {
+            var host = root.closest('table') || root;
+            host.parentNode.insertBefore(notice, host);
+        } else {
+            root.insertBefore(notice, root.firstChild);
+        }
+        emitTransportEvent('semitexa:ui-component:stale', { instanceId: instanceId });
     }
 
     function emitTransportEvent(name, detail) {
@@ -1307,7 +1455,12 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
                 var fragment = parseHtml(patch.value);
                 var next = fragment ? fragment.firstElementChild : null;
                 if (!next) return false;
-                morphElement(rootEl, next);
+                morphKeepsValues = KEEP_VALUES[patch.target.instance] === true;
+                try {
+                    morphElement(rootEl, next);
+                } finally {
+                    morphKeepsValues = false;
+                }
                 // Runtime-owned state the server HTML does not carry: `show`
                 // loading elements are hidden again unless an action is still
                 // in flight on this instance.
@@ -1347,6 +1500,10 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
      * id or data-ui-part (else by position), so focus, caret and the value a
      * user is typing survive a re-render of the component around them.
      */
+    // Set while an expired component is redrawn: the controls keep what the
+    // visitor typed rather than the values it was first drawn with.
+    var morphKeepsValues = false;
+
     function morphElement(from, to) {
         if (from.nodeType !== to.nodeType || from.nodeName !== to.nodeName) {
             from.replaceWith(to.cloneNode(true));
@@ -1364,7 +1521,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             return;
         }
         syncAttributes(from, to);
-        if ('value' in from && (from.nodeName === 'INPUT' || from.nodeName === 'TEXTAREA' || from.nodeName === 'SELECT')) {
+        if (!morphKeepsValues && 'value' in from && (from.nodeName === 'INPUT' || from.nodeName === 'TEXTAREA' || from.nodeName === 'SELECT')) {
             if (from !== document.activeElement && from.value !== to.value) from.value = to.value;
             if (from.nodeName === 'INPUT' && from.checked !== to.checked) from.checked = to.checked;
         }

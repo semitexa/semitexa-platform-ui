@@ -41,6 +41,7 @@ use Semitexa\PlatformUi\Application\Service\Url\UiUrlPropsOverlay;
 use Semitexa\Ssr\Application\Service\Component\ComponentPropsOverlays;
 use Semitexa\Ssr\Application\Service\Component\ComponentRenderFinishers;
 use Semitexa\PlatformUi\Application\Service\Island\UiIslandFinisher;
+use Semitexa\PlatformUi\Application\Service\Refresh\UiRefreshFinisher;
 use Semitexa\PlatformUi\Application\Service\State\UiComponentStates;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistry;
 use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitActionRegistryInterface;
@@ -155,6 +156,7 @@ final class BootPlatformUiRegistryListener implements ServerLifecycleListenerInt
         ComponentPropsOverlays::register(new UiUrlPropsOverlay());
         // An island's root gets its signed token, and the page its live feed.
         ComponentRenderFinishers::register(new UiIslandFinisher());
+        ComponentRenderFinishers::register(new UiRefreshFinisher());
 
         // Field types: the built-ins and the project's #[AsFieldType] classes
         // (a duplicate name fails boot rather than shadowing).

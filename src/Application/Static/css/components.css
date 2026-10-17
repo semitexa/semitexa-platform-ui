@@ -571,4 +571,18 @@
         gap: var(--ui-space-2);
         margin-top: var(--ui-space-4);
     }
+
+    /* ---- out of date (an expired component the runtime could not redraw) - */
+    .ui-stale-notice {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--ui-space-2);
+        margin: 0 0 var(--ui-space-3);
+        padding: var(--ui-space-2) var(--ui-space-3);
+        background: var(--ui-surface-raised);
+        color: var(--ui-text-primary);
+        box-shadow: var(--ui-hairline);
+        border-radius: var(--ui-radius-md, 0.5rem);
+    }
 }

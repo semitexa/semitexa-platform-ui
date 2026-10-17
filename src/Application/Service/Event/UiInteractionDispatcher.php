@@ -24,6 +24,7 @@ use Semitexa\PlatformUi\Domain\Model\Component\UiExternalHandlerMetadata;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventContext;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionEvent;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult;
+use Semitexa\PlatformUi\Application\Service\Refresh\UiRefreshFinisher;
 use Semitexa\PlatformUi\Application\Service\Url\UiUrlBindings;
 use Semitexa\PlatformUi\Domain\Model\Event\UiResponsePatch;
 use Semitexa\Ssr\Application\Service\UiEvent\UiSseSessionState;
@@ -216,6 +217,17 @@ final class UiInteractionDispatcher
                 'invalid_signed_ctx',
                 'Signed context failed verification or is expired.',
             );
+        }
+
+        // A refresh token (UiRefreshFinisher) asks for its component drawn
+        // again; it names no part or event, so it never reaches a handler.
+        if (isset($claims['rf'])) {
+            $render = $this->componentRenderer === null ? null : function (string $name, array $props) use ($claims): string {
+                /** @var array<string, mixed> $props */
+                return $this->renderAsPage($name, $props, $claims);
+            };
+
+            return UiRefreshFinisher::redraw($claims, $render, $this->authorizer instanceof UiRefreshAuthorizerInterface ? $this->authorizer : null);
         }
 
         $componentName = $this->stringClaim($claims, 'c');
