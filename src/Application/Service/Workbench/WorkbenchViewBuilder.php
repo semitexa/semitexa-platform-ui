@@ -226,6 +226,18 @@ final class WorkbenchViewBuilder
     /** A query string value as the prop's type reads it; what does not parse stays a string, for the validator to name. */
     private static function typed(UiProp $prop, string $value): mixed
     {
+        if ($prop->type === UiPropType::Scalar) {
+            // The control lists the declared values as text; map back to the one
+            // that reads as the submitted text. When two do (2 and '2'), the control
+            // cannot tell them apart, so the text stays as it came.
+            $matches = array_values(array_filter(
+                $prop->values,
+                static fn (string|int|float|bool $declared): bool => (string) $declared === $value,
+            ));
+            if (count($matches) === 1) {
+                return $matches[0];
+            }
+        }
         return match ($prop->type) {
             UiPropType::Boolean => match ($value) { 'true' => true, 'false' => false, default => $value },
             UiPropType::Integer => preg_match('/\A-?\d{1,18}\z/', $value) === 1 ? (int) $value : $value,

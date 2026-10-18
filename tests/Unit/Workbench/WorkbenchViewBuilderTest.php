@@ -9,12 +9,15 @@ use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
 use Semitexa\PlatformUi\Application\Component\Builtin\EmptyStateComponent;
 use Semitexa\PlatformUi\Application\Component\Builtin\StatComponent;
+use Semitexa\PlatformUi\Application\Payload\Request\WorkbenchPayload;
 use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\DropdownBehavior;
 use Semitexa\PlatformUi\Application\Service\Behavior\UiBehaviorMetadataFactory;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentMetadataFactory;
 use Semitexa\PlatformUi\Application\Service\Workbench\WorkbenchViewBuilder;
 use Semitexa\PlatformUi\Domain\Model\Contract\UiCatalogItem;
 use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiProp;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiPropType;
 
 final class WorkbenchViewBuilderTest extends TestCase
 {
@@ -86,6 +89,30 @@ final class WorkbenchViewBuilderTest extends TestCase
         self::assertNotNull($panel);
         self::assertNull($panel['example']);
         self::assertSame('props.trend is not one of the declared values.', $panel['error']);
+    }
+
+    #[Test]
+    public function a_scalar_value_reads_as_the_one_declared_value_its_text_names(): void
+    {
+        $typed = new ReflectionMethod(WorkbenchViewBuilder::class, 'typed');
+        $prop = new UiProp('size', UiPropType::Scalar, values: [2, true, 'wide']);
+
+        self::assertSame(2, $typed->invoke(null, $prop, '2'));
+        self::assertTrue($typed->invoke(null, $prop, '1'));
+        self::assertSame('wide', $typed->invoke(null, $prop, 'wide'));
+        self::assertSame('7', $typed->invoke(null, $prop, '7'));
+
+        // 2 and '2' both read as "2": the control cannot tell them apart, so the text stays as sent.
+        self::assertSame('2', $typed->invoke(null, new UiProp('size', UiPropType::Scalar, values: [2, '2']), '2'));
+    }
+
+    #[Test]
+    public function a_try_value_for_a_hyphenated_prop_is_kept(): void
+    {
+        $payload = new WorkbenchPayload();
+        $payload->setTry(['icon-name' => 'star', '-bad' => 'x', 'tone' => 'danger']);
+
+        self::assertSame(['icon-name' => 'star', 'tone' => 'danger'], $payload->try);
     }
 
     #[Test]

@@ -56,7 +56,7 @@ final class WorkbenchPayload
             return;
         }
         foreach ($value as $name => $text) {
-            if (is_string($name) && preg_match('/\A[a-zA-Z][a-zA-Z0-9_]{0,63}\z/', $name) === 1 && is_string($text) && strlen($text) <= 500) {
+            if (is_string($name) && preg_match('/\A[a-zA-Z][a-zA-Z0-9_-]{0,63}\z/', $name) === 1 && is_string($text) && strlen($text) <= 500) {
                 $this->try[$name] = $text;
             }
         }

@@ -51,7 +51,7 @@ final class UiTreeTwigExporter
     /** Export a tree the validator already passed. */
     public function write(UiTree $tree): string
     {
-        return "<div data-ui-tree>{{ " . $this->node($tree, $tree->root, '') . " }}</div>\n";
+        return "<div data-ui-tree>{{ " . $this->node($tree, $tree->root, '') . " }}</div>";
     }
 
     private function node(UiTree $tree, string $id, string $indent): string

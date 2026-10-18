@@ -65,7 +65,6 @@ final class UiTreeTwigExporterTest extends TestCase
                     ~ component('platform.stat', { label: 'Closed', value: '3' }),
                 header: primitive('platform.badge', { text: 'Live', dot: true }),
             }) }}</div>
-
             TWIG, $twig);
     }
 
@@ -79,7 +78,7 @@ final class UiTreeTwigExporterTest extends TestCase
         ];
 
         self::assertSame($this->exporter->write($this->tree($document)), $this->exporter->write($this->tree($document)));
-        self::assertSame("<div data-ui-tree>{{ component('platform.card', { title: 'A' }) }}</div>\n", $this->exporter->write($this->tree($document)));
+        self::assertSame("<div data-ui-tree>{{ component('platform.card', { title: 'A' }) }}</div>", $this->exporter->write($this->tree($document)));
     }
 
     /** @param array<string, mixed> $document */
