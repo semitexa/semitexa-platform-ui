@@ -145,3 +145,8 @@
 .wb-search[hidden] { display: none; }
 .wb-search input { inline-size: 100%; box-sizing: border-box; padding: var(--ui-space-1) var(--ui-space-2); border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-sm); background: var(--ui-surface-raised); color: var(--ui-text-primary); font: inherit; font-size: var(--ui-text-sm); }
 .wb-search-status { margin: var(--ui-space-1) 0 0; color: var(--ui-text-muted); }
+
+/* The structure tree names classes and methods; a long one must wrap, not
+   widen the column and with it every example stage on the page. */
+.wb-tree { margin: 0; padding-inline-start: 1.25rem; min-inline-size: 0; }
+.wb-tree code { overflow-wrap: anywhere; }

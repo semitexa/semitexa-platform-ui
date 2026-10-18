@@ -231,6 +231,45 @@ test.describe('platform-ui · UI Workbench', () => {
         }
     });
 
+    test('the Try panel re-renders an entry from typed props, and names a value the contract refuses', async ({ page }) => {
+        await catalog(page);
+        await page.goto('/__ui/workbench?entry=platform.stat', { waitUntil: 'domcontentloaded' });
+        const panel = page.locator('[data-workbench-try]');
+        await expect(panel.locator('[data-workbench-try-stage]')).toHaveCount(0);
+
+        await panel.locator('[data-workbench-try-control="trend"] select').selectOption('down');
+        await panel.locator('[data-workbench-try-control="label"] input').fill('Churn');
+        await Promise.all([page.waitForURL(/try%5Btrend%5D=down/), panel.getByRole('button', { name: 'Render' }).click()]);
+
+        const stage = page.locator('[data-workbench-try] [data-workbench-try-stage]');
+        await expect(stage).toContainText('Churn');
+        // The form keeps what was chosen, and the copied Twig is what the stage shows.
+        await expect(page.locator('[data-workbench-try-control="trend"] select')).toHaveValue('down');
+        await expect(page.locator('[data-workbench-try] [data-workbench-snippet]')).toContainText("trend: 'down'");
+
+        await page.goto('/__ui/workbench?entry=platform.stat&try%5Btrend%5D=sideways', { waitUntil: 'domcontentloaded' });
+        await expect(page.locator('[data-workbench-try-error]')).toContainText('props.trend is not one of the declared values.');
+        await expect(page.locator('[data-workbench-try-stage]')).toHaveCount(0);
+    });
+
+    test('a component page shows its parts, their events and its slots as a tree', async ({ page }) => {
+        await catalog(page);
+        await page.goto('/__ui/workbench?entry=platform.field', { waitUntil: 'domcontentloaded' });
+        const tree = page.locator('[data-workbench-structure]');
+        await expect(tree.locator('[data-workbench-part="input"]')).toContainText('platform.input');
+        await expect(tree.locator('[data-workbench-part-event="input.change"]')).toContainText('onInputChanged');
+        await expect(tree.locator('[data-workbench-slot="prefix"]')).toBeVisible();
+    });
+
+    test('each example says where its prop values come from', async ({ page }) => {
+        await catalog(page);
+        await page.goto('/__ui/workbench?entry=platform.stat', { waitUntil: 'domcontentloaded' });
+        const first = page.locator('[data-workbench-example]').first().locator('[data-workbench-provenance]');
+        await first.locator('summary').click();
+        await expect(first.locator('[data-workbench-prop="label"]')).toHaveAttribute('data-source', 'example');
+        await expect(first.locator('[data-workbench-prop="trend"]')).toHaveAttribute('data-source', /^(example|default)$/);
+    });
+
     test('dropdown is a keyboard menu that returns focus', async ({ page }) => {
         await catalog(page);
         await page.goto('/__ui/workbench?entry=platform.dropdown', { waitUntil: 'networkidle' });

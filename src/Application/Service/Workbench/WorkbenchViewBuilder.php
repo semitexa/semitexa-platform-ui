@@ -9,6 +9,8 @@ use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\PlatformUi\Application\Service\Catalog\UiCatalogProjector;
 use Semitexa\PlatformUi\Domain\Model\Contract\UiCatalogItem;
 use Semitexa\PlatformUi\Domain\Model\Contract\UiExample;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiProp;
+use Semitexa\PlatformUi\Domain\Model\Contract\UiPropType;
 use Semitexa\Core\Support\ProjectRoot;
 use Semitexa\Theme\Discovery\SkinDiscovery;
 
@@ -78,9 +80,10 @@ final class WorkbenchViewBuilder
     }
 
     /**
-     * @return array{name: string, short: string, kind: string, summary: mixed, class: string, source: mixed, template: ?string, props: list<array<string, mixed>>, slots: array<mixed>, a11y: mixed, examples: list<array<string, mixed>>, broken_examples: mixed}|null
+     * @param array<string, string> $try prop values typed into the Try panel, as the query carried them
+     * @return array{name: string, short: string, kind: string, summary: mixed, class: string, source: mixed, template: ?string, props: list<array<string, mixed>>, slots: array<mixed>, a11y: mixed, examples: list<array<string, mixed>>, broken_examples: mixed, try: array<string, mixed>|null}|null
      */
-    public function entry(string $name): ?array
+    public function entry(string $name, array $try = []): ?array
     {
         $item = $this->catalog->find($name);
         if ($item === null) {
@@ -106,7 +109,141 @@ final class WorkbenchViewBuilder
             'a11y' => $described['a11y'] ?? [],
             'examples' => $examples,
             'broken_examples' => $described['broken_examples'] ?? [],
+            'try' => $this->tryPanel($item, $try),
+            'structure' => self::structure($described),
         ];
+    }
+
+    /**
+     * A component's parts and slots as a tree: each part with the primitive it
+     * renders, what it binds and who provides it, and the events wired to it;
+     * then the slots. Events on no declared part hang off the component itself.
+     * Read from the catalog description, so it is the registry's own answer.
+     *
+     * @param array<string, mixed> $described
+     * @return array{parts: list<array{name: string, primitive: string, bind: string, provider: string, events: list<array{event: string, handler: string, transport: string}>}>, slots: list<array{name: string, description: string}>, events: list<array{event: string, handler: string, transport: string}>}|null
+     */
+    private static function structure(array $described): ?array
+    {
+        $parts = (array) ($described['parts'] ?? []);
+        $slots = (array) ($described['slots'] ?? []);
+        if ($parts === [] && $slots === []) {
+            return null;
+        }
+        $byPart = [];
+        foreach ((array) ($described['events'] ?? []) as $event) {
+            $event = (array) $event;
+            $byPart[is_string($event['part'] ?? null) ? $event['part'] : ''][] = [
+                'event' => is_string($event['event'] ?? null) ? $event['event'] : '',
+                'handler' => is_string($event['handler'] ?? null) ? $event['handler'] : '',
+                'transport' => is_string($event['transport'] ?? null) ? $event['transport'] : '',
+            ];
+        }
+        $tree = ['parts' => [], 'slots' => [], 'events' => []];
+        foreach ($parts as $name => $part) {
+            $part = (array) $part;
+            $tree['parts'][] = [
+                'name' => (string) $name,
+                'primitive' => is_string($part['primitive'] ?? null) ? $part['primitive'] : '',
+                'bind' => is_string($part['bind'] ?? null) ? $part['bind'] : '',
+                'provider' => is_string($part['provider'] ?? null) ? $part['provider'] : '',
+                'events' => $byPart[(string) $name] ?? [],
+            ];
+            unset($byPart[(string) $name]);
+        }
+        foreach ($slots as $name => $slot) {
+            $slot = (array) $slot;
+            $tree['slots'][] = ['name' => (string) $name, 'description' => is_string($slot['description'] ?? null) ? $slot['description'] : ''];
+        }
+        foreach ($byPart as $events) {
+            array_push($tree['events'], ...$events);
+        }
+
+        return $tree;
+    }
+
+    /**
+     * The Try panel: a control per scalar prop, and the entry rendered with
+     * the values typed into them on top of its first example — through the
+     * same SSR path as the examples. Values are checked against the contract
+     * first, so a wrong one shows the validator's message, which names the
+     * prop's path, instead of reaching the renderer.
+     *
+     * @param array<string, string> $try
+     * @return array{controls: list<array{name: string, type: string, values: list<string>, value: string, required: bool}>, example: array<string, mixed>|null, error: string}|null
+     */
+    private function tryPanel(UiCatalogItem $item, array $try): ?array
+    {
+        $contract = $item->contract;
+        if ($contract === null || !in_array($item->kind, ['component', 'primitive'], true)) {
+            return null;
+        }
+        $controls = [];
+        foreach ($contract->props as $prop) {
+            if (!in_array($prop->type, [UiPropType::String, UiPropType::Boolean, UiPropType::Integer, UiPropType::Number, UiPropType::Scalar], true) || $prop->sensitive) {
+                continue;
+            }
+            $controls[] = [
+                'name' => $prop->name,
+                'type' => $prop->type === UiPropType::Boolean ? 'boolean' : $prop->type->value,
+                'values' => array_values(array_map(static fn (int|float|string|bool $v): string => (string) $v, array_filter($prop->values, 'is_scalar'))),
+                'value' => $try[$prop->name] ?? '',
+                'required' => $prop->required,
+            ];
+        }
+        if ($controls === []) {
+            return null;
+        }
+
+        $first = $contract->examples === [] ? null : array_values($contract->examples)[0];
+        if ($try === []) {
+            return ['controls' => $controls, 'example' => null, 'error' => ''];
+        }
+        $props = $first !== null && $first->template === null ? $first->props : [];
+        foreach ($contract->props as $prop) {
+            if (!array_key_exists($prop->name, $try)) {
+                continue;
+            }
+            // An emptied control means "not set": the example's own value or the default.
+            if ($try[$prop->name] === '') {
+                continue;
+            }
+            $props[$prop->name] = self::typed($prop, $try[$prop->name]);
+        }
+        try {
+            UiProp::validateObject(array_values($contract->props), $props, 'props', open: $contract->extraProps !== null);
+        } catch (\InvalidArgumentException $e) {
+            return ['controls' => $controls, 'example' => null, 'error' => $e->getMessage()];
+        }
+
+        return [
+            'controls' => $controls,
+            'example' => $this->example($item, new UiExample('try', 'Try it', $props, $first === null ? [] : $first->slots)),
+            'error' => '',
+        ];
+    }
+
+    /** A query string value as the prop's type reads it; what does not parse stays a string, for the validator to name. */
+    private static function typed(UiProp $prop, string $value): mixed
+    {
+        if ($prop->type === UiPropType::Scalar) {
+            // The control lists the declared values as text; map back to the one
+            // that reads as the submitted text. When two do (2 and '2'), the control
+            // cannot tell them apart, so the text stays as it came.
+            $matches = array_values(array_filter(
+                $prop->values,
+                static fn (string|int|float|bool $declared): bool => (string) $declared === $value,
+            ));
+            if (count($matches) === 1) {
+                return $matches[0];
+            }
+        }
+        return match ($prop->type) {
+            UiPropType::Boolean => match ($value) { 'true' => true, 'false' => false, default => $value },
+            UiPropType::Integer => preg_match('/\A-?\d{1,18}\z/', $value) === 1 ? (int) $value : $value,
+            UiPropType::Number => is_numeric($value) ? $value + 0 : $value,
+            default => $value,
+        };
     }
 
     /**
@@ -146,7 +283,7 @@ final class WorkbenchViewBuilder
         // raw, so the Workbench escapes them on the way in.
         $slots = array_map(static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'), $example->slots);
 
-        $base = ['name' => $example->name, 'label' => $example->label, 'uid' => $uid];
+        $base = ['name' => $example->name, 'label' => $example->label, 'uid' => $uid, 'provenance' => self::provenance($item, $example->props)];
 
         if ($example->template !== null) {
             $opts = self::optionString($props);
@@ -227,5 +364,33 @@ final class WorkbenchViewBuilder
     private static function shortName(string $name): string
     {
         return str_starts_with($name, 'platform.') ? substr($name, 9) : $name;
+    }
+
+    /**
+     * Where each prop's value comes from in an example, read from the
+     * contract alone — nothing is rendered or resolved to answer. An explicit
+     * null is the example's own choice and is named apart from a prop the
+     * example left out; a left-out prop takes the contract default, or is
+     * not set at all.
+     *
+     * @param array<string, mixed> $props
+     * @return list<array{name: string, value: string, source: string}>
+     */
+    private static function provenance(UiCatalogItem $item, array $props): array
+    {
+        if ($item->contract === null) {
+            return [];
+        }
+        $rows = [];
+        foreach ($item->contract->props as $prop) {
+            $rows[] = match (true) {
+                array_key_exists($prop->name, $props) && $props[$prop->name] === null => ['name' => $prop->name, 'value' => 'null', 'source' => 'explicit null'],
+                array_key_exists($prop->name, $props) => ['name' => $prop->name, 'value' => TwigLiteral::export($props[$prop->name]), 'source' => 'example'],
+                $prop->hasDefault() => ['name' => $prop->name, 'value' => TwigLiteral::export($prop->normalize($prop->default)), 'source' => 'default'],
+                default => ['name' => $prop->name, 'value' => '', 'source' => 'not set'],
+            };
+        }
+
+        return $rows;
     }
 }

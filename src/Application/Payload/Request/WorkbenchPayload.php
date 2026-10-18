@@ -41,6 +41,27 @@ final class WorkbenchPayload
         $this->mode = $value === 'dark' ? 'dark' : 'light';
     }
 
+    /**
+     * Prop values typed into the Try panel (`try[tone]=danger`): strings, as a
+     * query carries them; the builder types them by the contract.
+     *
+     * @var array<string, string>
+     */
+    public array $try = [];
+
+    public function setTry(mixed $value): void
+    {
+        $this->try = [];
+        if (!is_array($value)) {
+            return;
+        }
+        foreach ($value as $name => $text) {
+            if (is_string($name) && preg_match('/\A[a-zA-Z][a-zA-Z0-9_-]{0,63}\z/', $name) === 1 && is_string($text) && strlen($text) <= 500) {
+                $this->try[$name] = $text;
+            }
+        }
+    }
+
     public function setEntry(mixed $value): void
     {
         $this->entry = is_string($value) && preg_match('/\A[a-z][a-z0-9.-]{0,95}\z/', $value) === 1 ? $value : '';

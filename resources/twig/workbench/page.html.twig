@@ -106,13 +106,65 @@
                     <div class="wb-stage" data-workbench-stage style="color-scheme: {{ wb.mode }}">
                         {{ wbm.render(ex, entry.name) }}
                     </div>
-                    <details class="wb-code">
-                        <summary>Twig</summary>
+                    <details class="wb-code" data-workbench-provenance>
+                        <summary>Twig{% if ex.provenance is not empty %} · props{% endif %}</summary>
                         <pre><code data-workbench-snippet>{{ ex.snippet }}</code></pre>
+                    {% if ex.provenance is not empty %}
+                            <div class="wb-table-wrap" tabindex="0" role="region" aria-label="Props of {{ ex.label }}">
+                                <table class="wb-table">
+                                    <thead><tr><th scope="col">Prop</th><th scope="col">Value</th><th scope="col">From</th></tr></thead>
+                                    <tbody>
+                                        {% for p in ex.provenance %}
+                                            <tr data-workbench-prop="{{ p.name }}" data-source="{{ p.source }}"><td><code>{{ p.name }}</code></td><td>{% if p.value != '' %}<code>{{ p.value }}</code>{% endif %}</td><td>{{ p.source }}</td></tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                    {% endif %}
                     </details>
                 </section>
             {% endfor %}
             </div>
+
+            {% if entry.try %}
+                <section class="wb-example wb-try" data-workbench-try aria-labelledby="wb-try-label">
+                    <h2 id="wb-try-label" class="wb-example-title">Try it</h2>
+                    <form method="get" action="" class="wb-try-form" sx-layout="cluster" sx-gap="3">
+                        <input type="hidden" name="entry" value="{{ entry.name }}">
+                        {% if wb.skins.current %}<input type="hidden" name="skin" value="{{ wb.skins.current }}">{% endif %}
+                        <input type="hidden" name="mode" value="{{ wb.mode }}">
+                        {% for c in entry.try.controls %}
+                            <label data-workbench-try-control="{{ c.name }}">
+                                <span ui-text="caption"><code>{{ c.name }}</code>{% if c.required %} *{% endif %}</span>
+                                {% if c.values is not empty or c.type == 'boolean' %}
+                                    <select name="try[{{ c.name }}]">
+                                        <option value="">not set</option>
+                                        {% for v in (c.type == 'boolean' ? ['true', 'false'] : c.values) %}
+                                            <option value="{{ v }}" {% if c.value == v %}selected{% endif %}>{{ v }}</option>
+                                        {% endfor %}
+                                    </select>
+                                {% else %}
+                                    <input name="try[{{ c.name }}]" value="{{ c.value }}" {% if c.type in ['integer', 'number'] %}inputmode="decimal"{% endif %} autocomplete="off">
+                                {% endif %}
+                            </label>
+                        {% endfor %}
+                        <button type="submit" ui="button">Render</button>
+                    </form>
+                    {% if entry.try.error %}
+                        <div ui="alert" ui-tone="danger" role="alert" data-workbench-try-error>
+                            <div data-alert-body><div data-alert-title>Not rendered: the contract refuses these props</div><code>{{ entry.try.error }}</code></div>
+                        </div>
+                    {% elseif entry.try.example %}
+                        <div class="wb-stage" data-workbench-stage data-workbench-try-stage style="color-scheme: {{ wb.mode }}">
+                            {{ wbm.render(entry.try.example, entry.name) }}
+                        </div>
+                        <details class="wb-code" open>
+                            <summary>Twig</summary>
+                            <pre><code data-workbench-snippet>{{ entry.try.example.snippet }}</code></pre>
+                        </details>
+                    {% endif %}
+                </section>
+            {% endif %}
 
             {% if entry.props is not empty %}
                 <section class="wb-ref" aria-labelledby="wb-props">
@@ -133,6 +185,29 @@
                             </tbody>
                         </table>
                     </div>
+                </section>
+            {% endif %}
+
+            {% if entry.structure %}
+                <section class="wb-ref" aria-labelledby="wb-structure" data-workbench-structure>
+                    <h2 id="wb-structure">Structure</h2>
+                    <ul class="wb-tree">
+                        <li><code>{{ entry.name }}</code>
+                            <ul>
+                                {% for p in entry.structure.parts %}
+                                    <li data-workbench-part="{{ p.name }}">part <code>{{ p.name }}</code> renders <code>{{ p.primitive }}</code>{% if p.bind %}, binds <code>{{ p.bind }}</code>{% endif %}{% if p.provider %}, provided by <code title="{{ p.provider }}">{{ p.provider|split('\\')|last }}</code>{% endif %}
+                                        {% if p.events is not empty %}<ul>{% for e in p.events %}<li data-workbench-part-event="{{ p.name }}.{{ e.event }}">on <code>{{ e.event }}</code> → <code title="{{ e.handler }}">{{ e.handler|split('\\')|last }}</code>{% if e.transport %} ({{ e.transport }}){% endif %}</li>{% endfor %}</ul>{% endif %}
+                                    </li>
+                                {% endfor %}
+                                {% for sl in entry.structure.slots %}
+                                    <li data-workbench-slot="{{ sl.name }}">slot <code>{{ sl.name }}</code>{% if sl.description %}: {{ sl.description }}{% endif %}</li>
+                                {% endfor %}
+                                {% for e in entry.structure.events %}
+                                    <li>on <code>{{ e.event }}</code> → <code title="{{ e.handler }}">{{ e.handler|split('\\')|last }}</code>{% if e.transport %} ({{ e.transport }}){% endif %}</li>
+                                {% endfor %}
+                            </ul>
+                        </li>
+                    </ul>
                 </section>
             {% endif %}
 

@@ -15,9 +15,15 @@ use Semitexa\PlatformUi\Application\Service\Event\UiInteractionDispatchAdapter;
 use Semitexa\PlatformUi\Application\Service\Event\UiInteractionDispatcher;
 use Semitexa\PlatformUi\Application\Service\Event\UiPatchValidator;
 use Semitexa\PlatformUi\Application\Service\Event\UiPayloadFieldGuard;
+use Semitexa\PlatformUi\Application\Service\Event\UiRefreshAuthorizerInterface;
+use Semitexa\PlatformUi\Application\Service\Event\UiInteractionAuthorizerInterface;
+use Semitexa\PlatformUi\Domain\Model\Component\UiComponentMetadata;
+use Semitexa\PlatformUi\Domain\Model\Component\UiExternalHandlerMetadata;
+use Semitexa\PlatformUi\Domain\Model\Component\UiOnMetadata;
 use Semitexa\PlatformUi\Application\Service\Primitive\Builtin\ButtonPrimitive;
 use Semitexa\PlatformUi\Attribute\UiOn;
 use Semitexa\PlatformUi\Attribute\UiPart;
+use Semitexa\PlatformUi\Domain\Exception\UiInteractionForbiddenException;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionUnprocessableException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventNotificationInstruction;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventRedirectInstruction;
@@ -186,6 +192,74 @@ final class UiEffectVocabularyTest extends TestCase
         self::assertArrayNotHasKey('pr', $claimsFor(['when' => new \DateTimeImmutable()]), 'an object cannot be signed back');
         self::assertArrayNotHasKey('pr', $claimsFor(['blob' => str_repeat('x', 5000)]), 'too large to ride a context');
         self::assertArrayNotHasKey('pr', $claimsFor([]));
+    }
+
+    #[Test]
+    public function a_refresh_token_draws_its_component_again_in_the_page_session(): void
+    {
+        $token = SignedContext::sign(['rf' => 'effects.counter', 'i' => self::INSTANCE, 'pr' => ['count' => 7], 'who' => '', 'sub' => 'page_session_1'], 86400);
+
+        $result = $this->dispatcher()->dispatch($token, 'ui_evt_' . bin2hex(random_bytes(16)), []);
+
+        self::assertCount(1, $result->patches);
+        self::assertSame(UiResponsePatch::OP_MORPH, $result->patches[0]->op);
+        self::assertSame(self::INSTANCE, $result->patches[0]->targetInstance);
+        self::assertSame('<div>7</div>', $result->patches[0]->value);
+        self::assertSame([['effects.counter', ['instanceId' => self::INSTANCE, 'count' => 7], 'page_session_1']], $this->renders);
+    }
+
+    #[Test]
+    public function a_refresh_token_drawn_for_another_visitor_is_refused(): void
+    {
+        $token = SignedContext::sign(['rf' => 'effects.counter', 'i' => self::INSTANCE, 'pr' => ['count' => 7], 'who' => 'user-7'], 86400);
+
+        try {
+            $this->dispatcher()->dispatch($token, 'ui_evt_' . bin2hex(random_bytes(16)), []);
+            self::fail('a refresh for another subject must be refused');
+        } catch (UiInteractionForbiddenException $e) {
+            self::assertSame('refresh_subject_changed', $e->reason);
+        }
+        self::assertSame([], $this->renders);
+    }
+
+    #[Test]
+    public function a_bound_refresh_authorizer_is_asked_before_the_redraw(): void
+    {
+        $token = SignedContext::sign(['rf' => 'effects.counter', 'i' => self::INSTANCE, 'pr' => ['count' => 7], 'who' => ''], 86400);
+        $denyRefresh = new class implements UiInteractionAuthorizerInterface, UiRefreshAuthorizerInterface {
+            /** @var list<array<string, mixed>> */
+            public array $asked = [];
+
+            public function authorize(UiInteractionEvent $event, UiComponentMetadata $component, UiOnMetadata $eventMeta): bool
+            {
+                return true;
+            }
+
+            public function authorizeExternal(UiInteractionEvent $event, UiComponentMetadata $component, UiExternalHandlerMetadata $externalMeta): bool
+            {
+                return true;
+            }
+
+            public function authorizeRefresh(UiComponentMetadata $component, string $instanceId, array $props): bool
+            {
+                $this->asked[] = $props;
+
+                return false;
+            }
+        };
+        $dispatcher = new UiInteractionDispatcher(
+            authorizer: $denyRefresh,
+            productionLike: false,
+            componentRenderer: fn (string $name, array $props): string => '<div>drawn</div>',
+        );
+
+        try {
+            $dispatcher->dispatch($token, 'ui_evt_' . bin2hex(random_bytes(16)), []);
+            self::fail('a denied refresh must not draw');
+        } catch (UiInteractionForbiddenException $e) {
+            self::assertSame('refresh_forbidden', $e->reason);
+        }
+        self::assertSame([['count' => 7]], $denyRefresh->asked);
     }
 
     private function dispatcher(bool $withRenderer = true): UiInteractionDispatcher

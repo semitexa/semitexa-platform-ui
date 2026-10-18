@@ -96,6 +96,15 @@ final class UiPermissions
         return $auth !== null && !$auth->isGuest() && $auth->getUser() !== null;
     }
 
+    /** The signed-in visitor's id, or '' for a guest or when no auth context is installed. */
+    public static function subjectId(): string
+    {
+        $auth = self::$auth !== null ? (self::$auth)() : null;
+        $user = $auth === null || $auth->isGuest() ? null : $auth->getUser();
+
+        return $user === null ? '' : $user->getId();
+    }
+
     public static function allows(string $permission): bool
     {
         $auth = self::$auth !== null ? (self::$auth)() : null;

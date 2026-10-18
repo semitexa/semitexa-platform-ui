@@ -281,10 +281,14 @@ final class EventRuntimeAssetTest extends TestCase
         // can identify frontend-originated dispatches.
         self::assertStringContainsString("'ui_evt_'", $js);
         // Each captured event mints its OWN dispatchId — `var dispatchId =
-        // generateDispatchId();` lives inside the onCapture callback as
-        // the first statement after the lifecycle comment block.
+        // generateDispatchId();` lives inside the capture listener as the
+        // first statement after the lifecycle comment block. The listener is
+        // named `send` so an expired context's retry goes through it too,
+        // with a dispatchId of its own.
+        // verify:accept-test-change the onCapture callback became the named send(), which the expired-context retry calls again (mw-3)
+        self::assertMatchesRegularExpression('/onCapture\(send\);/', $code);
         self::assertMatchesRegularExpression(
-            '/onCapture\s*\(\s*function\s*\(\s*captured\s*\)[^{]*\{[^}]*?var\s+dispatchId\s*=\s*generateDispatchId\(\s*\)/s',
+            '/function\s+send\s*\(\s*captured\s*\)[^{]*\{[^}]*?var\s+dispatchId\s*=\s*generateDispatchId\(\s*\)/s',
             $code,
             'Transport must mint a fresh dispatchId for every captured event inside onCapture.',
         );
