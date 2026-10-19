@@ -14,7 +14,7 @@
         "semitexa/authorization": "*",
         "semitexa/core": ">=2026.10.14.0919 || dev-master",
         "semitexa/llm": ">=2026.10.08.0620 || dev-master",
-        "semitexa/ssr": ">=2026.10.08.0620 || dev-master",
+        "semitexa/ssr": ">=2026.10.19.0811 || dev-master",
         "semitexa/theme": ">=2026.10.14.0919 || dev-master",
         "symfony/console": "^7.0",
         "semitexa/prompt": "*"
@@ -36,7 +36,7 @@
         "semitexa": {
             "floors": {
                 "semitexa/core": "2026.10.14.0919",
-                "semitexa/ssr": "next",
+                "semitexa/ssr": "2026.10.19.0811",
                 "semitexa/llm": "2026.10.08.0620",
                 "semitexa/theme": "2026.10.14.0919"
             }
