@@ -11,8 +11,9 @@ use Semitexa\Ssr\Attribute\AsComponent;
 /**
  * Ask for a reset link by email; the action answers the same way whether or not the address exists.
  *
- * Backend-agnostic: the form's fields and rules are here, what happens on
- * submit is the project's #[AsFormSubmitAction] named by `submitAction`.
+ * The form's fields and rules are here; what happens on submit is the
+ * #[AsFormSubmitAction] named by `submitAction`: the ready `platform.auth.forgot-password`
+ * (semitexa/platform-user accounts), or the project's own.
  */
 #[AsComponent(
     name: 'platform.forgot-password',
