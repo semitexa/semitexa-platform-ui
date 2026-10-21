@@ -10,6 +10,7 @@ use Semitexa\Authorization\Domain\Model\AccessPolicy;
 use Semitexa\Authorization\Domain\Model\AuthenticatedSubject;
 use Semitexa\Authorization\Domain\Model\GuestSubject;
 use Semitexa\Core\Auth\AuthContextInterface;
+use Semitexa\Core\Auth\AuthenticatableInterface;
 use Semitexa\Core\Auth\PayloadAccessType;
 use Semitexa\Core\Container\RequestScopedContainer;
 
@@ -94,6 +95,14 @@ final class UiPermissions
         $auth = self::$auth !== null ? (self::$auth)() : null;
 
         return $auth !== null && !$auth->isGuest() && $auth->getUser() !== null;
+    }
+
+    /** The signed-in visitor, or null for a guest or when no auth context is installed. */
+    public static function visitor(): ?AuthenticatableInterface
+    {
+        $auth = self::$auth !== null ? (self::$auth)() : null;
+
+        return $auth === null || $auth->isGuest() ? null : $auth->getUser();
     }
 
     /** The signed-in visitor's id, or '' for a guest or when no auth context is installed. */
