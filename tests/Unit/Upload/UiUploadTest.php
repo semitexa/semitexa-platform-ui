@@ -66,6 +66,25 @@ final class UiUploadTest extends TestCase
     }
 
     #[Test]
+    public function a_file_taken_near_the_end_of_its_hour_is_not_swept_from_under_the_form_action(): void
+    {
+        // rename() kept the upload's mtime, and the sweep removes a claimed file
+        // an hour after it: one taken late vanished while the action read it.
+        $id = UiTempUploads::put($this->file('late', 'late.txt')->tmpPath, ['size' => 4, 'mime' => 'text/plain', 'name' => 'late.txt', 'field' => 'f']);
+        // The upload's own mtime is past the TTL (a slow client, a file kept
+        // from long ago); its ticket is still valid, so the take succeeds.
+        touch($this->dir . '/' . $id . '.bin', time() - UiTempUploads::TTL_SECONDS - 60);
+        $taken = UiTempUploads::take($id);
+        self::assertNotNull($taken);
+        clearstatcache();
+
+        // The next upload sweeps.
+        UiTempUploads::put($this->file('x', 'next.txt')->tmpPath, ['size' => 1, 'mime' => 'text/plain', 'name' => 'next.txt', 'field' => 'f']);
+
+        self::assertFileExists($this->dir . '/' . $id . '.claimed', 'swept while the form action still held it');
+    }
+
+    #[Test]
     public function a_failed_metadata_write_leaves_no_file_behind(): void
     {
         $source = $this->file('x', 'a.txt')->tmpPath;

@@ -83,6 +83,10 @@ final class UiTempUploads
         if (!@rename($dir . '/' . $id . '.bin', $claimed)) {
             return null;
         }
+        // rename() keeps the upload's mtime, and the sweep removes a claimed
+        // file an hour after THAT: one taken near the end of its hour could
+        // vanish under the form action still reading it. Its hour starts now.
+        @touch($claimed);
         $metaPath = $dir . '/' . $id . '.json';
         $meta = json_decode((string) @file_get_contents($metaPath), true);
         @unlink($metaPath);
