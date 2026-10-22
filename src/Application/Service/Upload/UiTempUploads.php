@@ -79,14 +79,14 @@ final class UiTempUploads
         }
         $dir = self::directory();
         $claimed = $dir . '/' . $id . '.claimed';
-        // rename() is atomic: of two concurrent takes, one wins.
+        // rename() is atomic: of two concurrent takes, one wins. Nothing is
+        // touched: touch() makes a file that is not there, and a second take
+        // made an empty one and renamed it over the winner's. The sweep reads
+        // a claimed file's age from its ctime, which the rename sets: its hour
+        // starts at the take, not at the upload.
         if (!@rename($dir . '/' . $id . '.bin', $claimed)) {
             return null;
         }
-        // rename() keeps the upload's mtime, and the sweep removes a claimed
-        // file an hour after THAT: one taken near the end of its hour could
-        // vanish under the form action still reading it. Its hour starts now.
-        @touch($claimed);
         $metaPath = $dir . '/' . $id . '.json';
         $meta = json_decode((string) @file_get_contents($metaPath), true);
         @unlink($metaPath);
@@ -102,10 +102,16 @@ final class UiTempUploads
     private static function sweep(string $dir): void
     {
         $now = time();
-        $seen = 0;
+        $removed = 0;
         foreach (glob($dir . '/upl_*.json') ?: [] as $metaPath) {
-            if (++$seen > self::SWEEP_LIMIT) {
+            // Removals are what is bounded, not files looked at: fifty fresh
+            // ones first in the listing kept every expired one after them.
+            // A file written within the TTL cannot have expired yet.
+            if ($removed >= self::SWEEP_LIMIT) {
                 break;
+            }
+            if (@filemtime($metaPath) >= $now - self::TTL_SECONDS) {
+                continue;
             }
             $meta = json_decode((string) @file_get_contents($metaPath), true);
             // Metadata that does not decode is only stale once its file is
@@ -116,9 +122,15 @@ final class UiTempUploads
             if ($expired) {
                 @unlink(substr($metaPath, 0, -5) . '.bin');
                 @unlink($metaPath);
+                $removed++;
             }
         }
-        foreach ([...(glob($dir . '/upl_*.claimed') ?: []), ...(glob($dir . '/upl_*.json.tmp') ?: [])] as $leftover) {
+        foreach (glob($dir . '/upl_*.claimed') ?: [] as $claimed) {
+            if (@filectime($claimed) < $now - self::TTL_SECONDS) {
+                @unlink($claimed);
+            }
+        }
+        foreach (glob($dir . '/upl_*.json.tmp') ?: [] as $leftover) {
             if (@filemtime($leftover) < $now - self::TTL_SECONDS) {
                 @unlink($leftover);
             }
