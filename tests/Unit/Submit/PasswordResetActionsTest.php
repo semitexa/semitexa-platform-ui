@@ -39,7 +39,7 @@ final class PasswordResetActionsTest extends TestCase
     protected function setUp(): void
     {
         $this->orm = new OrmManager(config: new ConnectionConfig(driver: 'sqlite', sqliteMemory: true));
-        $this->orm->getAdapter()->execute('CREATE TABLE platform_user_password_reset (token_hash CHAR(64) PRIMARY KEY, user_id VARCHAR(36) NOT NULL, tenant_id VARCHAR(64) NOT NULL, created_at DATETIME NOT NULL, expires_at DATETIME NOT NULL, used_at DATETIME NULL)');
+        $this->orm->getAdapter()->execute('CREATE TABLE platform_user_password_reset (token_hash CHAR(64) PRIMARY KEY, user_id VARCHAR(36) NOT NULL, tenant_id VARCHAR(64) NOT NULL, created_at DATETIME NOT NULL, expires_at DATETIME NOT NULL, used_at DATETIME NULL, credential_version INT NOT NULL DEFAULT 0)');
         $tokens = new PasswordResetTokenStore();
         self::set($tokens, 'orm', $this->orm);
         $hasher = new PasswordHasher();
