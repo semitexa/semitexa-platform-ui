@@ -54,7 +54,8 @@ final class UiComponentStatesTest extends TestCase
     {
         $saved = ['APP_SECRET' => getenv('APP_SECRET'), 'APP_SECRET_PREVIOUS' => getenv('APP_SECRET_PREVIOUS')];
         putenv('APP_SECRET=old-secret-old-secret-old-secret-0');
-        putenv('APP_SECRET_PREVIOUS');
+        // Empty, not unset: unset falls through to a .env file that may name the old secret.
+        putenv('APP_SECRET_PREVIOUS=');
         try {
             $key = (string) UiComponentStates::persist(StatefulFixture::class, 'uci_1', ['count' => 3]);
 
@@ -62,7 +63,10 @@ final class UiComponentStatesTest extends TestCase
             self::assertNull(UiComponentStates::load($key, 'uci_1'), 'an old key without APP_SECRET_PREVIOUS is not this visitor\'s');
             putenv('APP_SECRET_PREVIOUS=old-secret-old-secret-old-secret-0');
             self::assertSame(['count' => 3], UiComponentStates::load($key, 'uci_1'));
-            self::assertNotSame($key, UiComponentStates::persist(StatefulFixture::class, 'uci_1', ['count' => 4]), 'new state takes the new key');
+            $rotated = UiComponentStates::persist(StatefulFixture::class, 'uci_1', ['count' => 4]);
+            self::assertIsString($rotated);
+            self::assertNotSame($key, $rotated, 'new state takes the new key');
+            self::assertSame(['count' => 4], UiComponentStates::load($rotated, 'uci_1'));
         } finally {
             foreach ($saved as $name => $value) {
                 putenv($value === false ? $name : "{$name}={$value}");

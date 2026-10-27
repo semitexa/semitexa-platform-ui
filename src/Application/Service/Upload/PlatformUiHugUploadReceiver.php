@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Upload;
 
+use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\ContainerInterface;
 use Semitexa\Core\Attribute\Config;
 use Semitexa\Core\Attribute\InjectAsReadonly;
@@ -11,6 +12,7 @@ use Semitexa\Core\Attribute\SatisfiesServiceContract;
 use Semitexa\Core\RateLimit\RateLimiter;
 use Semitexa\Core\RateLimit\RateLimitKey;
 use Semitexa\Core\Http\UploadedFile;
+use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\Ssr\Application\Service\UiEvent\HugUploadReceiverInterface;
 
 /**
@@ -75,8 +77,17 @@ final class PlatformUiHugUploadReceiver implements HugUploadReceiverInterface
         }
         try {
             $limiter = $this->container->get(RateLimiter::class);
-        } catch (\Throwable) {
+        } catch (ContainerExceptionInterface) {
             // No request to count by: nothing to limit.
+            return null;
+        } catch (\Throwable $e) {
+            // A limiter that fails to build is a defect, not "no request": the
+            // upload still goes through, but say that no limit held it.
+            StaticLoggerBridge::error('platform_ui', 'Upload rate limiter could not be resolved: the upload limit is not enforced', [
+                'exception' => $e::class,
+                'message' => $e->getMessage(),
+            ]);
+
             return null;
         }
         $taken = [];

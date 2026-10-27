@@ -6,7 +6,10 @@ namespace Semitexa\PlatformUi\Tests\Unit\Upload;
 
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use Psr\Container\ContainerExceptionInterface;
 use Semitexa\Core\Http\UploadedFile;
+use Semitexa\Core\Log\LoggerInterface;
+use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\PlatformUi\Application\Service\Upload\PlatformUiHugUploadReceiver;
 use Semitexa\PlatformUi\Application\Service\Upload\UiTempUploads;
 use Semitexa\PlatformUi\Application\Service\Upload\UiUploadTickets;
@@ -221,6 +224,44 @@ final class UiUploadTest extends TestCase
         });
 
         return $receiver;
+    }
+
+    /** Only "nothing bound" is quiet: a limiter that fails to build turns the limit off, and says so. */
+    #[Test]
+    public function a_limiter_that_fails_to_build_is_logged_not_taken_for_no_request(): void
+    {
+        $logged = [];
+        StaticLoggerBridge::set(new class ($logged) implements LoggerInterface {
+            /** @param list<string> $logged */
+            public function __construct(private array &$logged) {}
+            public function error(string $message, array $context = []): void { $this->log('error', $message, $context); }
+            public function critical(string $message, array $context = []): void { $this->log('critical', $message, $context); }
+            public function warning(string $message, array $context = []): void { $this->log('warning', $message, $context); }
+            public function info(string $message, array $context = []): void {}
+            public function notice(string $message, array $context = []): void {}
+            public function debug(string $message, array $context = []): void {}
+            /** @param array<string, mixed> $context */
+            private function log(string $level, string $message, array $context): void
+            {
+                $this->logged[] = $level . ': ' . $message . ' (' . ($context['message'] ?? '') . ')';
+            }
+        });
+        try {
+            foreach ([new \RuntimeException('storage is down'), new class ('not bound') extends \RuntimeException implements ContainerExceptionInterface {}] as $failure) {
+                $receiver = new PlatformUiHugUploadReceiver();
+                (new \ReflectionProperty($receiver, 'container'))->setValue($receiver, new class ($failure) implements \Psr\Container\ContainerInterface {
+                    public function __construct(private \Throwable $failure) {}
+                    public function get(string $id): mixed { throw $this->failure; }
+                    public function has(string $id): bool { return true; }
+                });
+                [$status] = $receiver->receive($this->claims(['text/plain']), $this->file('note', 'a.txt'));
+                self::assertSame(200, $status);
+            }
+        } finally {
+            StaticLoggerBridge::reset();
+        }
+
+        self::assertSame(['error: Upload rate limiter could not be resolved: the upload limit is not enforced (storage is down)'], $logged);
     }
 
     #[Test]
