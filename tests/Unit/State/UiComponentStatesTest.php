@@ -48,6 +48,28 @@ final class UiComponentStatesTest extends TestCase
         self::assertNull(UiComponentStates::load((string) $key, 'uci_1'), 'another visitor cannot name it');
     }
 
+    /** Keyed on the raw secret, rotating it lost the state of every open page. */
+    #[Test]
+    public function state_saved_before_a_secret_rotation_is_found_under_the_previous_secret(): void
+    {
+        $saved = ['APP_SECRET' => getenv('APP_SECRET'), 'APP_SECRET_PREVIOUS' => getenv('APP_SECRET_PREVIOUS')];
+        putenv('APP_SECRET=old-secret-old-secret-old-secret-0');
+        putenv('APP_SECRET_PREVIOUS');
+        try {
+            $key = (string) UiComponentStates::persist(StatefulFixture::class, 'uci_1', ['count' => 3]);
+
+            putenv('APP_SECRET=new-secret-new-secret-new-secret-1');
+            self::assertNull(UiComponentStates::load($key, 'uci_1'), 'an old key without APP_SECRET_PREVIOUS is not this visitor\'s');
+            putenv('APP_SECRET_PREVIOUS=old-secret-old-secret-old-secret-0');
+            self::assertSame(['count' => 3], UiComponentStates::load($key, 'uci_1'));
+            self::assertNotSame($key, UiComponentStates::persist(StatefulFixture::class, 'uci_1', ['count' => 4]), 'new state takes the new key');
+        } finally {
+            foreach ($saved as $name => $value) {
+                putenv($value === false ? $name : "{$name}={$value}");
+            }
+        }
+    }
+
     #[Test]
     public function small_props_of_a_stateless_component_stay_inline_and_large_ones_do_not(): void
     {
