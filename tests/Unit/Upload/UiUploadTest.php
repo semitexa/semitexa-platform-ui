@@ -66,6 +66,45 @@ final class UiUploadTest extends TestCase
     }
 
     #[Test]
+    public function an_expired_upload_is_swept_past_any_number_of_fresh_ones_fifty_at_a_time(): void
+    {
+        mkdir($this->dir, 0775, true);
+        $old = time() - UiTempUploads::TTL_SECONDS - 60;
+        $write = function (string $id, int $expires, int $mtime): void {
+            file_put_contents($this->dir . "/{$id}.bin", 'bytes');
+            file_put_contents($this->dir . "/{$id}.json", json_encode(['expires' => $expires]));
+            touch($this->dir . "/{$id}.bin", $mtime);
+            touch($this->dir . "/{$id}.json", $mtime);
+        };
+        // Sixty fresh ones listed first: a sweep that counted files looked at
+        // stopped before it reached an expired one.
+        for ($i = 0; $i < 60; $i++) {
+            $write('upl_00' . str_pad((string) $i, 30, '0', STR_PAD_LEFT), time() + 600, time());
+        }
+        for ($i = 0; $i < 55; $i++) {
+            $write('upl_f0' . str_pad((string) $i, 30, '0', STR_PAD_LEFT), $old, $old);
+        }
+        file_put_contents($this->dir . '/upl_' . str_repeat('e', 32) . '.json.tmp', '{');
+        touch($this->dir . '/upl_' . str_repeat('e', 32) . '.json.tmp', $old);
+
+        // The expired ones only: a new upload's random id may share their prefix.
+        $new = [];
+        $expired = function (string $ext) use (&$new): int {
+            return count(array_filter(glob($this->dir . "/upl_f0*{$ext}") ?: [], static fn (string $f): bool => !in_array(basename($f, $ext), $new, true)));
+        };
+        $new[] = UiTempUploads::put($this->file('x', 'next.txt')->tmpPath, ['size' => 1, 'mime' => 'text/plain', 'name' => 'next.txt', 'field' => 'f']);
+
+        self::assertSame(5, $expired('.json'), 'fifty expired removed by one put, the rest by the next');
+        self::assertSame(5, $expired('.bin'), 'each with its file');
+        self::assertCount(60, array_filter(glob($this->dir . '/upl_00*.json') ?: [], static fn (string $f): bool => !in_array(basename($f, '.json'), $new, true)), 'the fresh ones kept');
+        self::assertSame([], glob($this->dir . '/upl_*.json.tmp') ?: [], 'an abandoned sidecar write is swept');
+
+        $new[] = UiTempUploads::put($this->file('y', 'next.txt')->tmpPath, ['size' => 1, 'mime' => 'text/plain', 'name' => 'next.txt', 'field' => 'f']);
+        self::assertSame(0, $expired('.json'));
+        self::assertSame(0, $expired('.bin'));
+    }
+
+    #[Test]
     public function a_file_taken_near_the_end_of_its_hour_is_not_swept_from_under_the_form_action(): void
     {
         // rename() kept the upload's mtime, and the sweep removes a claimed file
@@ -147,6 +186,58 @@ final class UiUploadTest extends TestCase
         [$status] = (new PlatformUiHugUploadReceiver())->receive($this->claims(['image/svg+xml']), $this->file($svg, 'logo.svg'));
         self::assertSame(200, $status, 'a field that lists the type exactly still takes it');
         self::assertTrue(UiUploadTickets::typeAllowed('image/png', ['image/*']));
+    }
+
+    /** One page's signed context took any number of files, each kept an hour. */
+    #[Test]
+    public function a_client_over_its_minute_is_refused_without_the_file_being_kept(): void
+    {
+        $receiver = $this->limitedReceiver();
+        (new \ReflectionProperty($receiver, 'perMinute'))->setValue($receiver, 2);
+
+        $statuses = [];
+        foreach ([1, 2, 3] as $i) {
+            [$statuses[], $body] = $receiver->receive($this->claims(['text/plain']), $this->file("note {$i}", 'a.txt'));
+        }
+
+        self::assertSame([200, 200, 429], $statuses);
+        self::assertSame('upload_rate_limited', $body['reason'] ?? null);
+        self::assertCount(2, glob($this->dir . '/upl_*.json') ?: [], 'the refused file was not kept');
+    }
+
+    private function limitedReceiver(): PlatformUiHugUploadReceiver
+    {
+        $receiver = new PlatformUiHugUploadReceiver();
+        $limiter = new \Semitexa\Core\RateLimit\RateLimiter();
+        $storage = new \Semitexa\Core\RateLimit\RateLimitStorage();
+        $storage->use(new \Semitexa\Core\RateLimit\InMemoryRateLimitStore());
+        foreach (['storage' => $storage, 'request' => new \Semitexa\Core\Request('GET', '/', [], [], [], ['remote_addr' => '203.0.113.7'], [])] as $property => $value) {
+            (new \ReflectionProperty($limiter, $property))->setValue($limiter, $value);
+        }
+        (new \ReflectionProperty($receiver, 'container'))->setValue($receiver, new class ($limiter) implements \Psr\Container\ContainerInterface {
+            public function __construct(private object $limiter) {}
+            public function get(string $id): mixed { return $this->limiter; }
+            public function has(string $id): bool { return true; }
+        });
+
+        return $receiver;
+    }
+
+    #[Test]
+    public function an_upload_the_hour_refuses_does_not_use_up_the_minute(): void
+    {
+        $receiver = $this->limitedReceiver();
+        (new \ReflectionProperty($receiver, 'perMinute'))->setValue($receiver, 2);
+        (new \ReflectionProperty($receiver, 'perHour'))->setValue($receiver, 1);
+
+        [$first] = $receiver->receive($this->claims(['text/plain']), $this->file('one', 'a.txt'));
+        [$second] = $receiver->receive($this->claims(['text/plain']), $this->file('two', 'a.txt'));
+        // The hour refused the second; had it kept its minute count, the
+        // minute (2) would now refuse as well. Lift the hour and the minute still has room.
+        (new \ReflectionProperty($receiver, 'perHour'))->setValue($receiver, 0);
+        [$third] = $receiver->receive($this->claims(['text/plain']), $this->file('three', 'a.txt'));
+
+        self::assertSame([200, 429, 200], [$first, $second, $third]);
     }
 
     #[Test]

@@ -4,7 +4,12 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Upload;
 
+use Psr\Container\ContainerInterface;
+use Semitexa\Core\Attribute\Config;
+use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
+use Semitexa\Core\RateLimit\RateLimiter;
+use Semitexa\Core\RateLimit\RateLimitKey;
 use Semitexa\Core\Http\UploadedFile;
 use Semitexa\Ssr\Application\Service\UiEvent\HugUploadReceiverInterface;
 
@@ -17,8 +22,26 @@ use Semitexa\Ssr\Application\Service\UiEvent\HugUploadReceiverInterface;
 #[SatisfiesServiceContract(of: HugUploadReceiverInterface::class)]
 final class PlatformUiHugUploadReceiver implements HugUploadReceiverInterface
 {
+    // One page's signed context took any number of files, each kept an hour:
+    // a script filled the disk. Per client (the signed-in user, else the
+    // address); 0 turns a limit off.
+    #[Config(env: 'PLATFORM_UI_UPLOADS_PER_MINUTE', default: 10)]
+    protected int $perMinute = 10;
+
+    #[Config(env: 'PLATFORM_UI_UPLOADS_PER_HOUR', default: 100)]
+    protected int $perHour = 100;
+
+    // The per-execution RateLimiter is taken from it per upload: this
+    // receiver lives as long as the worker.
+    #[InjectAsReadonly]
+    protected ContainerInterface $container;
+
     public function receive(array $claims, UploadedFile $file): array
     {
+        $limited = $this->overLimit();
+        if ($limited !== null) {
+            return $limited;
+        }
         $max = is_int($claims['mx'] ?? null) ? $claims['mx'] : UiUploadTickets::DEFAULT_MAX_BYTES;
         $types = is_array($claims['ty'] ?? null) ? array_values(array_filter($claims['ty'], 'is_string')) : [];
         $size = @filesize($file->tmpPath);
@@ -42,6 +65,38 @@ final class PlatformUiHugUploadReceiver implements HugUploadReceiverInterface
             'type'   => $mime,
             'name'   => mb_substr($name, 0, 120),
         ]];
+    }
+
+    /** @return array{0: int, 1: array<string, mixed>}|null the refusal, when this client is over a limit */
+    private function overLimit(): ?array
+    {
+        if (!isset($this->container)) {
+            return null;
+        }
+        try {
+            $limiter = $this->container->get(RateLimiter::class);
+        } catch (\Throwable) {
+            // No request to count by: nothing to limit.
+            return null;
+        }
+        $taken = [];
+        foreach ([[$this->perMinute, 60], [$this->perHour, 3600]] as [$limit, $seconds]) {
+            if ($limit <= 0) {
+                continue;
+            }
+            $decision = $limiter->attempt('platform-ui-upload', $limit, $seconds, RateLimitKey::User);
+            if (!$decision->allowed) {
+                // The minute must not be used up by uploads the hour refused.
+                foreach ($taken as $earlier) {
+                    $limiter->release($earlier);
+                }
+
+                return [429, ['status' => 'rejected', 'reason' => 'upload_rate_limited', 'message' => sprintf('Too many uploads. Try again in %s.', $decision->retryAfter >= 120 ? (int) ceil($decision->retryAfter / 60) . ' minutes' : max(1, $decision->retryAfter) . ($decision->retryAfter > 1 ? ' seconds' : ' second')), 'retryAfter' => $decision->retryAfter]];
+            }
+            $taken[] = $decision;
+        }
+
+        return null;
     }
 
     /** @return array{0: int, 1: array<string, mixed>} */
