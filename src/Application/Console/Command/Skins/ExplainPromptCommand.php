@@ -36,6 +36,8 @@ use Symfony\Component\Console\Output\OutputInterface;
     requiredArguments: ['prompt'],
     executionKind: AiExecutionKind::DirectCommand,
     channels: ['console'],
+    // A paid model call, for the skins only the operator writes.
+    operatorOnly: true,
 )]
 final class ExplainPromptCommand extends Command
 {
