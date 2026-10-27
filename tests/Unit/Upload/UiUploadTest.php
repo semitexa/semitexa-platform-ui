@@ -7,6 +7,7 @@ namespace Semitexa\PlatformUi\Tests\Unit\Upload;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerExceptionInterface;
+use Psr\Container\NotFoundExceptionInterface;
 use Semitexa\Core\Http\UploadedFile;
 use Semitexa\Core\Log\LoggerInterface;
 use Semitexa\Core\Log\StaticLoggerBridge;
@@ -226,11 +227,14 @@ final class UiUploadTest extends TestCase
         return $receiver;
     }
 
-    /** Only "nothing bound" is quiet: a limiter that fails to build turns the limit off, and says so. */
+    /** Only "nothing bound" is quiet: a limiter that fails to build, a container failure included, turns the limit off and says so. */
     #[Test]
     public function a_limiter_that_fails_to_build_is_logged_not_taken_for_no_request(): void
     {
         $logged = [];
+        // Put back what was installed, not reset: a logger set before this
+        // test is still there for the tests after it.
+        $previous = (new \ReflectionProperty(StaticLoggerBridge::class, 'logger'))->getValue();
         StaticLoggerBridge::set(new class ($logged) implements LoggerInterface {
             /** @param list<string> $logged */
             public function __construct(private array &$logged) {}
@@ -247,7 +251,12 @@ final class UiUploadTest extends TestCase
             }
         });
         try {
-            foreach ([new \RuntimeException('storage is down'), new class ('not bound') extends \RuntimeException implements ContainerExceptionInterface {}] as $failure) {
+            $failures = [
+                new \RuntimeException('storage is down'),
+                new class ('could not build it') extends \RuntimeException implements ContainerExceptionInterface {},
+                new class ('not bound') extends \RuntimeException implements NotFoundExceptionInterface {},
+            ];
+            foreach ($failures as $failure) {
                 $receiver = new PlatformUiHugUploadReceiver();
                 (new \ReflectionProperty($receiver, 'container'))->setValue($receiver, new class ($failure) implements \Psr\Container\ContainerInterface {
                     public function __construct(private \Throwable $failure) {}
@@ -258,10 +267,17 @@ final class UiUploadTest extends TestCase
                 self::assertSame(200, $status);
             }
         } finally {
-            StaticLoggerBridge::reset();
+            if ($previous instanceof LoggerInterface) {
+                StaticLoggerBridge::set($previous);
+            } else {
+                StaticLoggerBridge::reset();
+            }
         }
 
-        self::assertSame(['error: Upload rate limiter could not be resolved: the upload limit is not enforced (storage is down)'], $logged);
+        self::assertSame([
+            'error: Upload rate limiter could not be resolved: the upload limit is not enforced (storage is down)',
+            'error: Upload rate limiter could not be resolved: the upload limit is not enforced (could not build it)',
+        ], $logged);
     }
 
     #[Test]

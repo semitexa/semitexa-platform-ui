@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Upload;
 
-use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\ContainerInterface;
+use Psr\Container\NotFoundExceptionInterface;
 use Semitexa\Core\Attribute\Config;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Attribute\SatisfiesServiceContract;
@@ -77,8 +77,10 @@ final class PlatformUiHugUploadReceiver implements HugUploadReceiverInterface
         }
         try {
             $limiter = $this->container->get(RateLimiter::class);
-        } catch (ContainerExceptionInterface) {
-            // No request to count by: nothing to limit.
+        } catch (NotFoundExceptionInterface) {
+            // No limiter bound in this container: nothing to limit with. Any
+            // other container failure (one that could not build it) is a
+            // defect and goes to the log below.
             return null;
         } catch (\Throwable $e) {
             // A limiter that fails to build is a defect, not "no request": the
