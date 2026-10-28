@@ -44,6 +44,9 @@ use Symfony\Component\Console\Output\OutputInterface;
     requiredArguments: [],
     executionKind: AiExecutionKind::DirectCommand,
     channels: ['console'],
+    // --write puts a skin into the install, for every site, and each prompt
+    // is a paid model call.
+    operatorOnly: true,
 )]
 final class GenerateSkinCommand extends Command
 {

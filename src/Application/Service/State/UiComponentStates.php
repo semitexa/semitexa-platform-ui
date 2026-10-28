@@ -8,12 +8,12 @@ use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\ContainerInterface;
 use Semitexa\Core\Container\RequestScopedContainer;
 use Semitexa\Core\Log\StaticLoggerBridge;
+use Semitexa\Core\Security\AppSecret;
 use Semitexa\PlatformUi\Attribute\UiState;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionUnprocessableException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult;
 use Semitexa\PlatformUi\Domain\Model\Event\UiResponsePatch;
 use Semitexa\Ssr\Application\Service\UiEvent\SignedContextBinding;
-use Semitexa\Ssr\Application\Service\UiEvent\SignedContextSecret;
 
 /**
  * Component state on the server (ep-platform-live-state · tk-ls-component-state).
@@ -127,13 +127,21 @@ final class UiComponentStates
      */
     public static function load(string $key, string $instanceId): ?array
     {
-        $expected = self::keyFor($instanceId);
         $store = self::store();
-        if ($expected === null || $store === null || !hash_equals($expected, $key)) {
+        if ($store === null) {
             return null;
         }
+        // Under APP_SECRET_PREVIOUS too: keyed on the raw current secret,
+        // rotating it lost the state of every open page, whose contexts
+        // still verified.
+        foreach (self::verifyingSecrets() as $secret) {
+            $expected = self::keyFor($instanceId, $secret);
+            if ($expected !== null && hash_equals($expected, $key)) {
+                return $store->get($key);
+            }
+        }
 
-        return $store->get($key);
+        return null;
     }
 
     /**
@@ -268,14 +276,35 @@ final class UiComponentStates
         };
     }
 
-    private static function keyFor(string $instanceId): ?string
+    private const KEY_PURPOSE = 'platform-ui.component-state';
+
+    /** $secret: the key to derive with; APP_SECRET's own for component state by default. */
+    private static function keyFor(string $instanceId, ?string $secret = null): ?string
     {
         $binding = SignedContextBinding::current();
         if ($binding === null || $binding['s'] === '' || $instanceId === '') {
             return null;
         }
 
-        return substr(hash_hmac('sha256', 'ui-state:' . $binding['s'] . ':' . $binding['t'] . ':' . $instanceId, SignedContextSecret::resolve()), 0, 40);
+        return substr(hash_hmac('sha256', 'ui-state:' . $binding['s'] . ':' . $binding['t'] . ':' . $instanceId, $secret ?? AppSecret::derive(AppSecret::current(), self::KEY_PURPOSE)), 0, 40);
+    }
+
+    /**
+     * Every secret a saved state's key may come from: this purpose's key of
+     * APP_SECRET and of each APP_SECRET_PREVIOUS, then the raw secrets keys
+     * were made with before this release. Drop the raw ones once no state
+     * saved before it can be alive (TTL_SECONDS).
+     *
+     * @return list<string>
+     */
+    private static function verifyingSecrets(): array
+    {
+        $secrets = [AppSecret::current(), ...AppSecret::previous()];
+
+        return [
+            ...array_map(static fn (string $secret): string => AppSecret::derive($secret, self::KEY_PURPOSE), $secrets),
+            ...$secrets,
+        ];
     }
 
     private static function store(): ?UiComponentStateStoreInterface
