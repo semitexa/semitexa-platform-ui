@@ -12,13 +12,13 @@
     "require": {
         "php": "^8.4",
         "semitexa/authorization": "*",
-        "semitexa/core": ">=2026.10.14.0919 || dev-master",
-        "semitexa/llm": ">=2026.10.08.0620 || dev-master",
+        "semitexa/core": ">=2026.10.29.1052 || dev-master",
+        "semitexa/llm": ">=2026.10.29.1052 || dev-master",
         "semitexa/ssr": ">=2026.10.19.0811 || dev-master",
         "semitexa/theme": ">=2026.10.14.0919 || dev-master",
         "symfony/console": "^7.0",
         "semitexa/prompt": "*",
-        "semitexa/platform-user": "*"
+        "semitexa/platform-user": ">=2026.10.29.1052 || dev-master"
     },
     "require-dev": {
         "phpunit/phpunit": "^10.0"
@@ -36,11 +36,11 @@
     "extra": {
         "semitexa": {
             "floors": {
-                "semitexa/core": "next",
+                "semitexa/core": "2026.10.29.1052",
                 "semitexa/ssr": "2026.10.19.0811",
-                "semitexa/llm": "next",
+                "semitexa/llm": "2026.10.29.1052",
                 "semitexa/theme": "2026.10.14.0919",
-                "semitexa/platform-user": "next"
+                "semitexa/platform-user": "2026.10.29.1052"
             }
         },
         "semitexa-module": {
