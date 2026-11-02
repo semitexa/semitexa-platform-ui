@@ -93,7 +93,7 @@ final class GrammarAndPrimitivesTest extends TestCase
         foreach (self::primitives() as $primitive) {
             $twig = file_get_contents($primitive->twigPath);
             self::assertIsString($twig, 'unreadable: ' . $primitive->twigPath);
-            self::assertNotSame('', trim((string) preg_replace('/\{#.*?#\}/s', '', $twig)), $primitive->id . ': an empty template');
+            self::assertNotSame('', trim((string) preg_replace('/\{#.*?#\}|<!--.*?-->/s', '', $twig)), $primitive->id . ': an empty template');
             $css = self::css($primitive->cssPath);
             foreach (self::FAMILY[$primitive->id] ?? [$primitive->id] as $ui) {
                 self::assertStringContainsString('[ui="' . $ui . '"]', $css, $primitive->id);

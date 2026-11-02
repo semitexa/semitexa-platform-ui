@@ -90,7 +90,9 @@ final class BundleCompilerTest extends TestCase
             [$attr, $value] = explode(':', $sliceId, 2);
             $emitter = $catalog->emitter($attr);
             self::assertNotNull($emitter, $sliceId);
-            self::assertStringContainsString(trim($emitter->emit($value)->css), $bundle->css, $sliceId);
+            $rule = trim($emitter->emit($value)->css);
+            self::assertNotSame('', $rule, $sliceId . ' emits nothing (an empty needle is found anywhere)');
+            self::assertStringContainsString($rule, $bundle->css, $sliceId);
         }
         self::assertLessThan(self::GZIP_BUDGET, $bundle->gzipSize());
         self::assertSame(substr_count($bundle->css, '{'), substr_count($bundle->css, '}'));
