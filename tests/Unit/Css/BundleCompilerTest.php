@@ -69,8 +69,14 @@ final class BundleCompilerTest extends TestCase
 
         $bundle = self::compiler()->compile($registry);
 
-        self::assertNotSame([], $bundle->primitiveIds, 'the page uses primitives: the fixture is read');
-        self::assertNotSame([], $bundle->sliceIds, 'the page uses grammar: the fixture is read');
+        // Exactly what the page uses: a pair the extractor dropped would make
+        // the budget below measure a smaller bundle than the page needs.
+        self::assertSame(['badge', 'button', 'field-shell', 'input', 'label', 'surface'], $bundle->primitiveIds);
+        self::assertSame([
+            'sx-align:center', 'sx-gap:3', 'sx-gap:4', 'sx-gap:6', 'sx-justify:between', 'sx-justify:end',
+            'sx-layout:cluster', 'sx-layout:grid', 'sx-layout:stack', 'sx-padding:4', 'sx-padding:6',
+            'ui-text:label', 'ui-text:title',
+        ], $bundle->sliceIds);
         // An id is listed only for CSS the bundle carries: a primitive whose
         // file went missing would still be named.
         foreach ($bundle->primitiveIds as $id) {

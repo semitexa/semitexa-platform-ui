@@ -37,7 +37,9 @@ final class GrammarAndPrimitivesTest extends TestCase
     {
         $css = file_get_contents($path);
         self::assertIsString($css, 'unreadable: ' . $path);
-        self::assertNotSame('', trim($css), 'empty: ' . $path);
+        // Rules only: a selector left in a comment styles nothing.
+        $css = (string) preg_replace('/\/\*.*?\*\//s', '', $css);
+        self::assertNotSame('', trim($css), 'no rules: ' . $path);
 
         return $css;
     }
