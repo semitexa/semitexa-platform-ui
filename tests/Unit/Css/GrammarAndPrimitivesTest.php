@@ -56,8 +56,15 @@ final class GrammarAndPrimitivesTest extends TestCase
     #[Test]
     public function every_slice_is_one_balanced_rule(): void
     {
-        $slices = iterator_to_array(SliceCatalog::withDefaults()->emitAll(), false);
-        self::assertNotEmpty($slices);
+        $catalog = SliceCatalog::withDefaults();
+        $slices = iterator_to_array($catalog->emitAll(), false);
+        // Every attribute contributes: an emitter whose values went empty
+        // would hide behind the others' slices.
+        $emitted = array_unique(array_map(static fn ($slice): string => explode(':', $slice->id, 2)[0], $slices));
+        sort($emitted);
+        $attributes = $catalog->attributes();
+        sort($attributes);
+        self::assertSame($attributes, $emitted);
         foreach ($slices as $slice) {
             self::assertStringContainsString('{', $slice->css, $slice->id);
             self::assertSame(substr_count($slice->css, '{'), substr_count($slice->css, '}'), $slice->id);
@@ -84,7 +91,9 @@ final class GrammarAndPrimitivesTest extends TestCase
     public function every_primitive_ships_its_rule_in_the_primitives_layer_and_a_template(): void
     {
         foreach (self::primitives() as $primitive) {
-            self::assertFileExists($primitive->twigPath);
+            $twig = file_get_contents($primitive->twigPath);
+            self::assertIsString($twig, 'unreadable: ' . $primitive->twigPath);
+            self::assertNotSame('', trim((string) preg_replace('/\{#.*?#\}/s', '', $twig)), $primitive->id . ': an empty template');
             $css = self::css($primitive->cssPath);
             foreach (self::FAMILY[$primitive->id] ?? [$primitive->id] as $ui) {
                 self::assertStringContainsString('[ui="' . $ui . '"]', $css, $primitive->id);

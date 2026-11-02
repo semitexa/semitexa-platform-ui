@@ -85,6 +85,13 @@ final class BundleCompilerTest extends TestCase
             self::assertStringContainsString(trim(self::read($primitive->cssPath)), $bundle->css, $id);
         }
         self::assertStringContainsString('@layer platform-ui.grammar', $bundle->css);
+        // Likewise a slice whose emitter is gone or throws is still named.
+        foreach ($bundle->sliceIds as $sliceId) {
+            [$attr, $value] = explode(':', $sliceId, 2);
+            $emitter = $catalog->emitter($attr);
+            self::assertNotNull($emitter, $sliceId);
+            self::assertStringContainsString(trim($emitter->emit($value)->css), $bundle->css, $sliceId);
+        }
         self::assertLessThan(self::GZIP_BUDGET, $bundle->gzipSize());
         self::assertSame(substr_count($bundle->css, '{'), substr_count($bundle->css, '}'));
     }
@@ -122,12 +129,14 @@ final class BundleCompilerTest extends TestCase
     {
         $safelist = new Safelist();
         $safelist->addRoutePrimitive('/dashboard', 'badge');
+        $safelist->addRouteSlice('/dashboard', 'sx-tone:warning');
         $registry = new SliceRegistry();
 
         $safelist->apply($registry, '/other');
         self::assertSame([], $registry->primitiveIds());
+        self::assertSame([], $registry->grammarSliceIds());
         $safelist->apply($registry, '/dashboard');
         self::assertSame(['badge'], $registry->primitiveIds());
-        self::assertSame([], $registry->grammarSliceIds());
+        self::assertSame(['sx-tone:warning'], $registry->grammarSliceIds());
     }
 }
