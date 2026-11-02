@@ -21,6 +21,27 @@ use Semitexa\PlatformUi\Application\Service\ValueValidator;
  */
 final class GrammarAndPrimitivesTest extends TestCase
 {
+    /** A family styles its members by their own names. */
+    private const FAMILY = ['choice' => ['checkbox', 'radio', 'switch']];
+
+    /** @return list<\Semitexa\PlatformUi\Application\Service\Css\Primitive> */
+    private static function primitives(): array
+    {
+        $all = (new PrimitiveRegistry())->all();
+        self::assertNotSame([], $all, 'no primitives: these tests would check nothing');
+
+        return $all;
+    }
+
+    private static function css(string $path): string
+    {
+        $css = file_get_contents($path);
+        self::assertIsString($css, 'unreadable: ' . $path);
+        self::assertNotSame('', trim($css), 'empty: ' . $path);
+
+        return $css;
+    }
+
     #[Test]
     public function the_grammar_has_its_nine_attributes(): void
     {
@@ -60,13 +81,12 @@ final class GrammarAndPrimitivesTest extends TestCase
     #[Test]
     public function every_primitive_ships_its_rule_in_the_primitives_layer_and_a_template(): void
     {
-        foreach ((new PrimitiveRegistry())->all() as $primitive) {
-            self::assertFileExists($primitive->cssPath);
+        foreach (self::primitives() as $primitive) {
             self::assertFileExists($primitive->twigPath);
-            $css = (string) file_get_contents($primitive->cssPath);
-            // A family styles its members by their own names: choice is
-            // checkbox, radio and switch.
-            self::assertMatchesRegularExpression('/\[ui="[a-z-]+"\]/', $css, $primitive->id . ' styles no [ui]');
+            $css = self::css($primitive->cssPath);
+            foreach (self::FAMILY[$primitive->id] ?? [$primitive->id] as $ui) {
+                self::assertStringContainsString('[ui="' . $ui . '"]', $css, $primitive->id);
+            }
             self::assertStringContainsString('@layer platform-ui.primitives', $css, $primitive->id);
             self::assertSame(substr_count($css, '{'), substr_count($css, '}'), $primitive->id . ': unbalanced braces');
         }
@@ -81,11 +101,12 @@ final class GrammarAndPrimitivesTest extends TestCase
     #[Test]
     public function a_primitive_styles_no_modifier_it_does_not_declare(): void
     {
-        foreach ((new PrimitiveRegistry())->all() as $primitive) {
-            $css = (string) file_get_contents($primitive->cssPath);
+        foreach (self::primitives() as $primitive) {
+            $css = self::css($primitive->cssPath);
             foreach (['variant' => $primitive->variants, 'tone' => $primitive->tones, 'size' => $primitive->sizes] as $modifier => $declared) {
-                preg_match_all('/ui-' . $modifier . '="([a-z0-9-]+)"/', $css, $m);
-                $styled = array_values(array_unique($m[1]));
+                // Every selector form: "…", '…' or bare, whitespace around =.
+                preg_match_all('/ui-' . $modifier . '\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s\]]+))/', $css, $m, PREG_UNMATCHED_AS_NULL);
+                $styled = array_values(array_unique(array_filter(array_merge($m[1], $m[2], $m[3]), static fn (?string $v): bool => $v !== null)));
                 self::assertSame([], array_values(array_diff($styled, $declared)), $primitive->id . ' styles an undeclared ui-' . $modifier);
             }
         }

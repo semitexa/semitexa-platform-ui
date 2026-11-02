@@ -23,9 +23,25 @@ final class BundleCompilerTest extends TestCase
     /** The M4 budget: a realistic page's bundle stays under 8 KiB gzipped. */
     private const GZIP_BUDGET = 8192;
 
+    private const BASELINE = ['layers.css', 'z-layers.css', 'foundation.css', 'reset.css', 'typography.css'];
+
+    private static function resources(): string
+    {
+        return dirname(__DIR__, 3) . '/resources';
+    }
+
     private static function compiler(): BundleCompiler
     {
-        return new BundleCompiler(SliceCatalog::withDefaults(), new PrimitiveRegistry(), dirname(__DIR__, 3) . '/resources');
+        return new BundleCompiler(SliceCatalog::withDefaults(), new PrimitiveRegistry(), self::resources());
+    }
+
+    private static function read(string $path): string
+    {
+        $css = file_get_contents($path);
+        self::assertIsString($css, 'unreadable: ' . $path);
+        self::assertNotSame('', trim($css), 'empty: ' . $path);
+
+        return $css;
     }
 
     #[Test]
@@ -35,8 +51,11 @@ final class BundleCompilerTest extends TestCase
 
         self::assertSame([], $bundle->sliceIds);
         self::assertSame([], $bundle->primitiveIds);
-        self::assertStringContainsString('@layer platform-ui.reset', $bundle->css);
-        self::assertStringContainsString('--ui-accent-brand', $bundle->css);
+        // Each baseline file whole: a layer name or a token alone is also
+        // spelled by a neighbouring file, and would pass with one missing.
+        foreach (self::BASELINE as $file) {
+            self::assertStringContainsString(trim(self::read(self::resources() . '/baseline/' . $file)), $bundle->css, $file);
+        }
     }
 
     #[Test]
@@ -44,13 +63,22 @@ final class BundleCompilerTest extends TestCase
     {
         $catalog = SliceCatalog::withDefaults();
         $primitives = new PrimitiveRegistry();
-        $page = (string) file_get_contents(dirname(__DIR__, 2) . '/Fixtures/Css/primitives-page.html');
+        $page = self::read(dirname(__DIR__, 2) . '/Fixtures/Css/primitives-page.html');
         $registry = new SliceRegistry();
         (new TwigExtractor($catalog, $primitives))->extract($page)->applyTo($registry);
 
         $bundle = self::compiler()->compile($registry);
 
         self::assertNotSame([], $bundle->primitiveIds, 'the page uses primitives: the fixture is read');
+        self::assertNotSame([], $bundle->sliceIds, 'the page uses grammar: the fixture is read');
+        // An id is listed only for CSS the bundle carries: a primitive whose
+        // file went missing would still be named.
+        foreach ($bundle->primitiveIds as $id) {
+            $primitive = $primitives->get($id);
+            self::assertNotNull($primitive, $id);
+            self::assertStringContainsString(trim(self::read($primitive->cssPath)), $bundle->css, $id);
+        }
+        self::assertStringContainsString('@layer platform-ui.grammar', $bundle->css);
         self::assertLessThan(self::GZIP_BUDGET, $bundle->gzipSize());
         self::assertSame(substr_count($bundle->css, '{'), substr_count($bundle->css, '}'));
     }
@@ -66,6 +94,8 @@ final class BundleCompilerTest extends TestCase
 
         self::assertSame(self::compiler()->compile($stack)->hash, self::compiler()->compile($stack)->hash);
         self::assertNotSame(self::compiler()->compile($stack)->hash, self::compiler()->compile($cluster)->hash);
+        // Same ids, different CSS: the hash is of the content, not of the ids.
+        self::assertNotSame(self::compiler()->compile($stack)->hash, self::compiler()->compile($stack, includeBaseline: false)->hash);
     }
 
     #[Test]
@@ -77,8 +107,8 @@ final class BundleCompilerTest extends TestCase
         $registry = new SliceRegistry();
         $safelist->apply($registry);
 
-        self::assertContains('badge', $registry->primitiveIds());
-        self::assertContains('sx-tone:warning', $registry->grammarSliceIds());
+        self::assertSame(['badge'], $registry->primitiveIds());
+        self::assertSame(['sx-tone:warning'], $registry->grammarSliceIds());
     }
 
     #[Test]
@@ -89,8 +119,9 @@ final class BundleCompilerTest extends TestCase
         $registry = new SliceRegistry();
 
         $safelist->apply($registry, '/other');
-        self::assertNotContains('badge', $registry->primitiveIds());
+        self::assertSame([], $registry->primitiveIds());
         $safelist->apply($registry, '/dashboard');
-        self::assertContains('badge', $registry->primitiveIds());
+        self::assertSame(['badge'], $registry->primitiveIds());
+        self::assertSame([], $registry->grammarSliceIds());
     }
 }

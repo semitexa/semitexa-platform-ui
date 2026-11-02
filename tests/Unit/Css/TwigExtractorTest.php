@@ -40,7 +40,8 @@ final class TwigExtractorTest extends TestCase
         $m = self::extractor()->extract('<button ui="button" ui-tone="{{ toneVar }}">x</button>');
 
         self::assertSame([], $m->attrs);
-        self::assertCount(1, $m->unresolved);
+        self::assertSame(['button'], $m->primitives);
+        self::assertSame(['ui-tone="{{ toneVar }}"'], $m->unresolved);
     }
 
     #[Test]
@@ -49,7 +50,7 @@ final class TwigExtractorTest extends TestCase
         $m = self::extractor()->extract('<div sx-gap="5">x</div>');
 
         self::assertSame([], $m->attrs);
-        self::assertCount(1, $m->unresolved);
+        self::assertSame(['sx-gap="5" (not in vocabulary)'], $m->unresolved);
     }
 
     #[Test]
@@ -58,7 +59,7 @@ final class TwigExtractorTest extends TestCase
         $m = self::extractor()->extract('<div ui="unknown-thing">x</div>');
 
         self::assertSame([], $m->primitives);
-        self::assertCount(1, $m->unresolved);
+        self::assertSame(['ui="unknown-thing"'], $m->unresolved);
     }
 
     #[Test]
