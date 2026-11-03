@@ -20,8 +20,11 @@ final class WorkbenchGateTest extends TestCase
     /** @var array<string, string|false> */
     private array $saved = [];
 
+    private ?Request $savedRequest = null;
+
     protected function setUp(): void
     {
+        $this->savedRequest = CurrentRequestStore::get();
         foreach (['APP_ENV', WorkbenchGate::ENV_FLAG] as $key) {
             $this->saved[$key] = getenv($key);
         }
@@ -30,7 +33,11 @@ final class WorkbenchGateTest extends TestCase
 
     protected function tearDown(): void
     {
-        CurrentRequestStore::clear();
+        if ($this->savedRequest === null) {
+            CurrentRequestStore::clear();
+        } else {
+            CurrentRequestStore::set($this->savedRequest);
+        }
         foreach ($this->saved as $key => $value) {
             putenv($value === false ? $key : "{$key}={$value}");
         }
@@ -41,7 +48,8 @@ final class WorkbenchGateTest extends TestCase
     public function dev_opens_it_to_this_machine_only(): void
     {
         putenv('APP_ENV=dev');
-        putenv(WorkbenchGate::ENV_FLAG);
+        // 0, not unset: unset, a PLATFORM_UI_WORKBENCH=1 in .env would answer.
+        putenv(WorkbenchGate::ENV_FLAG . '=0');
         $gate = new WorkbenchGate();
 
         self::request('127.0.0.1', 'localhost:9507');
