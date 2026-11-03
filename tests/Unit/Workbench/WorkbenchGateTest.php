@@ -58,6 +58,10 @@ final class WorkbenchGateTest extends TestCase
         self::request('192.168.100.7', '192.168.100.2:9507');
         self::assertFalse($gate->allows(), 'another machine on the network');
 
+        // The peer alone decides here: a LAN client sending a local Host.
+        self::request('192.168.100.7', 'localhost:9507');
+        self::assertFalse($gate->allows(), 'another machine claiming localhost');
+
         self::request('127.0.0.1', 'rebind.evil.example:9507');
         self::assertFalse($gate->allows(), 'a public name rebound to loopback');
     }
