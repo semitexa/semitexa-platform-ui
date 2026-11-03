@@ -76,6 +76,21 @@ final class WorkbenchGateTest extends TestCase
         self::assertTrue((new WorkbenchGate())->allows());
     }
 
+    #[Test]
+    public function with_the_showcase_flag_in_dev_another_machine_sees_components_but_no_source(): void
+    {
+        putenv('APP_ENV=dev');
+        putenv(WorkbenchGate::ENV_FLAG . '=1');
+        $gate = new WorkbenchGate();
+
+        self::request('192.168.100.7', '192.168.100.2:9507');
+        self::assertTrue($gate->allows(), 'the flag opens it to anyone');
+        self::assertFalse($gate->showsSource(), 'but class names and files stay on this machine');
+
+        self::request('127.0.0.1', 'localhost:9507');
+        self::assertTrue($gate->showsSource());
+    }
+
     private static function request(string $peer, string $host): void
     {
         CurrentRequestStore::set(new Request('GET', '/__ui/workbench', ['Host' => $host], [], [], ['remote_addr' => $peer], []));

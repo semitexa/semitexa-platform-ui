@@ -13,8 +13,8 @@ use Semitexa\PlatformUi\Application\Resource\Response\WorkbenchPageResponse;
  * (`platform.card`); without it the page lists the catalog. `skin` previews
  * every example under another installed skin.
  *
- * Gated by WorkbenchGate (APP_ENV=dev or PLATFORM_UI_WORKBENCH=1, never
- * cross-site); answers 404 otherwise.
+ * Gated by WorkbenchGate (APP_ENV=dev from this machine, or
+ * PLATFORM_UI_WORKBENCH=1; never cross-site); answers 404 otherwise.
  */
 #[AsPublicPayload(
     path: '/__ui/workbench',

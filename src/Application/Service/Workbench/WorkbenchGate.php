@@ -42,11 +42,12 @@ final class WorkbenchGate
     /**
      * Class names and file paths are for a developer's machine. A showcase
      * deployment (the flag without APP_ENV=dev) shows the components, not
-     * where they live.
+     * where they live; and with both set, another machine the flag lets in
+     * still does not see them.
      */
     public function showsSource(): bool
     {
-        return self::isDev();
+        return self::isDev() && ThisMachine::sent(CurrentRequestStore::get());
     }
 
     private static function isDev(): bool
