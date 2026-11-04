@@ -7,6 +7,7 @@ namespace Semitexa\PlatformUi\Tests\Unit\Event;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
+use ReflectionProperty;
 use RuntimeException;
 use Semitexa\Core\Log\LoggerInterface;
 use Semitexa\Core\Log\StaticLoggerBridge;
@@ -19,9 +20,16 @@ use Semitexa\PlatformUi\Application\Service\Event\UiInteractionDispatcher;
  */
 final class UiHandlerFailureIsLoggedTest extends TestCase
 {
+    private ?LoggerInterface $before = null;
+
+    protected function setUp(): void
+    {
+        $this->before = (new ReflectionProperty(StaticLoggerBridge::class, 'logger'))->getValue();
+    }
+
     protected function tearDown(): void
     {
-        StaticLoggerBridge::reset();
+        (new ReflectionProperty(StaticLoggerBridge::class, 'logger'))->setValue(null, $this->before);
     }
 
     #[Test]
@@ -40,6 +48,20 @@ final class UiHandlerFailureIsLoggedTest extends TestCase
         $this->assertCount(1, $logged);
         $this->assertSame('the draft was never injected', $logged[0][1]['message']);
         $this->assertSame(RuntimeException::class, $logged[0][1]['exception']);
-        $this->assertStringNotContainsString('draft', $failure->getMessage());
+        $this->assertSame(basename(__FILE__), explode(':', $logged[0][1]['at'])[0], 'no absolute path in the log');
+        $this->assertSame('The declared handler threw while processing this event.', $failure->getMessage());
+    }
+
+    #[Test]
+    public function a_logger_that_fails_does_not_change_the_answer(): void
+    {
+        $logger = $this->createStub(LoggerInterface::class);
+        $logger->method('error')->willThrowException(new RuntimeException('disk full'));
+        StaticLoggerBridge::set($logger);
+
+        $failure = (new ReflectionMethod(UiInteractionDispatcher::class, 'handlerFailed'))
+            ->invoke(null, new RuntimeException('the handler failed'));
+
+        $this->assertSame('The declared handler threw while processing this event.', $failure->getMessage());
     }
 }
