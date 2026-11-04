@@ -134,8 +134,14 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         return null;
     }
 
-    function findPartElement(rootEl, partName) {
-        if (!rootEl || !partName) {
+    /**
+     * The element of this part the event happened in, climbing from the target. A
+     * part rendered per row is the same name many times: taking the first match in
+     * the component, as this did, answered only for the first row and dropped
+     * every other click without a word.
+     */
+    function findPartElement(rootEl, partName, target) {
+        if (!rootEl || !partName || !target || !target.closest) {
             return null;
         }
         // Canonical lookup: explicit `data-ui-part="<partName>"` injected
@@ -143,15 +149,16 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         // runtime from the primitive's `ui` alias, so a UiPart can be
         // named independently of the underlying primitive.
         var safe = partName.replace(/"/g, '\\"');
-        var primary = rootEl.querySelector('[data-ui-part="' + safe + '"]');
-        if (primary) {
-            return primary;
-        }
+        var explicit = '[data-ui-part="' + safe + '"]';
+        var found = target.closest(explicit);
         // Back-compat: legacy templates that render the primitive directly
         // (e.g. via `primitive()` + `ui_part_props()`) still emit ui="…"
         // on the primitive root. Match by alias when no explicit marker
         // is present.
-        return rootEl.querySelector('[ui="' + safe + '"]') || null;
+        if (!found && !rootEl.querySelector(explicit)) {
+            found = target.closest('[ui="' + safe + '"]');
+        }
+        return found && rootEl.contains(found) ? found : null;
     }
 
     function extractValue(partEl, originalEvent) {
@@ -240,11 +247,8 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             if (entry.e !== nativeEvent) {
                 continue;
             }
-            var partEl = findPartElement(rootEl, entry.p);
+            var partEl = findPartElement(rootEl, entry.p, ev.target);
             if (!partEl) {
-                continue;
-            }
-            if (partEl !== ev.target && !partEl.contains(ev.target)) {
                 continue;
             }
 
