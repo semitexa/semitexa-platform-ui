@@ -29,7 +29,7 @@ final class UiCallExampleTest extends TestCase
     {
         $call = UiCallExample::for('component', 'platform.stat', ['props' => ['label' => 'Orders'], 'slots' => []]);
 
-        $this->assertSame("{{ component('platform.stat', {\"label\":\"Orders\"}) }}", $call);
+        $this->assertSame("{{ component('platform.stat', {'label': 'Orders'}) }}", $call);
     }
 
     #[Test]
@@ -38,6 +38,16 @@ final class UiCallExampleTest extends TestCase
         $call = UiCallExample::for('component', 'platform.card', ['props' => [], 'slots' => ['body' => 'x']]);
 
         $this->assertSame(['component', 'platform.card', [], ['body' => 'x']], $this->renderedCall($call));
+    }
+
+    #[Test]
+    public function text_twig_would_read_as_code_reaches_the_component_as_text(): void
+    {
+        $props = ['interpolated' => '#{1 + 2}', 'control' => "a\x01b", 'quote' => "it's", 'slash' => 'a\\b', 'unicode' => 'привіт', 'tag' => '{{ x }}', 'float' => 1.5];
+
+        $call = UiCallExample::for('component', 'platform.card', ['props' => $props, 'slots' => ['body' => '#{y}']]);
+
+        $this->assertSame(['component', 'platform.card', $props, ['body' => '#{y}']], $this->renderedCall($call));
     }
 
     #[Test]

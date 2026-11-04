@@ -9,8 +9,8 @@ namespace Semitexa\PlatformUi\Application\Service\Catalog;
  *
  * A contract's example is data: its props and slots. Printed by name alone it
  * told a reader that an example exists and not how to call the thing, which sent
- * them to the template or to hand-written markup. JSON is valid in a Twig hash, so
- * the example's own data is the call, and it cannot drift from the contract.
+ * them to the template or to hand-written markup. The example's own data becomes
+ * the call, so it cannot drift from the contract.
  */
 final class UiCallExample
 {
@@ -38,13 +38,44 @@ final class UiCallExample
      */
     private static function call(string $function, string $name, array $arguments): string
     {
-        $printed = ["'" . $name . "'"];
+        $printed = [self::literal($name)];
         foreach ($arguments as $argument) {
-            $printed[] = $argument === []
-                ? '{}'
-                : json_encode($argument, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+            $printed[] = $argument === [] ? '{}' : self::literal($argument);
         }
 
         return '{{ ' . $function . '(' . implode(', ', $printed) . ') }}';
+    }
+
+    /**
+     * A Twig literal, not JSON: a double-quoted Twig string interpolates `#{...}`
+     * and knows no `\\uXXXX`, so JSON would hand over something else than the
+     * example says. A single-quoted one takes every byte as it is.
+     */
+    private static function literal(mixed $value): string
+    {
+        return match (true) {
+            is_string($value) => "'" . addcslashes($value, "'\\") . "'",
+            is_array($value) => self::collection($value),
+            is_bool($value) => $value ? 'true' : 'false',
+            $value === null => 'null',
+            default => (string) json_encode($value, JSON_THROW_ON_ERROR),
+        };
+    }
+
+    /**
+     * @param array<array-key, mixed> $value
+     */
+    private static function collection(array $value): string
+    {
+        if (array_is_list($value)) {
+            return '[' . implode(', ', array_map(self::literal(...), $value)) . ']';
+        }
+
+        $pairs = [];
+        foreach ($value as $key => $item) {
+            $pairs[] = self::literal((string) $key) . ': ' . self::literal($item);
+        }
+
+        return '{' . implode(', ', $pairs) . '}';
     }
 }
