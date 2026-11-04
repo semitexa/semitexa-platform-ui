@@ -51,6 +51,45 @@ final class UiCallExampleTest extends TestCase
     }
 
     #[Test]
+    public function an_object_prop_keeps_its_text_as_it_stands(): void
+    {
+        // As UiProp::normalizeObject() hands them over. The dash is from a real contract.
+        $props = (object) ['answer' => 'Yes — find-in-page', 'code' => '#{1+2}', 'nested' => (object) ['n' => 1]];
+
+        $call = UiCallExample::for('component', 'platform.faq', ['props' => ['item' => $props], 'slots' => []]);
+
+        $this->assertSame(
+            ['component', 'platform.faq', ['item' => ['answer' => 'Yes — find-in-page', 'code' => '#{1+2}', 'nested' => ['n' => 1]]]],
+            $this->renderedCall($call),
+        );
+    }
+
+    #[Test]
+    public function a_float_stays_a_float(): void
+    {
+        $call = UiCallExample::for('component', 'x', ['props' => ['a' => 1.0, 'b' => 0.0, 'c' => 100000.0, 'd' => 1.5], 'slots' => []]);
+
+        $this->assertSame(['component', 'x', ['a' => 1.0, 'b' => 0.0, 'c' => 100000.0, 'd' => 1.5]], $this->renderedCall($call));
+    }
+
+    #[Test]
+    public function a_carriage_return_survives_twig_normalising_its_source(): void
+    {
+        $props = ['windows' => "a\r\nb", 'mac' => "a\rb", 'mixed' => "it's \"q\" \\ #{x}\r"];
+
+        $call = UiCallExample::for('component', 'x', ['props' => $props, 'slots' => []]);
+
+        $this->assertSame(['component', 'x', $props], $this->renderedCall($call));
+    }
+
+    #[Test]
+    public function an_empty_object_and_an_empty_list_keep_their_shape(): void
+    {
+        $this->assertStringContainsString("'o': {}", UiCallExample::for('component', 'x', ['props' => ['o' => new \stdClass()], 'slots' => []]));
+        $this->assertStringContainsString("'l': []", UiCallExample::for('component', 'x', ['props' => ['l' => []], 'slots' => []]));
+    }
+
+    #[Test]
     public function a_primitive_is_called_as_a_primitive(): void
     {
         $call = UiCallExample::for('primitive', 'platform.button', ['props' => ['text' => 'Save'], 'slots' => []]);
