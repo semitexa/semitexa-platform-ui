@@ -132,6 +132,13 @@ final class UiCatalogProjector
             $result += ['ui' => $metadata->ui, 'script' => $metadata->script, 'style' => $metadata->style];
         }
         $result['contract_version'] = hash('sha256', json_encode($result, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
+
+        // After the hash: the call is derived from the examples, so printing it a
+        // new way is no change of contract.
+        foreach ($result['examples'] as $position => $example) {
+            $result['examples'][$position]['call'] = UiCallExample::for($item->kind, $item->name(), $example);
+        }
+
         return $result;
     }
 

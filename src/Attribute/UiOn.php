@@ -43,6 +43,33 @@ use Semitexa\Core\Attribute\Capability;
         'wiring an event listener in page JavaScript and posting to an ad-hoc route',
     ],
     seeAlso: 'ui.event-handler',
+    usage: <<<'USAGE'
+        #[AsComponent(name: 'shop.counter', template: '@project-layouts-Shop/counter.html.twig')]
+        #[UiPart(name: 'increment', uses: ButtonPrimitive::class)]
+        final class CounterComponent
+        {
+            #[UiState]
+            public int $count = 0;
+
+            #[UiOn(part: 'increment', event: 'click')]
+            public function onIncrement(UiInteractionEvent $event): void
+            {
+                $this->count++;   // the component is drawn again with it and morphed in place
+            }
+        }
+
+        // In its template: {{ ui_part('increment', {label: '+1'}) }}
+        // The root element carries data-ui-component="shop.counter" and
+        // data-ui-component-instance-id="{{ ui_component_instance_for(instanceId|default(null)) }}".
+        // The page calls {{ ui_page_sse_session_meta() }}.
+
+        // Data in: $event->props(), $event->value(), and $event->formValues for a form part.
+        // Data out: return UiInteractionResult::patch([UiResponsePatch::rerender($event->instanceId, $changedProps)]),
+        // or ::toast(), ::redirect(). An input can debounce: #[UiOn(part: 'search', event: 'input', debounce: 200)].
+
+        // A part binds one element: rendered per row, only the first row responds. Use one
+        // <form> part for the rows and read $event->formValues. A child cannot rerender its parent.
+        USAGE,
 )]
 #[Attribute(Attribute::TARGET_METHOD)]
 final class UiOn
