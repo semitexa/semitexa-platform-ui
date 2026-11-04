@@ -53,6 +53,22 @@ final class UiHandlerFailureIsLoggedTest extends TestCase
     }
 
     #[Test]
+    public function a_path_inside_the_message_is_cut_down_to_its_file(): void
+    {
+        $logged = [];
+        $logger = $this->createStub(LoggerInterface::class);
+        $logger->method('error')->willReturnCallback(static function (string $message, array $context = []) use (&$logged): void {
+            $logged[] = $context;
+        });
+        StaticLoggerBridge::set($logger);
+
+        (new ReflectionMethod(UiInteractionDispatcher::class, 'handlerFailed'))
+            ->invoke(null, new RuntimeException('Argument #1 must be int, called in /home/alice/app/src/Handler.php on line 12'));
+
+        $this->assertSame('Argument #1 must be int, called in Handler.php on line 12', $logged[0]['message']);
+    }
+
+    #[Test]
     public function a_logger_that_fails_does_not_change_the_answer(): void
     {
         $logger = $this->createStub(LoggerInterface::class);

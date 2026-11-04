@@ -579,7 +579,7 @@ final class UiInteractionDispatcher
     private static function handlerFailed(Throwable $e): UiInteractionUnprocessableException
     {
         try {
-            StaticLoggerBridge::error('platform_ui', 'A UI event handler threw', ['exception' => $e::class, 'message' => $e->getMessage(), 'at' => basename($e->getFile()) . ':' . $e->getLine()]);
+            StaticLoggerBridge::error('platform_ui', 'A UI event handler threw', ['exception' => $e::class, 'message' => preg_replace('~/[^\s:]*/~', '', $e->getMessage()), 'at' => basename($e->getFile()) . ':' . $e->getLine()]);
         } catch (Throwable) { // A failing log must not change the answer.
         }
 
