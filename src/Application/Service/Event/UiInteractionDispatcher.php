@@ -7,6 +7,7 @@ namespace Semitexa\PlatformUi\Application\Service\Event;
 use Semitexa\PlatformUi\Application\Service\State\UiComponentStates;
 use Closure;
 use ReflectionClass;
+use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\Core\Environment;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistry;
@@ -435,10 +436,7 @@ final class UiInteractionDispatcher
         } catch (UiInteractionException $e) {
             throw $e;
         } catch (Throwable $e) {
-            throw new UiInteractionUnprocessableException(
-                'handler_error',
-                'The declared handler threw while processing this event.',
-            );
+            throw self::handlerFailed($e);
         }
     }
 
@@ -501,10 +499,7 @@ final class UiInteractionDispatcher
         } catch (UiInteractionException $e) {
             throw $e;
         } catch (Throwable $e) {
-            throw new UiInteractionUnprocessableException(
-                'handler_error',
-                'The declared handler threw while processing this event.',
-            );
+            throw self::handlerFailed($e);
         }
 
         return $this->responseAdapter->toInteractionResult($response, $event->instanceId);
@@ -578,6 +573,15 @@ final class UiInteractionDispatcher
             );
         }
         return $value;
+    }
+
+    /** The browser gets a code; why it failed goes to the log, or nobody ever learns. */
+    private static function handlerFailed(Throwable $e): UiInteractionUnprocessableException
+    {
+        $at = $e->getFile() . ':' . $e->getLine();
+        StaticLoggerBridge::error('platform_ui', 'A UI event handler threw', ['exception' => $e::class, 'message' => $e->getMessage(), 'at' => $at]);
+
+        return new UiInteractionUnprocessableException('handler_error', 'The declared handler threw while processing this event.');
     }
 
     private function instantiate(string $class): object
