@@ -58,17 +58,25 @@ use Semitexa\Core\Attribute\Capability;
             }
         }
 
-        // In its template: {{ ui_part('increment', {label: '+1'}) }}
-        // The root element carries data-ui-component="shop.counter" and
-        // data-ui-component-instance-id="{{ ui_component_instance_for(instanceId|default(null)) }}".
+        // Its template. Without the manifest line nothing fires, and nothing says so:
+        {%- set _ui_instance = ui_component_instance_for(instanceId|default(null)) -%}
+        <div data-ui-component="shop.counter" data-ui-component-instance-id="{{ _ui_instance }}">
+            {{ ui_part('increment', {label: '+1'}) }}
+            {{ ui_event_manifest(_ui_instance) }}
+        </div>
+
         // The page calls {{ ui_page_sse_session_meta() }}.
 
         // Data in: $event->props(), $event->value(), and $event->formValues for a form part.
         // Data out: return UiInteractionResult::patch([UiResponsePatch::rerender($event->instanceId, $changedProps)]),
         // or ::toast(), ::redirect(). An input can debounce: #[UiOn(part: 'search', event: 'input', debounce: 200)].
 
-        // A part binds one element: rendered per row, only the first row responds. Use one
-        // <form> part for the rows and read $event->formValues. A child cannot rerender its parent.
+        // A part can repeat per row. The element's value says which row, so write the element
+        // itself, ui_part() does not pass value on:
+        <button type="button" data-ui-part="remove" value="{{ line.id }}">Remove</button>
+        // and read $event->value(). A patch from a stream has no row: to change one row from the
+        // server, give it <span data-ui-patch-target="total-{{ line.id }}"> and aim at that name.
+        // A child cannot rerender its parent.
         USAGE,
 )]
 #[Attribute(Attribute::TARGET_METHOD)]

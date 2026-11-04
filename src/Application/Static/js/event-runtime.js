@@ -134,8 +134,14 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         return null;
     }
 
-    function findPartElement(rootEl, partName) {
-        if (!rootEl || !partName) {
+    /**
+     * The element of this part the event happened in, climbing from the target. A
+     * part rendered per row is the same name many times: taking the first match in
+     * the component, as this did, answered only for the first row and dropped
+     * every other click without a word.
+     */
+    function findPartElement(rootEl, partName, target) {
+        if (!rootEl || !partName || !target || !target.closest) {
             return null;
         }
         // Canonical lookup: explicit `data-ui-part="<partName>"` injected
@@ -143,15 +149,26 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         // runtime from the primitive's `ui` alias, so a UiPart can be
         // named independently of the underlying primitive.
         var safe = partName.replace(/"/g, '\\"');
-        var primary = rootEl.querySelector('[data-ui-part="' + safe + '"]');
-        if (primary) {
-            return primary;
+        var explicit = '[data-ui-part="' + safe + '"]';
+        var found = target.closest(explicit);
+        if (found && rootEl.contains(found)) {
+            return found;
+        }
+        // The part is here, and the event happened outside it.
+        if (rootEl.querySelector(explicit)) {
+            return null;
         }
         // Back-compat: legacy templates that render the primitive directly
         // (e.g. via `primitive()` + `ui_part_props()`) still emit ui="…"
-        // on the primitive root. Match by alias when no explicit marker
-        // is present.
-        return rootEl.querySelector('[ui="' + safe + '"]') || null;
+        // on the primitive root. `ui` is the primitive's alias, so a plain
+        // button of the same kind is no part: only the first one is, as ever.
+        var legacy = rootEl.querySelector('[ui="' + safe + '"]');
+        return legacy && (legacy === target || legacy.contains(target)) ? legacy : null;
+    }
+
+    /** Whether this part is drawn more than once in the component: a row each. */
+    function partRepeats(rootEl, partName) {
+        return !!rootEl && rootEl.querySelectorAll('[data-ui-part="' + cssAttrEscape(partName) + '"]').length > 1;
     }
 
     function extractValue(partEl, originalEvent) {
@@ -240,11 +257,8 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             if (entry.e !== nativeEvent) {
                 continue;
             }
-            var partEl = findPartElement(rootEl, entry.p);
+            var partEl = findPartElement(rootEl, entry.p, ev.target);
             if (!partEl) {
-                continue;
-            }
-            if (partEl !== ev.target && !partEl.contains(ev.target)) {
                 continue;
             }
 
@@ -272,6 +286,8 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
                 value: extractValue(partEl, ev),
                 originalEvent: ev,
                 element: partEl,
+                // Asked now: by the time the answer arrives the rows may be gone.
+                repeated: partRepeats(rootEl, entry.p),
                 manifestVersion: manifest.v
             };
 
@@ -531,8 +547,21 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
     var PENDING_DEBOUNCE = {};   // key -> { timer, captured }
     var THROTTLES = {};          // key -> { last, timer, captured }
 
+    var ELEMENT_KEYS = new WeakMap();
+    var nextElementKey = 0;
+
+    function elementKey(el) {
+        if (!ELEMENT_KEYS.has(el)) ELEMENT_KEYS.set(el, ++nextElementKey);
+        return ELEMENT_KEYS.get(el);
+    }
+
     function timingKey(captured) {
-        return captured.instanceId + '|' + captured.part + '|' + captured.event;
+        var key = captured.instanceId + '|' + captured.part + '|' + captured.event;
+        // Rows share a part's name and not its value: an edit in row 2 must not
+        // cancel the one still waiting in row 1.
+        return partRepeats(instanceRoot(captured.instanceId), captured.part) && captured.element
+            ? key + '|' + elementKey(captured.element)
+            : key;
     }
 
     function sendTimed(captured, entry, rootEl) {
@@ -753,6 +782,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         declared.forEach(function (el) {
             parseLoading(el.getAttribute('ui-loading')).forEach(function (directive) {
                 var scope = directive.scope;
+                if (scope && isOtherRow(el, captured)) return;
                 if (scope && (scope.part !== captured.part || (scope.event !== null && scope.event !== captured.event))) return;
                 var run = function () {
                     var undo = applyLoadingEffect(el, directive);
@@ -825,6 +855,13 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         return applyLoadingEffect(el, directive);
     }
 
+    /** `action(remove)|hide` on a row: the row that fired goes, not every row with that part. */
+    function isOtherRow(el, captured) {
+        if (!captured.element || el.contains(captured.element)) return false;
+        var part = '[data-ui-part="' + cssAttrEscape(captured.part) + '"]';
+        return el.matches(part) || !!el.querySelector(part);
+    }
+
     function beginOptimistic(captured) {
         var undo = [];
         var rootEl = instanceRoot(captured.instanceId);
@@ -835,6 +872,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         declared.forEach(function (el) {
             parseLoading(el.getAttribute('ui-optimistic'), OPTIMISTIC_EFFECTS).forEach(function (directive) {
                 var scope = directive.scope;
+                if (scope && isOtherRow(el, captured)) return;
                 if (scope && (scope.part !== captured.part || (scope.event !== null && scope.event !== captured.event))) return;
                 var revert = applyOptimisticEffect(el, directive);
                 if (revert) undo.push(revert);
@@ -1558,18 +1596,20 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
     }
 
     function morphChildren(from, to) {
+        // A list per key: rows repeat a part, and keeping only the last of them
+        // replaced the others, taking the focus with them.
         var keyed = {};
         var child;
         for (child = from.firstChild; child; child = child.nextSibling) {
             var key = morphKey(child);
-            if (key !== null) keyed[key] = child;
+            if (key !== null) (keyed[key] = keyed[key] || []).push(child);
         }
         var cursor = from.firstChild;
         var nextNew;
         for (var neu = to.firstChild; neu; neu = nextNew) {
             nextNew = neu.nextSibling;
             var neuKey = morphKey(neu);
-            var match = neuKey !== null && keyed[neuKey] ? keyed[neuKey] : null;
+            var match = neuKey !== null && keyed[neuKey] && keyed[neuKey].length > 0 ? keyed[neuKey].shift() : null;
             if (match === null && cursor && morphKey(cursor) === null
                 && cursor.nodeType === neu.nodeType && cursor.nodeName === neu.nodeName) {
                 match = cursor;
@@ -1577,7 +1617,6 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             if (match !== null) {
                 if (match !== cursor) from.insertBefore(match, cursor);
                 else cursor = cursor.nextSibling;
-                if (neuKey !== null) delete keyed[neuKey];
                 morphElement(match, neu);
             } else {
                 from.insertBefore(neu.cloneNode(true), cursor);
@@ -1598,9 +1637,13 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
                 failPatch(patch, captured, index, 'invalid_target_part');
                 return null;
             }
-            var partEl = rootEl.querySelector(
+            // A patch answers the row it came from, not the first with that name.
+            var ownRow = captured && captured.part === part && captured.element ? captured.element : null;
+            var fired = ownRow && rootEl.contains(ownRow) ? ownRow : null;
+            // Its row is gone: another row is not what this answer was about.
+            var partEl = fired || (ownRow && captured.repeated ? null : rootEl.querySelector(
                 '[data-ui-part="' + cssAttrEscape(part) + '"]'
-            );
+            ));
             if (!partEl) {
                 failPatch(patch, captured, index, 'target_not_found');
                 return null;
