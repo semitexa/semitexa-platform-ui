@@ -32,6 +32,17 @@ use Semitexa\Core\Attribute\Capability;
         'history.pushState calls in page JavaScript',
     ],
     seeAlso: 'ui.event-intent',
+    usage: <<<'USAGE'
+        #[AsComponent(name: 'shop.orders', template: '@project-layouts-Shop/orders.html.twig', cacheable: false)]
+        #[UiUrl(prop: 'q', maxLength: 80)]
+        #[UiUrl(prop: 'status', values: ['new', 'paid'])]
+        #[UiUrl(prop: 'page', type: 'int', min: 1, except: 1)]
+        final class OrdersComponent {}
+
+        // The value arrives as a prop on load and is validated. A rerender with changed props
+        // updates the address bar, so the view can be shared and reloaded:
+        return UiInteractionResult::patch([UiResponsePatch::rerender($event->instanceId, ['q' => $q, 'page' => 1])]);
+        USAGE,
 )]
 #[Attribute(Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE)]
 final class UiUrl

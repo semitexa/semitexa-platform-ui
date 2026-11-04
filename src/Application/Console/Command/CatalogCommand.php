@@ -169,9 +169,30 @@ final class CatalogCommand extends Command
                 $output->writeln('  ' . $name . ': ' . json_encode($schema, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
             }
             $output->writeln('  slots: ' . implode(', ', array_keys((array) ($entry['slots'] ?? []))));
-            $output->writeln('  examples: ' . implode(', ', array_column((array) ($entry['examples'] ?? []), 'name')));
+            $this->writeExamples($output, (array) ($entry['examples'] ?? []));
         }
         return Command::SUCCESS;
+    }
+
+    /**
+     * The first example as the call to copy, the rest by name: one call shows how,
+     * and every variant of a large component would bury the props above it.
+     *
+     * @param array<array-key, mixed> $examples
+     */
+    private function writeExamples(OutputInterface $output, array $examples): void
+    {
+        $output->writeln('  examples: ' . implode(', ', array_column($examples, 'name')));
+
+        $first = $examples[0] ?? null;
+        if (!is_array($first)) {
+            return;
+        }
+        if (($first['call'] ?? '') !== '') {
+            $output->writeln('  call: ' . self::text($first['call']), OutputInterface::OUTPUT_RAW);
+        } elseif (isset($first['template'])) {
+            $output->writeln('  markup: ' . self::text($first['template']), OutputInterface::OUTPUT_RAW);
+        }
     }
 
     /**

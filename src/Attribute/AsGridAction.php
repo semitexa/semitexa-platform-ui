@@ -30,6 +30,26 @@ use Semitexa\Core\Attribute\Capability;
         'hand-written row checkboxes and a bulk bar',
     ],
     seeAlso: 'ui.form-submit-action',
+    usage: <<<'USAGE'
+        #[AsService]
+        #[ExecutionScoped]
+        #[AsGridAction('orders')]
+        final class OrderGridActions implements UiGridActionInterface
+        {
+            public function name(): string { return 'orders'; }
+
+            public function handle(UiGridActionContext $context): UiGridActionResult
+            {
+                foreach ($context->ids as $id) { /* act on the row */ }
+
+                return UiGridActionResult::done('Marked paid', count($context->ids));
+            }
+        }
+
+        // In the page:
+        {{ component('platform.grid', {endpoint: '/orders/feed', actionHandler: 'orders',
+            serverActions: [{id: 'paid', label: 'Mark paid', scopes: ['bulk']}]}) }}
+        USAGE,
 )]
 #[Attribute(Attribute::TARGET_CLASS)]
 final class AsGridAction
