@@ -1,6 +1,6 @@
 {
     "name": "semitexa/platform-ui",
-    "description": "Semitexa Platform UI — LLM-friendly CSS grammar, design tokens, primitive components, and AI-assisted skin generation (SkinResolver: LLM prompt resolver feeding semitexa/theme's skin generator, plus refinement and eval scorer). Requires semitexa/theme for SkinAlgorithm contract.",
+    "description": "Semitexa Platform UI \u2014 LLM-friendly CSS grammar, design tokens, primitive components, and AI-assisted skin generation (SkinResolver: LLM prompt resolver feeding semitexa/theme's skin generator, plus refinement and eval scorer). Requires semitexa/theme for SkinAlgorithm contract.",
     "type": "semitexa-module",
     "license": "MIT",
     "authors": [
@@ -45,7 +45,7 @@
         },
         "semitexa-module": {
             "name": "platform-ui",
-            "description": "LLM-friendly CSS grammar + design tokens + UI primitives + AI-assisted skin generation (SkinResolver → theme)",
+            "description": "LLM-friendly CSS grammar + design tokens + UI primitives + AI-assisted skin generation (SkinResolver \u2192 theme)",
             "template_paths": [
                 "resources/twig"
             ]
