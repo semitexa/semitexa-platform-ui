@@ -77,7 +77,13 @@ final class UiPatchValidator
         if ($patch->op === UiResponsePatch::OP_RERENDER) {
             throw new UiInteractionUnprocessableException(
                 'unresolved_rerender',
-                sprintf('Patch %d is a rerender the dispatcher could not turn into a morph.', $index),
+                sprintf(
+                    'Patch %d rerenders instance "%s", but a handler can rerender only the instance that fired the event: '
+                    . 'its signed props are the only ones this request vouches for. If a child changes what its parent shows, '
+                    . 'make the row a part of the parent component and handle the event there.',
+                    $index,
+                    $patch->targetInstance,
+                ),
             );
         }
         if (!in_array($patch->op, UiResponsePatch::ALLOWED_OPS, true)) {
