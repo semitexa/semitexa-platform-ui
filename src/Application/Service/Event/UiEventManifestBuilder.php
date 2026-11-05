@@ -156,13 +156,14 @@ final class UiEventManifestBuilder
         // The props this instance was rendered with ride its signed context, so
         // a handler can ask for a re-render (`UiResponsePatch::rerender()`)
         // and the server reproduces the instance without trusting the browser.
-        // Only a small, JSON-plain set: anything else leaves `pr` out and the
-        // instance simply cannot be re-rendered.
+        // Only a small, JSON-plain set: anything else leaves `pr` out, and the
+        // names of what is lost ride instead, so a re-render can say so.
         // Kept on the server instead when the component has #[UiState] or the
         // props are too large to copy into every context: the contexts then
         // carry the state's key (`st`), and the dispatcher loads it.
         $stateKey = UiComponentStates::persist($metadata->class, $instanceId, $props);
         $normalisedProps = $stateKey === null ? self::signableProps($props) : null;
+        $lostProps = $stateKey === null && $normalisedProps === null ? UiLostProps::namesOf($props) : [];
 
         $entries = [];
         foreach ($metadata->events as $event) {
@@ -191,6 +192,9 @@ final class UiEventManifestBuilder
 
             if ($normalisedProps !== null) {
                 $claims['pr'] = $normalisedProps;
+            }
+            if ($lostProps !== []) {
+                $claims[UiLostProps::CLAIM] = $lostProps;
             }
             if ($stateKey !== null) {
                 $claims['st'] = $stateKey;
@@ -231,6 +235,9 @@ final class UiEventManifestBuilder
 
             if ($normalisedProps !== null) {
                 $claims['pr'] = $normalisedProps;
+            }
+            if ($lostProps !== []) {
+                $claims[UiLostProps::CLAIM] = $lostProps;
             }
             if ($stateKey !== null) {
                 $claims['st'] = $stateKey;

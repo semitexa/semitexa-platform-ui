@@ -77,6 +77,20 @@ final class UiEventManifestBuilderTest extends TestCase
     }
 
     #[Test]
+    public function props_that_cannot_ride_leave_their_names_behind(): void
+    {
+        $metadata = $this->factory->fromClass(FieldComponent::class);
+
+        $lost = $this->builder->build($metadata, 'uci_lost_0001', props: ['rows' => new \stdClass(), 'title' => 'Orders']);
+        $claims = SignedContext::verify($lost->entries[0]->signedContext);
+        self::assertSame(['rows', 'title'], $claims['pl'] ?? null);
+        self::assertArrayNotHasKey('pr', (array) $claims);
+
+        $kept = $this->builder->build($metadata, 'uci_lost_0002', props: ['title' => 'Orders']);
+        self::assertArrayNotHasKey('pl', (array) SignedContext::verify($kept->entries[0]->signedContext));
+    }
+
+    #[Test]
     public function signed_context_round_trips_through_verify_with_expected_claims(): void
     {
         $metadata = $this->factory->fromClass(FieldComponent::class);
