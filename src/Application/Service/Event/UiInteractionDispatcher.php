@@ -655,7 +655,7 @@ final class UiInteractionDispatcher
                 continue;
             }
             $signedProps = is_array($claims['pr'] ?? null) ? $claims['pr'] : [];
-            $overrides = is_array($patch->args['props'] ?? null) ? $patch->args['props'] : [];
+            $overrides = UiLostProps::overridesFor($patch, $claims, $componentName);
             $props = array_merge($signedProps, $overrides, ['instanceId' => $signedInstance]);
             $resolved[] = UiResponsePatch::morph($signedInstance, $this->renderAsPage($componentName, $props, $claims));
             // #[UiUrl] props that changed follow into the address bar.

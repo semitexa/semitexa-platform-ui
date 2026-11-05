@@ -6,6 +6,7 @@ namespace Semitexa\PlatformUi\Application\Service\Submit;
 
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
 use Semitexa\PlatformUi\Application\Service\Event\UiEventManifestBuilder;
+use Semitexa\PlatformUi\Application\Service\Event\UiLostProps;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionUnprocessableException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFieldValidationResult;
 use Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitActionResult;
@@ -96,6 +97,7 @@ final class UiFormSubmitLifecycle
             dataProviderClass: is_string($claims['dp'] ?? null) ? $claims['dp'] : null,
             externalBindings: UiComponentRegistry::externalBindingsFor($metadata->name),
             props: $event->props(),
+            lostProps: is_array($claims[UiLostProps::CLAIM] ?? null) ? $claims[UiLostProps::CLAIM] : [],
         );
 
         return UiResponsePatch::replace($event->instanceId, $manifest->toScriptHtml(), null, 'event-manifest');

@@ -105,6 +105,7 @@ final class UiEventManifestBuilder
      *        binding source: the registry already enforces no-collision
      *        across the two sources, so the rendered manifest never
      *        emits two entries for the same (part, event).
+     * @param list<string> $lostProps names of props an earlier context could not keep
      */
     public function build(
         UiComponentMetadata $metadata,
@@ -115,6 +116,7 @@ final class UiEventManifestBuilder
         ?string $dataProviderClass = null,
         array $externalBindings = [],
         array $props = [],
+        array $lostProps = [],
     ): UiEventManifest {
         if ($instanceId === '') {
             throw new UiComponentRegistryException(
@@ -156,13 +158,18 @@ final class UiEventManifestBuilder
         // The props this instance was rendered with ride its signed context, so
         // a handler can ask for a re-render (`UiResponsePatch::rerender()`)
         // and the server reproduces the instance without trusting the browser.
-        // Only a small, JSON-plain set: anything else leaves `pr` out and the
-        // instance simply cannot be re-rendered.
+        // Only a small, JSON-plain set: anything else leaves `pr` out, and the
+        // names of what is lost ride instead, so a re-render can say so.
         // Kept on the server instead when the component has #[UiState] or the
         // props are too large to copy into every context: the contexts then
         // carry the state's key (`st`), and the dispatcher loads it.
         $stateKey = UiComponentStates::persist($metadata->class, $instanceId, $props);
         $normalisedProps = $stateKey === null ? self::signableProps($props) : null;
+        // A manifest rebuilt from a context (a form's rearm) has no props to look at: what
+        // was lost stays lost, so the names are carried over.
+        if ($lostProps === [] && $stateKey === null && $normalisedProps === null) {
+            $lostProps = UiLostProps::namesOf($props);
+        }
 
         $entries = [];
         foreach ($metadata->events as $event) {
@@ -191,6 +198,9 @@ final class UiEventManifestBuilder
 
             if ($normalisedProps !== null) {
                 $claims['pr'] = $normalisedProps;
+            }
+            if ($lostProps !== []) {
+                $claims[UiLostProps::CLAIM] = $lostProps;
             }
             if ($stateKey !== null) {
                 $claims['st'] = $stateKey;
@@ -231,6 +241,9 @@ final class UiEventManifestBuilder
 
             if ($normalisedProps !== null) {
                 $claims['pr'] = $normalisedProps;
+            }
+            if ($lostProps !== []) {
+                $claims[UiLostProps::CLAIM] = $lostProps;
             }
             if ($stateKey !== null) {
                 $claims['st'] = $stateKey;
