@@ -2040,6 +2040,8 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
     // can re-sync state that may have been published while the socket was
     // down. Keyed by url so two distinct streams do not cross-trigger.
     var SSE_LAST_CONNECTED_AT = {};
+    // By url, so a stream reopened at its age cap remembers the page was live.
+    var SSE_WAS_LIVE = {};
     var KISS_PATH = '/__semitexa_kiss';
     // The last frame id each stream got (`k<connection>.<n>`, numbered by the
     // server's replay transport), by url. A NEW EventSource for the same url (a
@@ -2276,7 +2278,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
                 url: url
             });
             if (parsed.live === true) {
-                wasLive = true;
+                SSE_WAS_LIVE[url] = true;
             }
             // The server says a retry cannot help: the request expired or is not
             // this page's. Left alone, the browser reconnected and was refused
@@ -2284,7 +2286,11 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             // when it finishes, and its `close` event ends it.
             if (parsed.reconnect === false && url.indexOf('mode=' + SSE_TRANSPORT_MODE_DRAIN) === -1) {
                 closeForGood(parsed);
-                if (wasLive) {
+                // Nothing reaches a feed on this stream any more; pull still can.
+                if (url.indexOf(KISS_PATH) !== -1) {
+                    failAllSubscriptions();
+                }
+                if (SSE_WAS_LIVE[url]) {
                     announceStreamExpired(url);
                 }
             }
@@ -2310,7 +2316,6 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             }
         };
 
-        var wasLive = false;
         function closeForGood(detail) {
             try { source.close(); } catch (closeErr) { /* ignore */ }
             var idx = ATTACHED_SSE_CONNECTIONS.indexOf(entry);
