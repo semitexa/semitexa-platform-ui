@@ -178,6 +178,11 @@ final class WorkbenchViewBuilder
         if ($contract === null || !in_array($item->kind, ['component', 'primitive'], true)) {
             return null;
         }
+        $first = $contract->examples === [] ? null : array_values($contract->examples)[0];
+        // Nothing here can draw it, with these values or typed ones.
+        if ($first?->needsApplication === true) {
+            return null;
+        }
         $controls = [];
         foreach ($contract->props as $prop) {
             if (!in_array($prop->type, [UiPropType::String, UiPropType::Boolean, UiPropType::Integer, UiPropType::Number, UiPropType::Scalar], true) || $prop->sensitive) {
@@ -195,7 +200,6 @@ final class WorkbenchViewBuilder
             return null;
         }
 
-        $first = $contract->examples === [] ? null : array_values($contract->examples)[0];
         if ($try === []) {
             return ['controls' => $controls, 'example' => null, 'error' => ''];
         }
@@ -283,7 +287,7 @@ final class WorkbenchViewBuilder
         // raw, so the Workbench escapes them on the way in.
         $slots = array_map(static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'), $example->slots);
 
-        $base = ['name' => $example->name, 'label' => $example->label, 'uid' => $uid, 'provenance' => self::provenance($item, $example->props)];
+        $base = ['name' => $example->name, 'label' => $example->label, 'needs_application' => $example->needsApplication, 'uid' => $uid, 'provenance' => self::provenance($item, $example->props)];
 
         if ($example->template !== null) {
             $opts = self::optionString($props);

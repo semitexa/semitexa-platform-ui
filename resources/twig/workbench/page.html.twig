@@ -104,7 +104,11 @@
                 <section class="wb-example" data-workbench-example="{{ ex.name }}" aria-labelledby="{{ ex.uid }}-label">
                     <h2 id="{{ ex.uid }}-label" class="wb-example-title">{{ ex.label }}</h2>
                     <div class="wb-stage" data-workbench-stage style="color-scheme: {{ wb.mode }}">
-                        {{ wbm.render(ex, entry.name) }}
+                        {% if ex.needs_application %}
+                            <p data-workbench-needs-application>This example names a route of your application, so it is shown as code. Point it at a route you have.</p>
+                        {% else %}
+                            {{ wbm.render(ex, entry.name) }}
+                        {% endif %}
                     </div>
                     <details class="wb-code" data-workbench-provenance>
                         <summary>Twig{% if ex.provenance is not empty %} · props{% endif %}</summary>

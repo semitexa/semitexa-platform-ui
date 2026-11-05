@@ -55,7 +55,7 @@ use Semitexa\Ssr\Attribute\AsComponent;
         new UiProp('context', type: UiPropType::Object, default: [], description: 'Values signed into the grid with its props for the actionHandler to read (semitexa/crud passes {crud: screen id}); never trusted from the client.'),
     ],
     examples: [
-        new UiExample('default', 'Feed-backed grid', ['endpoint' => '/orders/feed', 'gridId' => 'example']),
+        new UiExample('default', 'Feed-backed grid', ['endpoint' => '/orders/feed', 'gridId' => 'example'], needsApplication: true),
     ],
     // A grid needs a live feed of the host application.
     previewSafe: false,
