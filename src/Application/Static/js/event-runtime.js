@@ -1610,15 +1610,18 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
     // in Safari the blur after it fired no change, and the visitor's text never
     // reached the server. So the change is owed from here, and paid on blur
     // unless the browser fired its own first.
-    var valueAtFocus = null;
+    var focused = { control: null, value: null };
     var owedChangeOn = null;
     document.addEventListener('focusin', function (ev) {
-        if (!morphIsMoving) valueAtFocus = ev.target.value;
+        if (!morphIsMoving) focused = { control: ev.target, value: ev.target.value };
     }, true);
 
     function oweChange(control) {
-        var started = valueAtFocus;
-        if (typeof control.value !== 'string' || control.value === started || owedChangeOn === control) return;
+        var started = focused.value;
+        // Focused before this runtime loaded: its first value is unknown, and a
+        // change nobody made must not reach a handler.
+        if (focused.control !== control || typeof control.value !== 'string'
+            || control.value === started || owedChangeOn === control) return;
         owedChangeOn = control;
         function settle(ev) {
             if (morphIsMoving && ev.type === 'blur') return;

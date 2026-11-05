@@ -196,19 +196,20 @@ final class EventRuntimeSseReviveReconnectTest extends TestCase
     }
 
     #[Test]
-    public function a_script_the_assets_brought_in_is_not_run_again_by_its_region(): void
+    public function a_script_a_region_carries_runs_with_the_region_not_before_it(): void
     {
-        // Presence only; measured in Chrome: 2 requests and 2 runs before, 1 and 1 after.
+        // Presence only; measured in Chrome: 2 runs before, the first on no markup, then 1 with it.
         $nav = (string) file_get_contents(\dirname(__DIR__, 3) . '/src/Application/Static/js' . '/navigation.js');
-        self::assertStringContainsString('loadedForThisSwap.add(', $nav);
-        self::assertMatchesRegularExpression('/loadedForThisSwap\.has\([^\n]+\n\s*inert\.remove\(\);/', $nav);
+        self::assertStringContainsString('ensureAssets(splitAssets(payload).before)', $nav);
+        self::assertStringContainsString('ensureAssets(splitAssets(payload).after)', $nav);
+        self::assertMatchesRegularExpression('/after: \{ js: js\.slice\(first\)\.filter/', $nav);
     }
 
     #[Test]
     public function a_navigation_overtaken_while_its_scripts_load_stays_quiet(): void
     {
         $nav = (string) file_get_contents(\dirname(__DIR__, 3) . '/src/Application/Static/js' . '/navigation.js');
-        self::assertMatchesRegularExpression('/loadedForThisSwap\.clear\(\);.*?if \(token !== navigationToken\) return false;.*?if \(!ok\)/s', $nav);
+        self::assertMatchesRegularExpression('/ensureAssets\(splitAssets\(payload\)\.after\).*?if \(token !== navigationToken\) return false;.*?if \(!ok\)/s', $nav);
     }
 
     #[Test]

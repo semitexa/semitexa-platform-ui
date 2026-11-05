@@ -790,6 +790,13 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
                 return;
             }
             state.pulling = true;
+            var generation = state.pullGeneration;
+            var overtaken = function () {
+                if (generation === state.pullGeneration) return false;
+                state.pulling = false;
+                state.pullAgain = false;
+                return true;
+            };
             root.setAttribute('data-ui-grid-v2-state', 'loading');
             var qs = buildQuery().toString();
             var url = qs === '' ? endpoint : endpoint + '?' + qs;
@@ -803,6 +810,7 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
                     return res.json().then(function (body) { return { ok: res.ok, body: body }; });
                 })
                 .then(function (result) {
+                    if (overtaken()) return;
                     state.pulling = false;
                     if (drainQueuedPull()) return;
                     if (!result.ok || !result.body || !Array.isArray(result.body.data)) {
@@ -813,6 +821,7 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
                     render(result.body);
                 })
                 .catch(function () {
+                    if (overtaken()) return;
                     state.pulling = false;
                     if (drainQueuedPull()) return;
                     showError('The grid feed is unreachable.');
@@ -853,7 +862,11 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
                 },
                 onStreamId: function (id) { state.subscriptionId = id; },
                 onStatus: function (status) {
-                    if (status === 'live' && channel) state.transport = 'sse';
+                    if (status === 'live' && channel) {
+                        state.transport = 'sse';
+                        // What a pull still on its way answers is older than the stream.
+                        state.pullGeneration = (state.pullGeneration || 0) + 1;
+                    }
                 },
                 onPull: function (paused) {
                     // No KISS session on this page: the feed's plain JSON GET.

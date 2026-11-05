@@ -43,13 +43,6 @@ const ORIGINAL_TYPE = 'data-semitexa-original-type';
 
 const EXECUTABLE_TYPES = ['', 'text/javascript', 'application/javascript', 'module', 'importmap'];
 
-/**
- * Scripts this swap's assets brought in. A region can carry the same one, and
- * activating its copy too ran it twice. The asset list has to keep it: it holds
- * a page's scripts in document order, and a script after the region may need it.
- */
-const loadedForThisSwap = new Set();
-
 /** An asset that never answers delays the swap by an instant rather than forever. */
 const ASSET_TIMEOUT_MS = 1000;
 
@@ -163,12 +156,6 @@ function activateScripts(root) {
     const inerts = Array.from(root.querySelectorAll('script[type="' + INERT_TYPE + '"]'));
 
     return inerts.reduce((chain, inert) => chain.then((ok) => {
-        const src = inert.getAttribute('src');
-        if (src && loadedForThisSwap.has(new URL(src, document.baseURI).href)) {
-            inert.remove();
-            return ok;
-        }
-
         const script = document.createElement('script');
 
         for (const attribute of Array.from(inert.attributes)) {
@@ -206,6 +193,50 @@ function activateScripts(root) {
  * navigation. The timeout is there so a stylesheet that never loads delays the
  * swap by an instant instead of forever.
  */
+function absoluteUrl(src) {
+    try {
+        return new URL(src, document.baseURI).href;
+    } catch (invalid) {
+        return null;
+    }
+}
+
+/** The external scripts the arriving regions carry and activateScripts will run. */
+function scriptsInRegions(regions) {
+    const carried = new Set();
+    Object.values(regions || {}).forEach((html) => {
+        if (typeof html !== 'string') return;
+        const template = document.createElement('template');
+        template.innerHTML = html;
+        template.content.querySelectorAll('script[src]').forEach((script) => {
+            if (isExecutableScript(script)) carried.add(absoluteUrl(script.getAttribute('src')));
+        });
+    });
+    carried.delete(null);
+
+    return carried;
+}
+
+/**
+ * The page's assets in two halves, by document order. A script a region carries
+ * runs when the region is in, with the markup it works on: loading it as an asset
+ * too ran it twice, the first time on nothing. What follows it in the document
+ * may need it, so that waits as well, as it would on a full load.
+ */
+function splitAssets(payload) {
+    const assets = payload.assets;
+    const js = (assets && assets.js) || [];
+    const carried = scriptsInRegions(payload.regions);
+    const isCarried = (asset) => carried.has(absoluteUrl(typeof asset === 'string' ? asset : asset.src));
+    const first = js.findIndex(isCarried);
+    if (first === -1) return { before: assets, after: null };
+
+    return {
+        before: { ...assets, js: js.slice(0, first) },
+        after: { js: js.slice(first).filter((asset) => !isCarried(asset)) },
+    };
+}
+
 function ensureAssets(assets) {
     // TRUE, not undefined. This resolves to "did everything load", and the
     // caller falls back to a real navigation on false — so an envelope with no
@@ -229,7 +260,6 @@ function ensureAssets(assets) {
         const attrs = (asset && asset.attrs) || {};
         if (!src || document.querySelector('script[src="' + cssEscape(src) + '"]')) return;
 
-        loadedForThisSwap.add(new URL(src, document.baseURI).href);
         pending.push(new Promise((resolve) => {
             const script = document.createElement('script');
             script.src = src;
@@ -659,7 +689,7 @@ function pageMove(url, token, opts) {
         // stylesheet or its runtime, and the page stayed half-dressed until
         // someone reloaded. Awaited BEFORE the swap, which is the whole reason
         // ensureAssets waits at all.
-        return ensureAssets(payload.assets).then((loaded) => {
+        return ensureAssets(splitAssets(payload).before).then((loaded) => {
             if (token !== navigationToken) return false;
 
             if (!loaded) {
@@ -723,9 +753,9 @@ function settlePage(region, payload, opts, url, token) {
     window.scrollTo(0, opts.scroll || 0);
     restoreFocus(region, payload.title);
 
-    return activateScripts(document).then((ok) => {
-        loadedForThisSwap.clear();
-
+    return activateScripts(document).then((ok) => (
+        ok ? ensureAssets(splitAssets(payload).after) : false
+    )).then((ok) => {
         // A click while the region's scripts loaded started a newer navigation,
         // and this one has nothing left to say: a slow script would otherwise
         // send the browser back to the page the visitor just left.
