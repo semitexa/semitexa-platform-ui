@@ -61,7 +61,7 @@ final class UiPatchValidator
                     sprintf('Handler returned a non-UiResponsePatch value at index %d.', $index),
                 );
             }
-            $this->validateOne($patch, $allowed, $index);
+            $this->validateOne($patch, $allowed, $index, $expectedInstance);
             $validated[] = $patch;
         }
         return $validated;
@@ -72,12 +72,20 @@ final class UiPatchValidator
      *        in validateAll() — keys are the allow-listed
      *        targetInstance values for this dispatch.
      */
-    private function validateOne(UiResponsePatch $patch, array $allowedInstances, int $index): void
+    private function validateOne(UiResponsePatch $patch, array $allowedInstances, int $index, string $expectedInstance): void
     {
         if ($patch->op === UiResponsePatch::OP_RERENDER) {
             throw new UiInteractionUnprocessableException(
                 'unresolved_rerender',
-                sprintf('Patch %d is a rerender the dispatcher could not turn into a morph.', $index),
+                $patch->targetInstance === $expectedInstance
+                    ? sprintf('Patch %d rerenders its own instance, but this dispatch has no component renderer to render it with.', $index)
+                    : sprintf(
+                        'Patch %d rerenders instance "%s", but a handler can rerender only the instance that fired the event: '
+                        . 'its signed props are the only ones this request vouches for. If a child changes what its parent shows, '
+                        . 'make the row a part of the parent component and handle the event there.',
+                        $index,
+                        $patch->targetInstance,
+                    ),
             );
         }
         if (!in_array($patch->op, UiResponsePatch::ALLOWED_OPS, true)) {
