@@ -2757,10 +2757,11 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
     ];
 
     /** True when a LIVE-mode KISS connection is already attached (URL carries mode=live). */
-    function hasLiveSseConnection() {
+    function hasLiveSseConnection(sessionId) {
+        var addressed = 'session_id=' + encodeURIComponent(sessionId) + '&';
         for (var i = 0; i < ATTACHED_SSE_CONNECTIONS.length; i++) {
             var u = ATTACHED_SSE_CONNECTIONS[i].url || '';
-            if (u.indexOf('mode=' + SSE_TRANSPORT_MODE_LIVE) !== -1) {
+            if (u.indexOf('mode=' + SSE_TRANSPORT_MODE_LIVE) !== -1 && u.indexOf(addressed) !== -1) {
                 return true;
             }
         }
@@ -2775,10 +2776,10 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         // A subscription needs a LIVE connection. Checking only the count was a
         // bug: a drain-mode connection (opened to flush deferred placeholders)
         // closes after the flush, so a subscription riding it would lose its feed.
-        // Open the live URL whenever no LIVE connection is attached — a live page
+        // Open the live URL whenever this session has no LIVE connection — a live page
         // already opened it (attachSse de-dupes the identical URL → no-op); a
         // drain-only page gets its live connection forced here by the subscriber.
-        if (!hasLiveSseConnection()) {
+        if (!hasLiveSseConnection(sessionId)) {
             attachSse({ url: buildKissUrl(sessionId, SSE_TRANSPORT_MODE_LIVE) });
         }
         return true;

@@ -163,6 +163,15 @@ final class EventRuntimeSseReviveReconnectTest extends TestCase
     }
 
     #[Test]
+    public function a_live_stream_of_another_session_does_not_count(): void
+    {
+        // A feed moved to a session would otherwise ride nothing.
+        preg_match('/function hasLiveSseConnection\(sessionId\) \{.*?\n    \}/s', $this->jsCode(), $body);
+        self::assertNotEmpty($body);
+        self::assertStringContainsString("u.indexOf(addressed) !== -1", $body[0]);
+    }
+
+    #[Test]
     public function closing_a_page_stream_does_not_announce_a_server_close(): void
     {
         // `semitexa:ui-sse:close` reopens a drain stream.
