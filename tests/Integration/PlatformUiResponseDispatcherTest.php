@@ -291,6 +291,58 @@ final class PlatformUiResponseDispatcherTest extends TestCase
     }
 
     #[Test]
+    public function a_component_kept_from_another_page_gets_its_patches_in_the_answer(): void
+    {
+        $publisher = new RecordingCanonicalUiMessagePublisher();
+        $adapter = $this->newAdapter()->withPublisher($publisher);
+        $envelope = $this->envelope(
+            $this->submitCtxWithSub('sse_session_alpha'),
+            ['form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']]],
+            ['session' => 'sse_session_beta'],
+        );
+
+        $result = $adapter->dispatch($envelope, $this->verifyClaims($envelope));
+
+        self::assertNotSame([], $result->body['patches']);
+        self::assertArrayNotHasKey('streamedPatchCount', $result->body);
+        self::assertSame([], $publisher->published);
+    }
+
+    #[Test]
+    public function a_page_with_no_session_gets_its_patches_in_the_answer(): void
+    {
+        $publisher = new RecordingCanonicalUiMessagePublisher();
+        $adapter = $this->newAdapter()->withPublisher($publisher);
+        $envelope = $this->envelope(
+            $this->submitCtxWithSub('sse_session_alpha'),
+            ['form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']]],
+            ['session' => null],
+        );
+
+        $result = $adapter->dispatch($envelope, $this->verifyClaims($envelope));
+
+        self::assertNotSame([], $result->body['patches']);
+        self::assertSame([], $publisher->published);
+    }
+
+    #[Test]
+    public function the_session_the_page_listens_on_keeps_the_stream(): void
+    {
+        $publisher = new RecordingCanonicalUiMessagePublisher();
+        $adapter = $this->newAdapter()->withPublisher($publisher);
+        $envelope = $this->envelope(
+            $this->submitCtxWithSub('sse_session_alpha'),
+            ['form' => ['values' => ['access_code' => 'abcd', 'confirm_access_code' => 'abcd']]],
+            ['session' => 'sse_session_alpha'],
+        );
+
+        $result = $adapter->dispatch($envelope, $this->verifyClaims($envelope));
+
+        self::assertSame([], $result->body['patches']);
+        self::assertSame('sse_session_alpha', $publisher->lastSessionId);
+    }
+
+    #[Test]
     public function without_sub_claim_inline_patches_are_preserved(): void
     {
         $publisher = new RecordingCanonicalUiMessagePublisher();
@@ -567,7 +619,8 @@ final class PlatformUiResponseDispatcherTest extends TestCase
     /**
      * @param array<string, mixed> $payload
      */
-    private function envelope(string $signedCtx, array $payload): UiEventEnvelope
+    /** @param array<string, mixed> $transport */
+    private function envelope(string $signedCtx, array $payload, array $transport = []): UiEventEnvelope
     {
         // Generate an eventId that matches the legacy dispatcher's strict
         // pattern (same shape the frontend runtime currently mints for
@@ -583,6 +636,7 @@ final class PlatformUiResponseDispatcherTest extends TestCase
             signedContext: $signedCtx,
             timestamp:     '2026-05-19T00:00:00Z',
             payload:       $payload,
+            transport:     $transport,
         );
     }
 

@@ -168,12 +168,17 @@
 
         var mgr = window.SemitexaUi && window.SemitexaUi.sse;
         if (mgr && typeof mgr.subscribe === 'function' && typeof opts.feed === 'string' && opts.feed !== '') {
-            var handle = mgr.subscribe({ feed: opts.feed, patches: !!(opts.patchEvent && opts.onPatch) }, params(), onSharedFrame, function () {
-                // The page's KISS stream never connected: pull instead.
-                sub = null;
+            var handle = mgr.subscribe({ feed: opts.feed, patches: !!(opts.patchEvent && opts.onPatch) }, params(), onSharedFrame, function (paused) {
+                // No stream to listen on: pull instead. A page without a session
+                // only pauses the subscription, the next live page resumes it.
+                if (!paused) sub = null;
                 if (closed) return;
                 mode = 'pull';
                 if (opts.onPull) opts.onPull();
+            }, function () {
+                if (closed) return;
+                mode = 'shared';
+                if (opts.onStatus) opts.onStatus('live');
             });
             if (handle && !handle.degraded) {
                 sub = handle;
@@ -425,8 +430,19 @@
             semanticEvent: o.semanticEvent,
             signedContext: o.signedContext,
             timestamp: new Date().toISOString(),
-            payload: o.payload || {}
+            payload: o.payload || {},
+            transport: { session: listeningSession() }
         };
+    }
+
+    /**
+     * The session this page listens on. A component kept across a shell swap
+     * still carries the session of the page that drew it, and only the client
+     * knows the two differ.
+     */
+    function listeningSession() {
+        var meta = document.querySelector('meta[name="semitexa-ui-sse-session"]');
+        return (meta && meta.getAttribute('content')) || null;
     }
 
     /** POST one body to HUG. opts.keepalive for fire-and-forget on unload. */
