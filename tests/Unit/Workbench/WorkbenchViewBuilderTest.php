@@ -74,6 +74,9 @@ final class WorkbenchViewBuilderTest extends TestCase
         $metadata = (new UiComponentMetadataFactory())->fromClass(GridComponent::class);
         $item = new UiCatalogItem('component', $metadata, $metadata->contract, null, '', 0, '');
         $tryPanel = new ReflectionMethod(WorkbenchViewBuilder::class, 'tryPanel');
+        // With no contract the panel is null anyway, and this would prove nothing.
+        self::assertNotNull($metadata->contract);
+        self::assertTrue(array_values($metadata->contract->examples)[0]->needsApplication);
 
         self::assertNull($tryPanel->invoke(new WorkbenchViewBuilder(), $item, []));
         self::assertNull($tryPanel->invoke(new WorkbenchViewBuilder(), $item, ['gridId' => 'x']), 'nor by asking for it');
@@ -83,7 +86,9 @@ final class WorkbenchViewBuilderTest extends TestCase
     public function an_ordinary_example_keeps_its_contract_shape(): void
     {
         // Only when set: a new key on every example would move every contract_version.
-        self::assertArrayNotHasKey('needs_application', (new UiExample('plain', 'Plain'))->toArray());
+        $plain = (new UiExample('plain', 'Plain'))->toArray();
+        self::assertSame(['name', 'label', 'props', 'slots'], array_keys($plain));
+        self::assertSame('plain', $plain['name']);
         self::assertTrue((new UiExample('live', 'Live', needsApplication: true))->toArray()['needs_application']);
     }
 
