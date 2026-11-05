@@ -93,6 +93,18 @@ final class UiPatchValidatorTest extends TestCase
     }
 
     #[Test]
+    public function a_rerender_of_its_own_instance_blames_the_missing_renderer(): void
+    {
+        try {
+            $this->v->validateAll([UiResponsePatch::rerender(self::INSTANCE)], self::INSTANCE);
+            self::fail('a rerender that reaches the validator is refused');
+        } catch (UiInteractionUnprocessableException $refused) {
+            self::assertStringContainsString('no component renderer', $refused->getMessage());
+            self::assertStringNotContainsString('parent', $refused->getMessage());
+        }
+    }
+
+    #[Test]
     public function instance_mismatch_is_rejected(): void
     {
         $this->expectException(UiInteractionUnprocessableException::class);
