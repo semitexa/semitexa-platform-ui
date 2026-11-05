@@ -2026,6 +2026,8 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
      *                                  detail = {patch, index, reason})
      *   semitexa:ui-sse:close         (on server `close` event;
      *                                  detail = {detail, url})
+     *   semitexa:ui-sse:expired       (a live page's stream was refused for
+     *                                  good; detail = {url})
      *   semitexa:ui-sse:error         (transport error;
      *                                  detail = {phase, error?, url})
      */
@@ -2038,6 +2040,8 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
     // can re-sync state that may have been published while the socket was
     // down. Keyed by url so two distinct streams do not cross-trigger.
     var SSE_LAST_CONNECTED_AT = {};
+    // By url, so a stream reopened at its age cap remembers the page was live.
+    var SSE_WAS_LIVE = {};
     var KISS_PATH = '/__semitexa_kiss';
     // The last frame id each stream got (`k<connection>.<n>`, numbered by the
     // server's replay transport), by url. A NEW EventSource for the same url (a
@@ -2229,19 +2233,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             // which defeats the whole point of drain mode. Idempotent
             // on `live` streams that never receive a server-side
             // close.
-            try { source.close(); } catch (closeErr) { /* ignore */ }
-            var idx = ATTACHED_SSE_CONNECTIONS.indexOf(entry);
-            if (idx >= 0) {
-                ATTACHED_SSE_CONNECTIONS.splice(idx, 1);
-            }
-            // Announce only once the connection is gone: a listener that
-            // reopens the same URL (drain mode, answers that arrived while
-            // this drain was open) would otherwise be de-duplicated against
-            // the dying connection — and every later answer would wait.
-            emitTransportEvent('semitexa:ui-sse:close', {
-                detail: parsed,
-                url: url
-            });
+            closeForGood(parsed);
             // A live stream the server closed only because it reached its age
             // cap (SSE_MAX_CONNECTION_AGE_SECONDS) is not a teardown: open it
             // again at once. The fresh `connected` frame is a reconnect, so
@@ -2285,6 +2277,23 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
                 message: parsed,
                 url: url
             });
+            if (parsed.live === true) {
+                SSE_WAS_LIVE[url] = true;
+            }
+            // The server says a retry cannot help: the request expired or is not
+            // this page's. Left alone, the browser reconnected and was refused
+            // for as long as the tab stayed open. A drain stream looks the same
+            // when it finishes, and its `close` event ends it.
+            if (parsed.reconnect === false && url.indexOf('mode=' + SSE_TRANSPORT_MODE_DRAIN) === -1) {
+                closeForGood(parsed);
+                // Nothing reaches a feed on this stream any more; pull still can.
+                if (url.indexOf(KISS_PATH) !== -1) {
+                    failAllSubscriptions();
+                }
+                if (SSE_WAS_LIVE[url]) {
+                    announceStreamExpired(url);
+                }
+            }
         };
 
         source.onerror = function (err) {
@@ -2307,6 +2316,22 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             }
         };
 
+        function closeForGood(detail) {
+            try { source.close(); } catch (closeErr) { /* ignore */ }
+            var idx = ATTACHED_SSE_CONNECTIONS.indexOf(entry);
+            if (idx >= 0) {
+                ATTACHED_SSE_CONNECTIONS.splice(idx, 1);
+            }
+            // Announce only once the connection is gone: a listener that
+            // reopens the same URL (drain mode, answers that arrived while
+            // this drain was open) would otherwise be de-duplicated against
+            // the dying connection — and every later answer would wait.
+            emitTransportEvent('semitexa:ui-sse:close', {
+                detail: detail,
+                url: url
+            });
+        }
+
         var entry = { url: url, source: source };
         ATTACHED_SSE_CONNECTIONS.push(entry);
         return function detach() {
@@ -2316,6 +2341,18 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
                 ATTACHED_SSE_CONNECTIONS.splice(idx, 1);
             }
         };
+    }
+
+    /** A page that was live has stopped updating for good, and only a reload brings it back. */
+    function announceStreamExpired(url) {
+        var message = 'This page stopped updating. Reload it to see the latest.';
+        emitTransportEvent('semitexa:ui-sse:expired', { url: url });
+        var toast = window.SemitexaUi && window.SemitexaUi.toast;
+        if (typeof toast === 'function') {
+            toast(message, { status: TOAST_STATUS.warning });
+        } else {
+            emitTransportEvent('semitexa:ui-toast', { message: message, level: TOAST_STATUS.warning });
+        }
     }
 
     function parseSseFrame(ev) {
