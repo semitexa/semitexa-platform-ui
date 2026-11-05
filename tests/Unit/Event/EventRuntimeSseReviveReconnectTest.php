@@ -184,6 +184,34 @@ final class EventRuntimeSseReviveReconnectTest extends TestCase
     }
 
     #[Test]
+    public function a_paused_grid_keeps_its_channel_and_its_view(): void
+    {
+        // Presence only; measured in Chrome: perPage set on a page with no session
+        // came back in the subscribe of the next live page.
+        $dir = \dirname(__DIR__, 3) . '/src/Application/Static/js';
+        $grid = (string) file_get_contents($dir . '/grid-runtime-v2.js');
+        self::assertMatchesRegularExpression('/onPull: function \(paused\) \{.*?if \(!paused\) \{.*?channel = null;/s', $grid);
+        self::assertStringContainsString('if (channel) channel.view(currentViewParams());', $grid);
+        self::assertStringContainsString('opts.onPull(paused === true)', (string) file_get_contents($dir . '/ui-core.js'));
+    }
+
+    #[Test]
+    public function a_script_the_assets_brought_in_is_not_run_again_by_its_region(): void
+    {
+        // Presence only; measured in Chrome: 2 requests and 2 runs before, 1 and 1 after.
+        $nav = (string) file_get_contents(\dirname(__DIR__, 3) . '/src/Application/Static/js' . '/navigation.js');
+        self::assertStringContainsString('loadedForThisSwap.add(', $nav);
+        self::assertMatchesRegularExpression('/loadedForThisSwap\.has\([^\n]+\n\s*inert\.remove\(\);/', $nav);
+    }
+
+    #[Test]
+    public function a_navigation_overtaken_while_its_scripts_load_stays_quiet(): void
+    {
+        $nav = (string) file_get_contents(\dirname(__DIR__, 3) . '/src/Application/Static/js' . '/navigation.js');
+        self::assertMatchesRegularExpression('/loadedForThisSwap\.clear\(\);.*?if \(token !== navigationToken\) return false;.*?if \(!ok\)/s', $nav);
+    }
+
+    #[Test]
     public function closing_a_page_stream_does_not_announce_a_server_close(): void
     {
         // `semitexa:ui-sse:close` reopens a drain stream.

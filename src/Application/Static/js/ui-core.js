@@ -174,7 +174,7 @@
                 if (!paused) sub = null;
                 if (closed) return;
                 mode = 'pull';
-                if (opts.onPull) opts.onPull();
+                if (opts.onPull) opts.onPull(paused === true);
             }, function () {
                 if (closed) return;
                 mode = 'shared';

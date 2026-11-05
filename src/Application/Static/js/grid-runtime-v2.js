@@ -852,11 +852,17 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
                     handleErrorEnvelope(envelope);
                 },
                 onStreamId: function (id) { state.subscriptionId = id; },
-                onPull: function () {
+                onStatus: function (status) {
+                    if (status === 'live' && channel) state.transport = 'sse';
+                },
+                onPull: function (paused) {
                     // No KISS session on this page: the feed's plain JSON GET.
+                    // Paused, the channel stays: a later page resumes it.
                     state.transport = 'pull';
-                    state.subscriptionId = null;
-                    channel = null;
+                    if (!paused) {
+                        state.subscriptionId = null;
+                        channel = null;
+                    }
                     pull();
                 }
             });
@@ -915,6 +921,8 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
                 channel.view(currentViewParams());
                 return;
             }
+            // A paused feed comes back with the view it is told here.
+            if (channel) channel.view(currentViewParams());
             pull();
         }
 

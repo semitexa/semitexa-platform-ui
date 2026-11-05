@@ -43,6 +43,13 @@ const ORIGINAL_TYPE = 'data-semitexa-original-type';
 
 const EXECUTABLE_TYPES = ['', 'text/javascript', 'application/javascript', 'module', 'importmap'];
 
+/**
+ * Scripts this swap's assets brought in. A region can carry the same one, and
+ * activating its copy too ran it twice. The asset list has to keep it: it holds
+ * a page's scripts in document order, and a script after the region may need it.
+ */
+const loadedForThisSwap = new Set();
+
 /** An asset that never answers delays the swap by an instant rather than forever. */
 const ASSET_TIMEOUT_MS = 1000;
 
@@ -156,6 +163,12 @@ function activateScripts(root) {
     const inerts = Array.from(root.querySelectorAll('script[type="' + INERT_TYPE + '"]'));
 
     return inerts.reduce((chain, inert) => chain.then((ok) => {
+        const src = inert.getAttribute('src');
+        if (src && loadedForThisSwap.has(new URL(src, document.baseURI).href)) {
+            inert.remove();
+            return ok;
+        }
+
         const script = document.createElement('script');
 
         for (const attribute of Array.from(inert.attributes)) {
@@ -216,6 +229,7 @@ function ensureAssets(assets) {
         const attrs = (asset && asset.attrs) || {};
         if (!src || document.querySelector('script[src="' + cssEscape(src) + '"]')) return;
 
+        loadedForThisSwap.add(new URL(src, document.baseURI).href);
         pending.push(new Promise((resolve) => {
             const script = document.createElement('script');
             script.src = src;
@@ -681,7 +695,7 @@ function applyPage(url, payload, token, opts) {
             fallback(url, opts.replace === true);
             return false;
         }
-        return settlePage(region, payload, opts, url);
+        return settlePage(region, payload, opts, url, token);
     });
 }
 
@@ -701,7 +715,7 @@ function commitWithTransition(payload, mode, token) {
     return transition.updateCallbackDone.then(() => region, () => region);
 }
 
-function settlePage(region, payload, opts, url) {
+function settlePage(region, payload, opts, url, token) {
 
     // The swap itself is done and history already matches it, so the scroll
     // and the focus move now; only the ANNOUNCEMENT waits for the region's own
@@ -710,6 +724,13 @@ function settlePage(region, payload, opts, url) {
     restoreFocus(region, payload.title);
 
     return activateScripts(document).then((ok) => {
+        loadedForThisSwap.clear();
+
+        // A click while the region's scripts loaded started a newer navigation,
+        // and this one has nothing left to say: a slow script would otherwise
+        // send the browser back to the page the visitor just left.
+        if (token !== navigationToken) return false;
+
         if (!ok) {
             fallback(url, opts.replace === true);
             return false;
