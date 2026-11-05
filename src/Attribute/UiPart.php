@@ -37,6 +37,18 @@ use Semitexa\Core\Attribute\Capability;
         'hard-coding child markup inside the component template',
     ],
     seeAlso: 'ui.primitive',
+    usage: <<<'USAGE'
+        #[UiPart(name: 'save', uses: ButtonPrimitive::class, defaults: ['variant' => 'solid'])]
+        #[UiPart(name: 'email', uses: InputPrimitive::class, bind: 'user.email')]
+        final class ProfileFormComponent { ... }
+
+        // In the component's template. Props given here win over defaults:
+        {{ ui_part('email') }}
+        {{ ui_part('save', {label: 'Save'}) }}
+
+        // bind: fills the part's value from the component's props when it renders; it does not
+        // write back. To react to a part, add #[UiOn]: ai:ask mechanisms --id=ui.event-intent.
+        USAGE,
 )]
 #[Attribute(Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE)]
 final class UiPart

@@ -239,6 +239,9 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
     }
 
     function handleNativeEvent(nativeEvent, ev) {
+        if (morphIsMoving) {
+            return;
+        }
         var rootEl = findInstanceRoot(ev.target);
         if (!rootEl) {
             return;
@@ -1535,12 +1538,15 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
 
     /**
      * Morph `from` into `to` in place: attributes synced, children matched by
-     * id or data-ui-part (else by position), so focus, caret and the value a
-     * user is typing survive a re-render of the component around them.
+     * id, data-key or data-ui-part (else by position), so focus, caret and the
+     * value a user is typing survive a re-render of the component around them.
+     * Rows that can be added or removed need data-key: a repeated part is only
+     * paired by its position, so a draft would land on the row after it.
      */
     // Set while an expired component is redrawn: the controls keep what the
     // visitor typed rather than the values it was first drawn with.
     var morphKeepsValues = false;
+    var morphIsMoving = false;
 
     function morphElement(from, to) {
         if (from.nodeType !== to.nodeType || from.nodeName !== to.nodeName) {
@@ -1591,8 +1597,31 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
     function morphKey(node) {
         if (!node || node.nodeType !== 1) return null;
         return node.getAttribute('id') ? '#' + node.getAttribute('id')
+            : node.getAttribute('data-key') ? 'key:' + node.getAttribute('data-key')
             : node.getAttribute('data-ui-part') ? 'part:' + node.getAttribute('data-ui-part')
             : null;
+    }
+
+    function isBlankText(node) {
+        return node.nodeType === 3 && node.nodeValue.trim() === '';
+    }
+
+    // Moving a node takes the focus off anything inside it. moveBefore() keeps
+    // it and fires nothing; handing it back by hand fires blur and focus, which
+    // must not reach a #[UiOn] handler as if the visitor had done it.
+    function moveKeepingFocus(parent, node, before) {
+        if (typeof parent.moveBefore === 'function' && parent.isConnected) {
+            parent.moveBefore(node, before);
+            return;
+        }
+        var held = node.contains(document.activeElement) ? document.activeElement : null;
+        morphIsMoving = true;
+        try {
+            parent.insertBefore(node, before);
+            if (held && document.activeElement !== held) held.focus();
+        } finally {
+            morphIsMoving = false;
+        }
     }
 
     function morphChildren(from, to) {
@@ -1604,6 +1633,18 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             var key = morphKey(child);
             if (key !== null) (keyed[key] = keyed[key] || []).push(child);
         }
+        // What the new markup no longer holds goes first, so the rows after it
+        // stay where they are instead of being moved past it.
+        var wanted = {};
+        for (child = to.firstChild; child; child = child.nextSibling) {
+            var wantedKey = morphKey(child);
+            if (wantedKey !== null) wanted[wantedKey] = true;
+        }
+        Object.keys(keyed).forEach(function (gone) {
+            if (wanted[gone]) return;
+            keyed[gone].forEach(function (node) { from.removeChild(node); });
+            delete keyed[gone];
+        });
         var cursor = from.firstChild;
         var nextNew;
         for (var neu = to.firstChild; neu; neu = nextNew) {
@@ -1615,7 +1656,12 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
                 match = cursor;
             }
             if (match !== null) {
-                if (match !== cursor) from.insertBefore(match, cursor);
+                while (cursor && cursor !== match && isBlankText(cursor)) {
+                    var blank = cursor;
+                    cursor = cursor.nextSibling;
+                    from.removeChild(blank);
+                }
+                if (match !== cursor) moveKeepingFocus(from, match, cursor);
                 else cursor = cursor.nextSibling;
                 morphElement(match, neu);
             } else {
