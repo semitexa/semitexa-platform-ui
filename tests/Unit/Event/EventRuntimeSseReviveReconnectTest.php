@@ -152,6 +152,17 @@ final class EventRuntimeSseReviveReconnectTest extends TestCase
     }
 
     #[Test]
+    public function a_finished_drain_stream_closes_on_the_frame_that_says_so(): void
+    {
+        // Measured in Chrome: `done` with reconnect:false and no `close` event after
+        // it left the stream to the browser, which reopened it every 3 s.
+        self::assertMatchesRegularExpression(
+            "/if \\(parsed\\.reconnect === false && url\\.indexOf\\('mode=' \\+ SSE_TRANSPORT_MODE_DRAIN\\) !== -1\\) \\{\\s*closeForGood\\(parsed\\);\\s*\\}/",
+            $this->jsCode(),
+        );
+    }
+
+    #[Test]
     public function closing_a_page_stream_does_not_announce_a_server_close(): void
     {
         // `semitexa:ui-sse:close` reopens a drain stream.

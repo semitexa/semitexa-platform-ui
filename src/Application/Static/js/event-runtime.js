@@ -2328,9 +2328,12 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             }
             // The server says a retry cannot help: the request expired or is not
             // this page's. Left alone, the browser reconnected and was refused
-            // for as long as the tab stayed open. A drain stream looks the same
-            // when it finishes, and its `close` event ends it.
-            if (parsed.reconnect === false && url.indexOf('mode=' + SSE_TRANSPORT_MODE_DRAIN) === -1) {
+            // for as long as the tab stayed open. A drain stream says the same when
+            // it finishes, and not always with a `close` event after it: a page with
+            // a slot was reopened every 3 s and delivered the slot again each time.
+            if (parsed.reconnect === false && url.indexOf('mode=' + SSE_TRANSPORT_MODE_DRAIN) !== -1) {
+                closeForGood(parsed);
+            } else if (parsed.reconnect === false) {
                 closeForGood(parsed);
                 // Nothing reaches a feed on this stream any more; pull still can.
                 if (url.indexOf(KISS_PATH) !== -1) {
