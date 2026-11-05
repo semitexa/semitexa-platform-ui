@@ -74,6 +74,9 @@ use Semitexa\Core\Attribute\Capability;
         // A part can repeat per row. The element's value says which row, so write the element
         // itself, ui_part() does not pass value on:
         <button type="button" data-ui-part="remove" value="{{ line.id }}">Remove</button>
+        // A row that can come and go carries a stable key, or a re-render pairs rows by position
+        // and a half-typed draft lands on the next row:
+        <li data-key="{{ line.id }}">...</li>
         // and read $event->value(). A patch from a stream has no row: to change one row from the
         // server, give it <span data-ui-patch-target="total-{{ line.id }}"> and aim at that name.
         // A child cannot rerender its parent.
