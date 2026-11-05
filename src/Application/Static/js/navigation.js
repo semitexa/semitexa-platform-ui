@@ -394,7 +394,16 @@ function commit(payload, mode) {
 
     if (payload.title) document.title = payload.title;
     applyDeferredManifest(payload.deferredManifest);
+    applyPageMeta(payload.pageMeta);
     committedUrl = payload.url;
+
+    // Inside this block and not with `committed`, which waits for the region's
+    // scripts: everything a page's stream is built from is in place now, and a
+    // feed arriving in the swapped markup connects before those scripts finish.
+    // Telling it first is what keeps it off the stream of the page it replaced.
+    document.dispatchEvent(new CustomEvent('semitexa:navigation:swapped', {
+        detail: { url: payload.url },
+    }));
 
     return firstRegion;
 }
@@ -430,6 +439,31 @@ function applyDeferredManifest(json) {
     // a new one and re-reads it.
     if (existing) existing.replaceWith(block);
     else document.body.appendChild(block);
+}
+
+/**
+ * Replace the metas that describe the render, wherever the last page put them.
+ *
+ * A page may print them in <head> (a grid or an island announces them there),
+ * and no region reaches that far, so the arriving page ran on the session and
+ * mode of the page it replaced. They go in <head> whichever place this page
+ * used: the one in the region would otherwise sit behind a stale copy.
+ *
+ * An envelope that names no metas changes nothing, so a server that does not
+ * send them yet keeps what the regions brought.
+ */
+function applyPageMeta(meta) {
+    if (!meta) return;
+
+    Object.keys(meta).forEach((name) => {
+        document.querySelectorAll('meta[name="' + cssEscape(name) + '"]').forEach((tag) => tag.remove());
+        if (meta[name] === '') return;
+
+        const tag = document.createElement('meta');
+        tag.name = name;
+        tag.content = meta[name];
+        document.head.appendChild(tag);
+    });
 }
 
 function saveScroll() {

@@ -124,4 +124,72 @@ final class EventRuntimeSseReviveReconnectTest extends TestCase
         self::assertStringNotContainsString('resubscribeSettleTimer', $code);
         self::assertSame(1, substr_count($code, 'resubscribeAll();'), 'the reconnected handler re-arms once');
     }
+
+    #[Test]
+    public function a_shell_swap_hands_the_stream_to_the_page_that_arrived(): void
+    {
+        $code = $this->jsCode();
+        // Presence only; the browser behaviour has no test in this package.
+        self::assertStringContainsString("addEventListener('semitexa:navigation:swapped', followPageSwap)", $code);
+        self::assertMatchesRegularExpression(
+            '/function followPageSwap\(\) \{\s*closePageStreams\(\);.*?maybeAutoOpenSse\(\);.*?setTimeout\(rehomeSubscriptions, 0\);/s',
+            $code,
+            'close the old page, open the new one, then move what the swap left standing.',
+        );
+    }
+
+    #[Test]
+    public function a_page_with_no_session_pauses_a_kept_feed_instead_of_dropping_it(): void
+    {
+        $code = $this->jsCode();
+        preg_match('/function pauseSubscriptions\(\) \{.*?\n    \}/s', $code, $pause);
+        self::assertNotEmpty($pause);
+        self::assertStringContainsString('s.onUnavailable(true)', $pause[0]);
+        self::assertStringNotContainsString('delete SSE_SUBSCRIPTIONS', $pause[0], 'the next live page moves it back.');
+        preg_match('/function rehomeSubscriptions\(\) \{.*?\n    \}/s', $code, $rehome);
+        self::assertNotEmpty($rehome);
+        self::assertStringContainsString('s.onResumed()', $rehome[0]);
+    }
+
+    #[Test]
+    public function closing_a_page_stream_does_not_announce_a_server_close(): void
+    {
+        // `semitexa:ui-sse:close` reopens a drain stream.
+        preg_match('/function closePageStreams\(\) \{.*?\n    \}/s', $this->jsCode(), $body);
+        self::assertNotEmpty($body);
+        self::assertStringNotContainsString('emitTransportEvent', $body[0]);
+        self::assertStringNotContainsString('closeForGood', $body[0]);
+    }
+
+    #[Test]
+    public function drain_on_demand_addresses_the_page_it_is_on(): void
+    {
+        $code = $this->jsCode();
+        self::assertStringContainsString('buildKissUrl(readPageSseSessionId(), SSE_TRANSPORT_MODE_DRAIN)', $code);
+        self::assertStringContainsString(
+            'if (readPageSseSessionId() === null || readPageTransportMode() === SSE_TRANSPORT_MODE_LIVE) {',
+            $code,
+            'the listener outlives the page that armed it.',
+        );
+    }
+
+    #[Test]
+    public function a_subscription_remembers_the_session_it_was_made_on(): void
+    {
+        $code = $this->jsCode();
+        // A feed moved to a new session must not unsubscribe from the old one.
+        self::assertStringContainsString("postStreamControl('view', s.feed, s.params, s.session, subscriptionId)", $code);
+        self::assertStringContainsString("postStreamControl('unsubscribe', feedRef.feed, null, s.session, subscriptionId)", $code);
+    }
+
+    #[Test]
+    public function navigation_replaces_the_pages_metas_and_says_so_inside_the_swap(): void
+    {
+        $source = (string) file_get_contents(self::PACKAGE_ROOT . '/src/Application/Static/js/navigation.js');
+        self::assertMatchesRegularExpression(
+            "/applyDeferredManifest\(payload\.deferredManifest\);\s*applyPageMeta\(payload\.pageMeta\);.*?new CustomEvent\('semitexa:navigation:swapped'.*?return firstRegion;/s",
+            $source,
+            'the signal comes after everything a stream is built from is in place, and before commit() returns.',
+        );
+    }
 }

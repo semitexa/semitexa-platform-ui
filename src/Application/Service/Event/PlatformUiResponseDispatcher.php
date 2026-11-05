@@ -174,9 +174,25 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
             $result,
             $envelope->eventId,
             $envelope->correlationId,
-            $subscriberChannelId,
+            self::deliveryChannelId($subscriberChannelId, $envelope),
             $instanceId,
         );
+    }
+
+    /**
+     * Where this answer may be streamed. A component kept across a shell swap
+     * signs the session of the page that drew it, whose stream the client has
+     * closed: a patch published there is lost, so it stays in the response.
+     * The client's word can only keep its own answer inline, never move a
+     * patch to another session.
+     */
+    private static function deliveryChannelId(?string $subscriberChannelId, UiEventEnvelope $envelope): ?string
+    {
+        if (!array_key_exists('session', $envelope->transport)) {
+            return $subscriberChannelId;
+        }
+
+        return $envelope->transport['session'] === $subscriberChannelId ? $subscriberChannelId : null;
     }
 
     /**

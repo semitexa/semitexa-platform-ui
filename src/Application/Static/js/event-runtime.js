@@ -2829,12 +2829,16 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
      *   feedRef = { feed } — the feed's route name (its OPTIONS contract `name`),
      *   params = feed query params (e.g. { ctx }),
      *   onFrame(frame) = called with each demuxed frame body,
-     *   onUnavailable() = optional; the page's KISS stream failed before it
-     *   ever connected, so this subscription is dropped and the caller pulls.
+     *   onUnavailable(paused) = optional; there is no stream to listen on and
+     *   the caller pulls. `paused` is false when the page's KISS stream failed
+     *   before it ever connected and this subscription is dropped, true when
+     *   the page navigated to has no session and the subscription waits,
+     *   onResumed() = optional; a later page has a stream and the paused
+     *   subscription is live on it again.
      * Returns { degraded, subscriptionId, view(params), unsubscribe() }. When
      * `degraded` is true the page has no KISS session — the caller pulls.
      */
-    function sseSubscribe(feedRef, params, onFrame, onUnavailable) {
+    function sseSubscribe(feedRef, params, onFrame, onUnavailable, onResumed) {
         var noop = { degraded: true, subscriptionId: null, view: function () {}, unsubscribe: function () {} };
         var sessionId = readPageSseSessionId();
         if (sessionId === null || typeof EventSource !== 'function' || typeof fetch !== 'function'
@@ -2847,7 +2851,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
 
         var subscriptionId = mintHexPrefixedId('sse_', 16); // sse_<32hex>
         var patches = feedRef.patches === true;
-        SSE_SUBSCRIPTIONS[subscriptionId] = { feed: feedRef.feed, params: params || {}, onFrame: onFrame, onUnavailable: onUnavailable, patches: patches };
+        SSE_SUBSCRIPTIONS[subscriptionId] = { feed: feedRef.feed, params: params || {}, onFrame: onFrame, onUnavailable: onUnavailable, onResumed: onResumed, patches: patches, session: sessionId };
         postStreamControl('subscribe', feedRef.feed, params, sessionId, subscriptionId, patches);
 
         return {
@@ -2860,14 +2864,19 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
                 }
                 // A reconnect re-subscribes with the CURRENT view, not the first one.
                 s.params = nextParams || {};
-                postStreamControl('view', s.feed, s.params, sessionId, subscriptionId);
+                if (s.session !== null) {
+                    postStreamControl('view', s.feed, s.params, s.session, subscriptionId);
+                }
             },
             unsubscribe: function () {
-                if (!SSE_SUBSCRIPTIONS[subscriptionId]) {
+                var s = SSE_SUBSCRIPTIONS[subscriptionId];
+                if (!s) {
                     return;
                 }
                 delete SSE_SUBSCRIPTIONS[subscriptionId];
-                postStreamControl('unsubscribe', feedRef.feed, null, sessionId, subscriptionId);
+                if (s.session !== null) {
+                    postStreamControl('unsubscribe', feedRef.feed, null, s.session, subscriptionId);
+                }
             }
         };
     }
@@ -2879,7 +2888,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             var s = SSE_SUBSCRIPTIONS[ids[i]];
             delete SSE_SUBSCRIPTIONS[ids[i]];
             if (s && typeof s.onUnavailable === 'function') {
-                try { s.onUnavailable(); } catch (cbErr) { reportCallbackError(cbErr); /* one feed must not break the rest */ }
+                try { s.onUnavailable(false); } catch (cbErr) { reportCallbackError(cbErr); /* one feed must not break the rest */ }
             }
         }
     }
@@ -2893,9 +2902,55 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         for (var id in SSE_SUBSCRIPTIONS) {
             if (Object.prototype.hasOwnProperty.call(SSE_SUBSCRIPTIONS, id)) {
                 var s = SSE_SUBSCRIPTIONS[id];
+                s.session = sessionId;
                 postStreamControl('subscribe', s.feed, s.params, sessionId, id, s.patches === true);
             }
         }
+    }
+
+    /**
+     * Move the feeds a navigation left standing onto the new page's session.
+     *
+     * A feed in the chrome survives the swap, and the stream it rode just
+     * closed. Called once the swap's removals have run, so what is still here
+     * is what stayed. A page with no session has no stream to offer: pull.
+     */
+    function rehomeSubscriptions() {
+        var sessionId = readPageSseSessionId();
+        if (sessionId === null) {
+            pauseSubscriptions();
+            return;
+        }
+        var stale = Object.keys(SSE_SUBSCRIPTIONS).filter(function (id) {
+            return SSE_SUBSCRIPTIONS[id].session !== sessionId;
+        });
+        if (stale.length === 0) {
+            return;
+        }
+        ensureKissOpen(sessionId);
+        stale.forEach(function (id) {
+            var s = SSE_SUBSCRIPTIONS[id];
+            var wasPaused = s.session === null;
+            s.session = sessionId;
+            postStreamControl('subscribe', s.feed, s.params, sessionId, id, s.patches === true);
+            if (wasPaused && typeof s.onResumed === 'function') {
+                try { s.onResumed(); } catch (cbErr) { reportCallbackError(cbErr); }
+            }
+        });
+    }
+
+    /** A page with no session: a component kept across it pulls until a live page comes back. */
+    function pauseSubscriptions() {
+        Object.keys(SSE_SUBSCRIPTIONS).forEach(function (id) {
+            var s = SSE_SUBSCRIPTIONS[id];
+            if (s.session === null) {
+                return;
+            }
+            s.session = null;
+            if (typeof s.onUnavailable === 'function') {
+                try { s.onUnavailable(true); } catch (cbErr) { reportCallbackError(cbErr); }
+            }
+        });
     }
 
     /** Report a consumer's exception without unwinding the caller (the demux loop). */
@@ -3058,12 +3113,13 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
     // FIRST streamed answer — every later one waited on the server for good.
     var drainStreamedWhileOpen = 0;
 
-    function armDrainOnDemand(sessionId) {
+    function armDrainOnDemand() {
         if (drainOnDemandArmed) {
             return;
         }
         drainOnDemandArmed = true;
-        var drainUrl = function () { return buildKissUrl(sessionId, SSE_TRANSPORT_MODE_DRAIN); };
+        // Read at each use: these listeners outlive the page that armed them.
+        var drainUrl = function () { return buildKissUrl(readPageSseSessionId(), SSE_TRANSPORT_MODE_DRAIN); };
         document.addEventListener('semitexa:ui-sse:close', function (ev) {
             var url = ev && ev.detail ? ev.detail.url : '';
             if (typeof url !== 'string' || url.indexOf('mode=' + SSE_TRANSPORT_MODE_DRAIN) === -1) {
@@ -3093,6 +3149,11 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             if (streamed <= 0) {
                 return;
             }
+            // A page navigated to since: a live one already has its stream, and
+            // one with no session has nothing to drain.
+            if (readPageSseSessionId() === null || readPageTransportMode() === SSE_TRANSPORT_MODE_LIVE) {
+                return;
+            }
             if (drainOnDemandOpened) {
                 drainStreamedWhileOpen += streamed;
                 return;
@@ -3103,7 +3164,11 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         }, false);
     }
 
+    /** The session this runtime's page streams address, so a navigation can close them. */
+    var pageStreamSession = null;
+
     function maybeAutoOpenSse() {
+        pageStreamSession = readPageSseSessionId();
         if (window.SEMITEXA_UI_DISABLE_AUTOATTACH === true) {
             return;
         }
@@ -3151,7 +3216,47 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         // server flushes the queue + emits `event: close`, and the close-event
         // handler below tears the EventSource down, so there is no long-lived
         // connection for public/guest pages.
-        armDrainOnDemand(sessionId);
+        armDrainOnDemand();
+    }
+
+    /**
+     * Close the streams of the page that just left, and what is kept per url.
+     *
+     * No `semitexa:ui-sse:close`: that means the server finished a stream, and
+     * its listener reopens one. A stream of another session is not the page's:
+     * a caller that attached one itself owns closing it.
+     */
+    function closePageStreams() {
+        if (pageStreamSession === null) {
+            return;
+        }
+        var addressed = 'session_id=' + encodeURIComponent(pageStreamSession) + '&';
+        var entries = ATTACHED_SSE_CONNECTIONS.slice();
+        for (var i = 0; i < entries.length; i++) {
+            var url = entries[i].url;
+            if (url.indexOf(KISS_PATH) === -1 || url.indexOf(addressed) === -1) {
+                continue;
+            }
+            try { entries[i].source.close(); } catch (e) { /* ignore */ }
+            ATTACHED_SSE_CONNECTIONS.splice(ATTACHED_SSE_CONNECTIONS.indexOf(entries[i]), 1);
+            delete SSE_LAST_CONNECTED_AT[url];
+            delete SSE_WAS_LIVE[url];
+            delete SSE_LAST_REPLAY_ID[url];
+        }
+    }
+
+    /**
+     * A shell navigation brought a new page without a load, and a stream is a
+     * page's: every render mints its own session, its components publish to
+     * that one, and its deferred slots wait on it. Opening runs only at load
+     * otherwise, so the new page got no stream at all.
+     */
+    function followPageSwap() {
+        closePageStreams();
+        drainOnDemandOpened = false;
+        drainStreamedWhileOpen = 0;
+        maybeAutoOpenSse();
+        setTimeout(rehomeSubscriptions, 0);
     }
 
     /**
@@ -3197,6 +3302,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
                 reviveSseConnections();
             }
         });
+        document.addEventListener('semitexa:navigation:swapped', followPageSwap);
     }
 
     if (document.readyState === 'loading') {

@@ -187,6 +187,7 @@ final class EventRuntimeAssetTest extends TestCase
             'The HUG body is the core envelope of exactly these values.',
         );
         // The one builder serialises exactly the UiEventEnvelope fields, schema 1.
+        // verify:accept-test-change transport is an envelope field; the client now fills it with the session it listens on
         $core = (string) file_get_contents(\dirname($this->jsPath()) . '/ui-core.js');
         self::assertMatchesRegularExpression(
             '/function\s+envelope\(o\)\s*\{\s*return\s*\{\s*'
@@ -196,7 +197,8 @@ final class EventRuntimeAssetTest extends TestCase
                 . 'semanticEvent:\s*o\.semanticEvent\s*,\s*'
                 . 'signedContext:\s*o\.signedContext\s*,\s*'
                 . 'timestamp:\s*new\s+Date\(\)\.toISOString\(\)\s*,\s*'
-                . 'payload:\s*o\.payload\s*\|\|\s*\{\}\s*'
+                . 'payload:\s*o\.payload\s*\|\|\s*\{\}\s*,\s*'
+                . 'transport:\s*\{\s*session:\s*listeningSession\(\)\s*\}\s*'
                 . '\};/',
             $core,
             'core.envelope must serialise exactly the UiEventEnvelope fields.',
@@ -640,8 +642,9 @@ final class EventRuntimeAssetTest extends TestCase
         // directly. We pin the helper name + the absence of an attachSse
         // call in the synchronous drain code path inside maybeAutoOpenSse.
         self::assertStringContainsString('function armDrainOnDemand(', $code);
+        // verify:accept-test-change it takes no session any more: the listeners read the page they are on
         self::assertMatchesRegularExpression(
-            '/function\s+maybeAutoOpenSse[^{]*\{(?:.|\n)*?armDrainOnDemand\s*\(\s*sessionId\s*\)/s',
+            '/function\s+maybeAutoOpenSse[^{]*\{(?:.|\n)*?armDrainOnDemand\s*\(\s*\)/s',
             $code,
             'Drain mode must arm the on-demand opener, not auto-open at load.',
         );
@@ -671,9 +674,11 @@ final class EventRuntimeAssetTest extends TestCase
             'Drain opener must bail when streamedPatchCount is not positive.',
         );
         // Drain URL carries mode=drain through the shared builder, built at
-        // open time (a drain reopens for every streamed answer).
+        // open time (a drain reopens for every streamed answer), for the page
+        // that is showing: these listeners outlive the page that armed them.
+        // verify:accept-test-change the session is read at each open, not closed over: a shell navigation changes it
         self::assertMatchesRegularExpression(
-            '/drainUrl\s*=\s*function\s*\(\)\s*\{\s*return\s+buildKissUrl\(\s*sessionId\s*,\s*SSE_TRANSPORT_MODE_DRAIN\s*\)/',
+            '/drainUrl\s*=\s*function\s*\(\)\s*\{\s*return\s+buildKissUrl\(\s*readPageSseSessionId\(\)\s*,\s*SSE_TRANSPORT_MODE_DRAIN\s*\)/',
             $code,
         );
         self::assertMatchesRegularExpression('/attachSse\(\s*\{\s*url:\s*drainUrl\(\)\s*\}\s*\)/', $code);
@@ -802,11 +807,13 @@ final class EventRuntimeAssetTest extends TestCase
         // Both readyState branches call maybeAutoOpenSse() AFTER
         // maybeAutoAttachTransport(); transport must wire first because
         // the SSE auto-open relies on manifests already being parsed
-        // by `scan()`.
+        // by `scan()`. The third call is a shell navigation's: no scan to wait
+        // for there, the swap's own manifests arrive through core.mount.
+        // verify:accept-test-change a shell navigation opens the arriving page's stream
         self::assertSame(
-            2,
+            3,
             substr_count($code, 'maybeAutoOpenSse();'),
-            'Auto-open must be called from both DOM-loading and synchronous-init branches.',
+            'Auto-open must be called from both load branches and from the shell swap.',
         );
         // Order: AutoAttachTransport() then AutoOpenSse().
         $matched = preg_match_all(
