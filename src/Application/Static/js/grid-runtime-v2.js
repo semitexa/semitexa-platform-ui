@@ -794,7 +794,9 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
             var overtaken = function () {
                 if (generation === state.pullGeneration) return false;
                 state.pulling = false;
-                state.pullAgain = false;
+                // Paused again meanwhile: the pull it asked for is still wanted.
+                if (state.transport === 'sse') state.pullAgain = false;
+                else drainQueuedPull();
                 return true;
             };
             root.setAttribute('data-ui-grid-v2-state', 'loading');

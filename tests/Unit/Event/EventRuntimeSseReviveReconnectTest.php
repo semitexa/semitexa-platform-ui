@@ -200,16 +200,16 @@ final class EventRuntimeSseReviveReconnectTest extends TestCase
     {
         // Presence only; measured in Chrome: 2 runs before, the first on no markup, then 1 with it.
         $nav = (string) file_get_contents(\dirname(__DIR__, 3) . '/src/Application/Static/js' . '/navigation.js');
-        self::assertStringContainsString('ensureAssets(splitAssets(payload).before)', $nav);
-        self::assertStringContainsString('ensureAssets(splitAssets(payload).after)', $nav);
-        self::assertMatchesRegularExpression('/after: \{ js: js\.slice\(first\)\.filter/', $nav);
+        // verify:accept-test-change the split into before and after is gone, one filter replaced it
+        self::assertStringContainsString('ensureAssets(assetsOutsideRegions(payload))', $nav);
+        self::assertStringNotContainsString('loadedForThisSwap', $nav);
     }
 
     #[Test]
     public function a_navigation_overtaken_while_its_scripts_load_stays_quiet(): void
     {
         $nav = (string) file_get_contents(\dirname(__DIR__, 3) . '/src/Application/Static/js' . '/navigation.js');
-        self::assertMatchesRegularExpression('/ensureAssets\(splitAssets\(payload\)\.after\).*?if \(token !== navigationToken\) return false;.*?if \(!ok\)/s', $nav);
+        self::assertMatchesRegularExpression('/activateScripts\(document\)\.then\(\(ok\) => \{\s*if \(!ok\) \{.*?if \(token === navigationToken\) fallback\(/s', $nav);
     }
 
     #[Test]

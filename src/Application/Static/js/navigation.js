@@ -170,8 +170,8 @@ function activateScripts(root) {
         script.textContent = inert.textContent;
 
         // An inline script runs the moment it is inserted, so there is nothing
-        // to wait for and no load event coming.
-        if (!script.src) {
+        // to wait for and no load event coming. A nomodule one never runs here.
+        if (!script.src || script.noModule) {
             inert.replaceWith(script);
             return ok;
         }
@@ -218,22 +218,20 @@ function scriptsInRegions(regions) {
 }
 
 /**
- * The page's assets in two halves, by document order. A script a region carries
- * runs when the region is in, with the markup it works on: loading it as an asset
- * too ran it twice, the first time on nothing. What follows it in the document
- * may need it, so that waits as well, as it would on a full load.
+ * The page's assets without the scripts a region carries. Those run when the
+ * region is in, with the markup they work on: loaded as assets too they ran
+ * twice, the first time on nothing.
  */
-function splitAssets(payload) {
+function assetsOutsideRegions(payload) {
     const assets = payload.assets;
-    const js = (assets && assets.js) || [];
     const carried = scriptsInRegions(payload.regions);
-    const isCarried = (asset) => carried.has(absoluteUrl(typeof asset === 'string' ? asset : asset.src));
-    const first = js.findIndex(isCarried);
-    if (first === -1) return { before: assets, after: null };
+    if (!assets || carried.size === 0) return assets;
 
     return {
-        before: { ...assets, js: js.slice(0, first) },
-        after: { js: js.slice(first).filter((asset) => !isCarried(asset)) },
+        ...assets,
+        js: (assets.js || []).filter((asset) => (
+            !carried.has(absoluteUrl(typeof asset === 'string' ? asset : asset.src))
+        )),
     };
 }
 
@@ -279,6 +277,7 @@ function ensureAssets(assets) {
             script.addEventListener('load', () => resolve(true), { once: true });
             script.addEventListener('error', () => resolve(false), { once: true });
             document.body.appendChild(script);
+            if (script.noModule) resolve(true);
             // FALSE on timeout, unlike a stylesheet's. A script that has not
             // arrived is a page whose behaviour is missing, and committing it
             // anyway announces a navigation nothing will bind to.
@@ -689,7 +688,7 @@ function pageMove(url, token, opts) {
         // stylesheet or its runtime, and the page stayed half-dressed until
         // someone reloaded. Awaited BEFORE the swap, which is the whole reason
         // ensureAssets waits at all.
-        return ensureAssets(splitAssets(payload).before).then((loaded) => {
+        return ensureAssets(assetsOutsideRegions(payload)).then((loaded) => {
             if (token !== navigationToken) return false;
 
             if (!loaded) {
@@ -753,16 +752,11 @@ function settlePage(region, payload, opts, url, token) {
     window.scrollTo(0, opts.scroll || 0);
     restoreFocus(region, payload.title);
 
-    return activateScripts(document).then((ok) => (
-        ok ? ensureAssets(splitAssets(payload).after) : false
-    )).then((ok) => {
-        // A click while the region's scripts loaded started a newer navigation,
-        // and this one has nothing left to say: a slow script would otherwise
-        // send the browser back to the page the visitor just left.
-        if (token !== navigationToken) return false;
-
+    return activateScripts(document).then((ok) => {
         if (!ok) {
-            fallback(url, opts.replace === true);
+            // A click while the region's scripts loaded started a newer navigation:
+            // a slow script must not send the browser back to the page just left.
+            if (token === navigationToken) fallback(url, opts.replace === true);
             return false;
         }
 

@@ -1615,6 +1615,10 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
     document.addEventListener('focusin', function (ev) {
         if (!morphIsMoving) focused = { control: ev.target, value: ev.target.value };
     }, true);
+    // Enter in a field or a pick in a select already paid: nothing is owed for it.
+    document.addEventListener('change', function (ev) {
+        if (ev.target === focused.control) focused.value = ev.target.value;
+    }, true);
 
     function oweChange(control) {
         var started = focused.value;
