@@ -172,6 +172,18 @@ final class EventRuntimeSseReviveReconnectTest extends TestCase
     }
 
     #[Test]
+    public function a_move_without_movebefore_owes_the_change_it_resets(): void
+    {
+        // Presence only; measured in WebKit, where the blur after the move fired none.
+        $code = $this->jsCode();
+        self::assertMatchesRegularExpression('/if \(held\) oweChange\(held\);\s*morphIsMoving = true;/', $code);
+        preg_match('/function oweChange\(control\) \{.*?\n    \}/s', $code, $body);
+        self::assertNotEmpty($body);
+        self::assertStringContainsString("control.addEventListener('change', settle, true);", $body[0], 'the browser may pay it first.');
+        self::assertStringContainsString("if (ev.type === 'blur' && control.value !== started)", $body[0]);
+    }
+
+    #[Test]
     public function closing_a_page_stream_does_not_announce_a_server_close(): void
     {
         // `semitexa:ui-sse:close` reopens a drain stream.
