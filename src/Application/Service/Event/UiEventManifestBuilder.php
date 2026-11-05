@@ -105,6 +105,7 @@ final class UiEventManifestBuilder
      *        binding source: the registry already enforces no-collision
      *        across the two sources, so the rendered manifest never
      *        emits two entries for the same (part, event).
+     * @param list<string> $lostProps names of props an earlier context could not keep
      */
     public function build(
         UiComponentMetadata $metadata,
@@ -115,6 +116,7 @@ final class UiEventManifestBuilder
         ?string $dataProviderClass = null,
         array $externalBindings = [],
         array $props = [],
+        array $lostProps = [],
     ): UiEventManifest {
         if ($instanceId === '') {
             throw new UiComponentRegistryException(
@@ -163,7 +165,11 @@ final class UiEventManifestBuilder
         // carry the state's key (`st`), and the dispatcher loads it.
         $stateKey = UiComponentStates::persist($metadata->class, $instanceId, $props);
         $normalisedProps = $stateKey === null ? self::signableProps($props) : null;
-        $lostProps = $stateKey === null && $normalisedProps === null ? UiLostProps::namesOf($props) : [];
+        // A manifest rebuilt from a context (a form's rearm) has no props to look at: what
+        // was lost stays lost, so the names are carried over.
+        if ($lostProps === [] && $stateKey === null && $normalisedProps === null) {
+            $lostProps = UiLostProps::namesOf($props);
+        }
 
         $entries = [];
         foreach ($metadata->events as $event) {

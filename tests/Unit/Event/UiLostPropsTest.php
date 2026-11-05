@@ -11,6 +11,8 @@ use Semitexa\PlatformUi\Application\Service\Event\UiLostProps;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionUnprocessableException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult;
 use Semitexa\PlatformUi\Domain\Model\Event\UiResponsePatch;
+use Semitexa\Ssr\Application\Service\Component\ComponentCatalog;
+use Semitexa\Ssr\Application\Service\Component\ComponentRegistry;
 
 /**
  * A component whose props could not be kept was redrawn with none: a list came
@@ -19,6 +21,25 @@ use Semitexa\PlatformUi\Domain\Model\Event\UiResponsePatch;
 final class UiLostPropsTest extends TestCase
 {
     private const INSTANCE = 'uci_lost_001';
+
+    private ?ComponentCatalog $catalog = null;
+
+    protected function setUp(): void
+    {
+        $registry = new \ReflectionProperty(ComponentRegistry::class, 'catalog');
+        $previous = $registry->getValue();
+        $this->catalog = $previous instanceof ComponentCatalog ? $previous : null;
+
+        // Marked initialized so get() reads what the test registers, with no discovery.
+        $catalog = new ComponentCatalog();
+        (new \ReflectionProperty($catalog, 'initialized'))->setValue($catalog, true);
+        ComponentRegistry::setCatalog($catalog);
+    }
+
+    protected function tearDown(): void
+    {
+        (new \ReflectionProperty(ComponentRegistry::class, 'catalog'))->setValue(null, $this->catalog);
+    }
 
     #[Test]
     public function a_rerender_that_would_miss_a_prop_is_refused_by_name(): void
@@ -39,9 +60,21 @@ final class UiLostPropsTest extends TestCase
     }
 
     #[Test]
-    public function a_data_provider_draws_them_itself(): void
+    public function the_catalog_s_data_provider_draws_them_itself(): void
     {
-        self::assertSame(['instanceId' => self::INSTANCE], $this->rerender(['pl' => ['rows'], 'dp' => 'App\\Provider'], []));
+        ComponentRegistry::register([
+            'class' => self::class, 'name' => 'test.provided', 'template' => null, 'layout' => null,
+            'cacheable' => false, 'script' => null, 'dataProviderClass' => 'App\\Provider',
+        ]);
+
+        self::assertSame(['instanceId' => self::INSTANCE], $this->rerender(['pl' => ['rows']], [], 'test.provided'));
+    }
+
+    #[Test]
+    public function a_dp_claim_alone_is_no_provider(): void
+    {
+        $this->expectException(UiInteractionUnprocessableException::class);
+        $this->rerender(['pl' => ['rows'], 'dp' => 'App\\Provider'], []);
     }
 
     #[Test]
@@ -62,7 +95,7 @@ final class UiLostPropsTest extends TestCase
      * @param array<string, mixed> $overrides
      * @return array<string, mixed> the props the component was drawn with
      */
-    private function rerender(array $claims, array $overrides): array
+    private function rerender(array $claims, array $overrides, string $component = 'test.list'): array
     {
         $drawnWith = null;
         $dispatcher = (new \ReflectionClass(UiInteractionDispatcher::class))->newInstanceWithoutConstructor();
@@ -79,7 +112,7 @@ final class UiLostPropsTest extends TestCase
             $dispatcher,
             UiInteractionResult::patch([UiResponsePatch::rerender(self::INSTANCE, $overrides)]),
             self::INSTANCE,
-            'test.list',
+            $component,
             $claims,
         );
 

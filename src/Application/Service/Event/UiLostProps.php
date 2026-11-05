@@ -6,6 +6,7 @@ namespace Semitexa\PlatformUi\Application\Service\Event;
 
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionUnprocessableException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiResponsePatch;
+use Semitexa\Ssr\Application\Service\Component\ComponentRegistry;
 
 /**
  * Props that could not be kept for a later re-render: objects, or more than a
@@ -39,8 +40,8 @@ final class UiLostProps
     public static function overridesFor(UiResponsePatch $patch, array $claims, string $componentName): array
     {
         $overrides = is_array($patch->args['props'] ?? null) ? $patch->args['props'] : [];
-        // A data provider draws them again by itself.
-        if (is_string($claims['dp'] ?? null) || !is_array($claims[self::CLAIM] ?? null)) {
+        // The catalog's provider runs on every render, so it draws its data again.
+        if (!is_array($claims[self::CLAIM] ?? null) || is_string(ComponentRegistry::get($componentName)['dataProviderClass'] ?? null)) {
             return $overrides;
         }
         $missing = array_values(array_diff($claims[self::CLAIM], array_map('strval', array_keys($overrides))));

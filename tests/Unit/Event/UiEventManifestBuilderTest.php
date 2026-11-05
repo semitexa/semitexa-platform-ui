@@ -93,6 +93,16 @@ final class UiEventManifestBuilderTest extends TestCase
     }
 
     #[Test]
+    public function a_rebuilt_manifest_keeps_the_names_it_is_given(): void
+    {
+        $metadata = $this->factory->fromClass(FieldComponent::class);
+
+        $rearmed = $this->builder->build($metadata, 'uci_lost_0003', lostProps: ['rows']);
+
+        self::assertSame(['rows'], SignedContext::verify($rearmed->entries[0]->signedContext)['pl'] ?? null);
+    }
+
+    #[Test]
     public function signed_context_round_trips_through_verify_with_expected_claims(): void
     {
         $metadata = $this->factory->fromClass(FieldComponent::class);
