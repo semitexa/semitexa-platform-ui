@@ -239,6 +239,9 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
     }
 
     function handleNativeEvent(nativeEvent, ev) {
+        if (morphIsMoving) {
+            return;
+        }
         var rootEl = findInstanceRoot(ev.target);
         if (!rootEl) {
             return;
@@ -1543,6 +1546,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
     // Set while an expired component is redrawn: the controls keep what the
     // visitor typed rather than the values it was first drawn with.
     var morphKeepsValues = false;
+    var morphIsMoving = false;
 
     function morphElement(from, to) {
         if (from.nodeType !== to.nodeType || from.nodeName !== to.nodeName) {
@@ -1602,11 +1606,22 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         return node.nodeType === 3 && node.nodeValue.trim() === '';
     }
 
-    // Moving a node takes the focus off anything inside it.
+    // Moving a node takes the focus off anything inside it. moveBefore() keeps
+    // it and fires nothing; handing it back by hand fires blur and focus, which
+    // must not reach a #[UiOn] handler as if the visitor had done it.
     function moveKeepingFocus(parent, node, before) {
+        if (typeof parent.moveBefore === 'function' && parent.isConnected) {
+            parent.moveBefore(node, before);
+            return;
+        }
         var held = node.contains(document.activeElement) ? document.activeElement : null;
-        parent.insertBefore(node, before);
-        if (held && document.activeElement !== held) held.focus();
+        morphIsMoving = true;
+        try {
+            parent.insertBefore(node, before);
+            if (held && document.activeElement !== held) held.focus();
+        } finally {
+            morphIsMoving = false;
+        }
     }
 
     function morphChildren(from, to) {
