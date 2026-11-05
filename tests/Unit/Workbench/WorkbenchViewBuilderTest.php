@@ -72,7 +72,7 @@ final class WorkbenchViewBuilderTest extends TestCase
     public function an_example_that_needs_the_application_offers_no_try_panel(): void
     {
         $metadata = (new UiComponentMetadataFactory())->fromClass(GridComponent::class);
-        $item = new UiCatalogItem('component', $metadata, null, null, '', 0, '');
+        $item = new UiCatalogItem('component', $metadata, $metadata->contract, null, '', 0, '');
         $tryPanel = new ReflectionMethod(WorkbenchViewBuilder::class, 'tryPanel');
 
         self::assertNull($tryPanel->invoke(new WorkbenchViewBuilder(), $item, []));
