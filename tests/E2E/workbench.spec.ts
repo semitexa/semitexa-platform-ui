@@ -222,6 +222,8 @@ test.describe('platform-ui · UI Workbench', () => {
                 for (const example of await page.locator('[data-workbench-example]').all()) {
                     const id = await example.getAttribute('data-workbench-example');
                     const stage = example.locator('[data-workbench-stage]');
+                    // It names a route of the host application: there is nothing to draw.
+                    if (await stage.locator('[data-workbench-needs-application]').count() > 0) continue;
                     await expect(stage).toHaveScreenshot(
                         `${entry.name.replace('platform.', '')}-${id}-${mode}.png`,
                         { animations: 'disabled', caret: 'hide', maxDiffPixels: 0, threshold: 0.1, mask: [stage.locator('.uical__chip, .uical__more, .uical__agenda-list')] },

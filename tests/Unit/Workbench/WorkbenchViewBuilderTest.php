@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
 use Semitexa\PlatformUi\Application\Component\Builtin\EmptyStateComponent;
+use Semitexa\PlatformUi\Application\Component\Builtin\GridComponent;
 use Semitexa\PlatformUi\Application\Component\Builtin\StatComponent;
 use Semitexa\PlatformUi\Application\Payload\Request\WorkbenchPayload;
 use Semitexa\PlatformUi\Application\Service\Behavior\Builtin\DropdownBehavior;
@@ -52,6 +53,43 @@ final class WorkbenchViewBuilderTest extends TestCase
 
         /** @var array<string, mixed>|null */
         return (new ReflectionMethod(WorkbenchViewBuilder::class, 'tryPanel'))->invoke(new WorkbenchViewBuilder(), $item, $try);
+    }
+
+    #[Test]
+    public function an_example_that_needs_the_application_says_so_and_keeps_its_code(): void
+    {
+        $metadata = (new UiComponentMetadataFactory())->fromClass(EmptyStateComponent::class);
+        $item = new UiCatalogItem('component', $metadata, null, null, '', 0, '');
+
+        $view = self::example($item, new UiExample('live', 'Live', ['title' => 'Empty'], needsApplication: true));
+
+        self::assertTrue($view['needs_application']);
+        self::assertStringContainsString('component(', (string) $view['snippet'], 'the code is what is left to show');
+        self::assertFalse(self::example($item, new UiExample('plain', 'Plain', ['title' => 'Empty']))['needs_application']);
+    }
+
+    #[Test]
+    public function an_example_that_needs_the_application_offers_no_try_panel(): void
+    {
+        $metadata = (new UiComponentMetadataFactory())->fromClass(GridComponent::class);
+        $item = new UiCatalogItem('component', $metadata, $metadata->contract, null, '', 0, '');
+        $tryPanel = new ReflectionMethod(WorkbenchViewBuilder::class, 'tryPanel');
+        // With no contract the panel is null anyway, and this would prove nothing.
+        self::assertNotNull($metadata->contract);
+        self::assertTrue(array_values($metadata->contract->examples)[0]->needsApplication);
+
+        self::assertNull($tryPanel->invoke(new WorkbenchViewBuilder(), $item, []));
+        self::assertNull($tryPanel->invoke(new WorkbenchViewBuilder(), $item, ['gridId' => 'x']), 'nor by asking for it');
+    }
+
+    #[Test]
+    public function an_ordinary_example_keeps_its_contract_shape(): void
+    {
+        // Only when set: a new key on every example would move every contract_version.
+        $plain = (new UiExample('plain', 'Plain'))->toArray();
+        self::assertSame(['name', 'label', 'props', 'slots'], array_keys($plain));
+        self::assertSame('plain', $plain['name']);
+        self::assertTrue((new UiExample('live', 'Live', needsApplication: true))->toArray()['needs_application']);
     }
 
     #[Test]
@@ -160,6 +198,6 @@ final class WorkbenchViewBuilderTest extends TestCase
 
         $view = self::example($item, new UiExample('plain', 'Plain'));
 
-        self::assertSame(['name' => 'plain', 'label' => 'Plain', 'uid' => 'wb-dropdown-plain', 'provenance' => [], 'render' => 'none', 'snippet' => ''], $view);
+        self::assertSame(['name' => 'plain', 'label' => 'Plain', 'needs_application' => false, 'uid' => 'wb-dropdown-plain', 'provenance' => [], 'render' => 'none', 'snippet' => ''], $view);
     }
 }

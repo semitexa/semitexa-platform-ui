@@ -31,6 +31,11 @@ final readonly class UiExample
         public array $props = [],
         array $slots = [],
         public ?string $template = null,
+        /**
+         * The example names a route of the application it is copied into, so
+         * nothing can draw it here: Workbench shows the code and says why.
+         */
+        public bool $needsApplication = false,
     ) {
         if ($template !== null && (preg_match('#\A@[a-z0-9-]+/[A-Za-z0-9_./-]+\.twig\z#', $template) !== 1 || str_contains($template, '..'))) {
             throw new InvalidArgumentException('An example template is a namespaced package Twig path, e.g. @platform-ui/examples/dropdown.html.twig.');
@@ -54,6 +59,10 @@ final readonly class UiExample
         $out = ['name' => $this->name, 'label' => $this->label, 'props' => (object) $this->props, 'slots' => (object) $this->slots];
         if ($this->template !== null) {
             $out['template'] = $this->template;
+        }
+        // Only when set, so an ordinary example's contract_version does not move.
+        if ($this->needsApplication) {
+            $out['needs_application'] = true;
         }
         return $out;
     }
