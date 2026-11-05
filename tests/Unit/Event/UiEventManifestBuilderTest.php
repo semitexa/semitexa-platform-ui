@@ -87,7 +87,9 @@ final class UiEventManifestBuilderTest extends TestCase
         self::assertArrayNotHasKey('pr', (array) $claims);
 
         $kept = $this->builder->build($metadata, 'uci_lost_0002', props: ['title' => 'Orders']);
-        self::assertArrayNotHasKey('pl', (array) SignedContext::verify($kept->entries[0]->signedContext));
+        $plain = SignedContext::verify($kept->entries[0]->signedContext);
+        self::assertSame(['title' => 'Orders'], $plain['pr'] ?? null);
+        self::assertArrayNotHasKey('pl', $plain);
     }
 
     #[Test]
