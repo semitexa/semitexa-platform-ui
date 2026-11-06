@@ -74,9 +74,10 @@ use Semitexa\Core\Attribute\Capability;
         }
 
         // CartComponent declares the part with #[UiPart]; #[UiOn] for the same part and event is refused.
-        // $context->semanticEvent says which binding fired when one class has several.
-        // A typed body: payload: CheckoutPayload::class on the attribute, then
-        // assert($payload instanceof CheckoutPayload): the signature itself cannot narrow.
+        // $context->semanticEvent is part.event: with several bindings it tells them apart, and across
+        // two components $context->signedClaims['c'] names the component.
+        // $payload is the generic body. Leave the attribute's payload: out for now: a binding with one is
+        // refused at dispatch with typed_payload_not_supported_yet.
         // Answer with a response, never an exception.
         USAGE,
 )]

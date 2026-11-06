@@ -62,7 +62,9 @@ use Semitexa\Core\Attribute\Capability;
         <output>{{ count|default(0) }}</output>
         {{ component('shop.counter', {count: 5}) }}
 
-        // The page holds a signed reference, the value stays on the server per visitor and instance.
+        // With a shared store and a session the page holds a signed reference and the value stays on the
+        // server. Without them the props ride the signed context: readable in the page, so a secret never
+        // goes in one.
         // Return nothing from the handler: changing the property is the whole answer.
         // The template's wrapper and manifest line: ai:ask mechanisms --id=ui.event-intent.
         USAGE,
