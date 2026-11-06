@@ -2155,10 +2155,8 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
 
     function emitFrame(detail) {
         var key = frameBacklog === null ? null : backlogKey(detail.message);
-        if (key !== null) {
-            delete frameBacklog[key];
-            frameBacklog[key] = detail;
-        }
+        // In place: a slot refreshed after `done` still replays before it.
+        if (key !== null) frameBacklog[key] = detail;
         emitTransportEvent('semitexa:ui-sse:frame', detail);
     }
 
