@@ -32,9 +32,9 @@ use Semitexa\Core\Attribute\Capability;
  *                  Validated at discovery time.
  *   - $event     — semantic event name (same /^[a-z][a-z0-9:_-]*$/
  *                  shape #[UiOn] enforces).
- *   - $payload   — optional class-string of the typed payload the
- *                  dispatcher should deserialize the request body into
- *                  before invoking the handler. When null, the
+ *   - $payload   — reserved for a typed payload. Decoding one is not supported
+ *                  yet: a binding that sets it is refused at dispatch with
+ *                  typed_payload_not_supported_yet. Leave it null, and the
  *                  dispatcher passes a generic envelope object.
  *
  * Repeatable: a service class may bind to multiple (component, part,
@@ -55,6 +55,31 @@ use Semitexa\Core\Attribute\Capability;
         'putting handler logic with its dependencies inside the component class',
     ],
     seeAlso: 'ui.event-intent',
+    usage: <<<'USAGE'
+        #[AsService]
+        #[HandlesUiEvent(component: CartComponent::class, part: 'checkout', event: 'click')]
+        final class CheckoutHandler implements UiEventHandlerInterface
+        {
+            #[InjectAsReadonly]
+            protected OrderService $orders;
+
+            public function handle(object $payload, UiEventContext $context): UiEventResponse
+            {
+                if (!$this->orders->place()) {
+                    return UiEventResponse::error(new UiEventError('out_of_stock', 'Something in the cart is gone.'));
+                }
+
+                return UiEventResponse::ok($context->correlationId);
+            }
+        }
+
+        // CartComponent declares the part with #[UiPart]; #[UiOn] for the same part and event is refused.
+        // $context->semanticEvent is part.event: with several bindings it tells them apart, and across
+        // two components $context->signedClaims['c'] names the component.
+        // $payload is the generic body. Leave the attribute's payload: out for now: a binding with one is
+        // refused at dispatch with typed_payload_not_supported_yet.
+        // Answer with a response, never an exception.
+        USAGE,
 )]
 #[Attribute(Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE)]
 final class HandlesUiEvent
