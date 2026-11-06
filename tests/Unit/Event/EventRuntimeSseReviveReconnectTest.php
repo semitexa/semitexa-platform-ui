@@ -226,6 +226,13 @@ final class EventRuntimeSseReviveReconnectTest extends TestCase
     }
 
     #[Test]
+    public function the_bind_cookie_is_named_by_the_request_it_binds(): void
+    {
+        // One name for the origin let a second tab lock the first out of its stream.
+        self::assertStringContainsString("document.cookie = 'semitexa_ssr_bind_' + deferred.requestId + '='", $this->jsCode());
+    }
+
+    #[Test]
     public function closing_a_page_stream_does_not_announce_a_server_close(): void
     {
         // `semitexa:ui-sse:close` reopens a drain stream.

@@ -3271,9 +3271,9 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
                 // opening so the unified connection is admitted. Previously the
                 // deferred-SSR runtime (semitexa-twig.js) set it, but it no
                 // longer opens its own stream when this runtime owns the page.
-                document.cookie = 'semitexa_ssr_bind='
+                document.cookie = 'semitexa_ssr_bind_' + deferred.requestId + '='
                     + encodeURIComponent(deferred.bindToken)
-                    + '; Path=/; SameSite=Lax';
+                    + '; Path=/; Max-Age=86400; SameSite=Lax';
             }
             attachSse({
                 url: buildKissUrl(sessionId, mode)
