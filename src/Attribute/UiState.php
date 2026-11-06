@@ -43,6 +43,29 @@ use Semitexa\Core\Attribute\Capability;
         'a handler that reads its props, computes, and returns a re-render with the new value',
     ],
     seeAlso: 'ui.dashboard-widget',
+    usage: <<<'USAGE'
+        #[AsComponent(name: 'shop.counter', template: '@project-layouts-Shop/counter.html.twig')]
+        #[UiPart(name: 'increment', uses: ButtonPrimitive::class)]
+        final class CounterComponent
+        {
+            #[UiState]
+            public int $count = 0;
+
+            #[UiOn(part: 'increment', event: 'click')]
+            public function onIncrement(UiInteractionEvent $event): void
+            {
+                $this->count++;   // saved, then the component is drawn again and morphed in place
+            }
+        }
+
+        // The template reads it like a prop, and a prop of that name fills it on the first render:
+        <output>{{ count|default(0) }}</output>
+        {{ component('shop.counter', {count: 5}) }}
+
+        // The page holds a signed reference, the value stays on the server per visitor and instance.
+        // Return nothing from the handler: changing the property is the whole answer.
+        // The template's wrapper and manifest line: ai:ask mechanisms --id=ui.event-intent.
+        USAGE,
 )]
 #[Attribute(Attribute::TARGET_PROPERTY)]
 final class UiState

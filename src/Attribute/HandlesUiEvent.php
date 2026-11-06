@@ -55,6 +55,30 @@ use Semitexa\Core\Attribute\Capability;
         'putting handler logic with its dependencies inside the component class',
     ],
     seeAlso: 'ui.event-intent',
+    usage: <<<'USAGE'
+        #[AsService]
+        #[HandlesUiEvent(component: CartComponent::class, part: 'checkout', event: 'click')]
+        final class CheckoutHandler implements UiEventHandlerInterface
+        {
+            #[InjectAsReadonly]
+            protected OrderService $orders;
+
+            public function handle(object $payload, UiEventContext $context): UiEventResponse
+            {
+                if (!$this->orders->place()) {
+                    return UiEventResponse::error(new UiEventError('out_of_stock', 'Something in the cart is gone.'));
+                }
+
+                return UiEventResponse::ok($context->correlationId);
+            }
+        }
+
+        // CartComponent declares the part with #[UiPart]; #[UiOn] for the same part and event is refused.
+        // $context->semanticEvent says which binding fired when one class has several.
+        // A typed body: payload: CheckoutPayload::class on the attribute, then
+        // assert($payload instanceof CheckoutPayload): the signature itself cannot narrow.
+        // Answer with a response, never an exception.
+        USAGE,
 )]
 #[Attribute(Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE)]
 final class HandlesUiEvent
