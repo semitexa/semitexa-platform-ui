@@ -8,8 +8,8 @@ use Attribute;
 use Semitexa\Core\Attribute\Capability;
 
 /**
- * A component property that is its state, kept on the server
- * (ep-platform-live-state · tk-ls-component-state).
+ * A component property that is its state, kept on the server when there is a
+ * shared store and a session (ep-platform-live-state · tk-ls-component-state).
  *
  *     #[AsComponent(name: 'shop.counter', template: '…')]
  *     final class CounterComponent
@@ -36,7 +36,7 @@ use Semitexa\Core\Attribute\Capability;
  */
 #[Capability(
     id: 'ui.component-state',
-    summary: 'A component property kept as its state, on the server where there is a shared store: a handler changes it, and the component is saved and drawn again, morphed in place.',
+    summary: 'A component property kept as its state, on the server given a shared store and a session: a handler changes it, and the component is saved and drawn again, morphed in place.',
     useWhen: 'A component remembers something between clicks — a count, a selection, a step — or its props are too large to ride every signed context.',
     avoidWhen: 'The value belongs to a record — save it through the ORM and let the page be live instead.',
     replaces: [
