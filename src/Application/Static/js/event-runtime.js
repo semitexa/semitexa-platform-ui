@@ -2140,6 +2140,25 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         return url + (url.indexOf('?') === -1 ? '?' : '&') + 'last_event_id=' + encodeURIComponent(last);
     }
 
+    // A frame is announced, and a runtime that has not loaded yet misses it: with
+    // semitexa-twig.js late, a slot waited for its fallback and a component had
+    // none. So the frames stay here until that runtime takes them.
+    var FRAME_BACKLOG_LIMIT = 200;
+    var frameBacklog = [];
+
+    function emitFrame(detail) {
+        if (frameBacklog !== null && frameBacklog.length < FRAME_BACKLOG_LIMIT) {
+            frameBacklog.push(detail);
+        }
+        emitTransportEvent('semitexa:ui-sse:frame', detail);
+    }
+
+    function takeEarlyFrames() {
+        var frames = frameBacklog || [];
+        frameBacklog = null;
+        return frames;
+    }
+
     function attachSse(options) {
         if (typeof options !== 'object' || options === null) {
             options = {};
@@ -2337,7 +2356,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
                     return;
                 }
                 if (!routeSubscriptionFrame(parsed)) {
-                    emitTransportEvent('semitexa:ui-sse:frame', { message: parsed, url: url });
+                    emitFrame({ message: parsed, url: url });
                 }
             });
         });
@@ -2354,7 +2373,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             if (parsed === null) {
                 return;
             }
-            emitTransportEvent('semitexa:ui-sse:frame', {
+            emitFrame({
                 message: parsed,
                 url: url
             });
@@ -2645,6 +2664,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         sse: {
             attach: attachSse,
             subscribe: sseSubscribe,
+            takeEarlyFrames: takeEarlyFrames,
             sessionId: readPageSseSessionId
         },
         forms: {
@@ -3292,6 +3312,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
      */
     function followPageSwap() {
         closePageStreams();
+        if (frameBacklog !== null) frameBacklog = [];
         drainOnDemandOpened = false;
         drainStreamedWhileOpen = 0;
         maybeAutoOpenSse();
