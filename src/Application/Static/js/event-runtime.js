@@ -2142,21 +2142,34 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
 
     // A frame is announced, and a runtime that has not loaded yet misses it: with
     // semitexa-twig.js late, a slot waited for its fallback and a component had
-    // none. So the frames stay here until that runtime takes them.
-    var FRAME_BACKLOG_LIMIT = 200;
-    var frameBacklog = [];
+    // none. So the frames stay here until that runtime takes them: the last one
+    // per slot, per component and the end of the phase, which is as many as the
+    // page has parts, so a live page cannot push a component's frame out.
+    var frameBacklog = {};
+
+    function backlogKey(message) {
+        if (message.type === 'deferred_block') return 'slot:' + message.slot_id;
+        if (message.type === 'deferred_component') return 'component:' + message.instance_id;
+        return message.type === 'done' ? 'done' : null;
+    }
 
     function emitFrame(detail) {
-        if (frameBacklog !== null && frameBacklog.length < FRAME_BACKLOG_LIMIT) {
-            frameBacklog.push(detail);
+        var key = frameBacklog === null ? null : backlogKey(detail.message);
+        if (key !== null) {
+            delete frameBacklog[key];
+            frameBacklog[key] = detail;
         }
         emitTransportEvent('semitexa:ui-sse:frame', detail);
     }
 
-    function takeEarlyFrames() {
-        var frames = frameBacklog || [];
+    /** What reached this page's session before its runtime loaded, oldest first. */
+    function takeEarlyFrames(sessionId) {
+        var kept = frameBacklog || {};
+        var addressed = 'session_id=' + encodeURIComponent(sessionId) + '&';
         frameBacklog = null;
-        return frames;
+        return Object.keys(kept).map(function (key) { return kept[key]; }).filter(function (detail) {
+            return String(detail.url).indexOf(addressed) !== -1;
+        });
     }
 
     function attachSse(options) {
@@ -3312,7 +3325,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
      */
     function followPageSwap() {
         closePageStreams();
-        if (frameBacklog !== null) frameBacklog = [];
+        if (frameBacklog !== null) frameBacklog = {};
         drainOnDemandOpened = false;
         drainStreamedWhileOpen = 0;
         maybeAutoOpenSse();

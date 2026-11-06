@@ -221,7 +221,7 @@ final class EventRuntimeSseReviveReconnectTest extends TestCase
         self::assertStringContainsString('takeEarlyFrames: takeEarlyFrames,', $code);
         preg_match('/function emitFrame\(detail\) \{.*?\n    \}/s', $code, $body);
         self::assertNotEmpty($body);
-        self::assertStringContainsString('frameBacklog.length < FRAME_BACKLOG_LIMIT', $body[0], 'a page nobody takes them from stays bounded.');
+        self::assertStringContainsString('backlogKey(detail.message)', $body[0], 'one per part: no frame pushes a component out, and it stays bounded.');
         self::assertSame(0, substr_count($code, "emitTransportEvent('semitexa:ui-sse:frame'") - 1, 'every frame goes through emitFrame.');
     }
 
