@@ -213,6 +213,19 @@ final class EventRuntimeSseReviveReconnectTest extends TestCase
     }
 
     #[Test]
+    public function frames_wait_for_a_runtime_that_loads_after_them(): void
+    {
+        // Presence only; measured in Chrome with semitexa-twig.js 1.5 s late: a slot
+        // filled at 7.6 s through its fallback, and at 1.6 s with the frames kept.
+        $code = $this->jsCode();
+        self::assertStringContainsString('takeEarlyFrames: takeEarlyFrames,', $code);
+        preg_match('/function emitFrame\(detail\) \{.*?\n    \}/s', $code, $body);
+        self::assertNotEmpty($body);
+        self::assertStringContainsString('backlogKey(detail.message)', $body[0], 'one per part: no frame pushes a component out, and it stays bounded.');
+        self::assertSame(0, substr_count($code, "emitTransportEvent('semitexa:ui-sse:frame'") - 1, 'every frame goes through emitFrame.');
+    }
+
+    #[Test]
     public function closing_a_page_stream_does_not_announce_a_server_close(): void
     {
         // `semitexa:ui-sse:close` reopens a drain stream.

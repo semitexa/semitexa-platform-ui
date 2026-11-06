@@ -2140,6 +2140,36 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         return url + (url.indexOf('?') === -1 ? '?' : '&') + 'last_event_id=' + encodeURIComponent(last);
     }
 
+    // A frame is announced, and a runtime that has not loaded yet misses it: with
+    // semitexa-twig.js late, a slot waited for its fallback and a component had
+    // none. So the frames stay here until that runtime takes them: the last one
+    // per slot, per component and the end of the phase, which is as many as the
+    // page has parts, so a live page cannot push a component's frame out.
+    var frameBacklog = {};
+
+    function backlogKey(message) {
+        if (message.type === 'deferred_block') return 'slot:' + message.slot_id;
+        if (message.type === 'deferred_component') return 'component:' + message.instance_id;
+        return message.type === 'done' ? 'done' : null;
+    }
+
+    function emitFrame(detail) {
+        var key = frameBacklog === null ? null : backlogKey(detail.message);
+        // In place: a slot refreshed after `done` still replays before it.
+        if (key !== null) frameBacklog[key] = detail;
+        emitTransportEvent('semitexa:ui-sse:frame', detail);
+    }
+
+    /** What reached this page's session before its runtime loaded, oldest first. */
+    function takeEarlyFrames(sessionId) {
+        var kept = frameBacklog || {};
+        var addressed = 'session_id=' + encodeURIComponent(sessionId) + '&';
+        frameBacklog = null;
+        return Object.keys(kept).map(function (key) { return kept[key]; }).filter(function (detail) {
+            return String(detail.url).indexOf(addressed) !== -1;
+        });
+    }
+
     function attachSse(options) {
         if (typeof options !== 'object' || options === null) {
             options = {};
@@ -2337,7 +2367,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
                     return;
                 }
                 if (!routeSubscriptionFrame(parsed)) {
-                    emitTransportEvent('semitexa:ui-sse:frame', { message: parsed, url: url });
+                    emitFrame({ message: parsed, url: url });
                 }
             });
         });
@@ -2354,7 +2384,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             if (parsed === null) {
                 return;
             }
-            emitTransportEvent('semitexa:ui-sse:frame', {
+            emitFrame({
                 message: parsed,
                 url: url
             });
@@ -2645,6 +2675,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         sse: {
             attach: attachSse,
             subscribe: sseSubscribe,
+            takeEarlyFrames: takeEarlyFrames,
             sessionId: readPageSseSessionId
         },
         forms: {
@@ -3292,6 +3323,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
      */
     function followPageSwap() {
         closePageStreams();
+        if (frameBacklog !== null) frameBacklog = {};
         drainOnDemandOpened = false;
         drainStreamedWhileOpen = 0;
         maybeAutoOpenSse();
