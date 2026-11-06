@@ -172,6 +172,47 @@ final class EventRuntimeSseReviveReconnectTest extends TestCase
     }
 
     #[Test]
+    public function a_move_without_movebefore_owes_the_change_it_resets(): void
+    {
+        // Presence only; measured in WebKit, where the blur after the move fired none.
+        $code = $this->jsCode();
+        self::assertMatchesRegularExpression('/if \(held\) oweChange\(held\);\s*morphIsMoving = true;/', $code);
+        preg_match('/function oweChange\(control\) \{.*?\n    \}/s', $code, $body);
+        self::assertNotEmpty($body);
+        self::assertStringContainsString("control.addEventListener('change', settle, true);", $body[0], 'the browser may pay it first.');
+        self::assertStringContainsString("if (ev.type === 'blur' && control.value !== started)", $body[0]);
+    }
+
+    #[Test]
+    public function a_paused_grid_keeps_its_channel_and_its_view(): void
+    {
+        // Presence only; measured in Chrome: perPage set on a page with no session
+        // came back in the subscribe of the next live page.
+        $dir = \dirname(__DIR__, 3) . '/src/Application/Static/js';
+        $grid = (string) file_get_contents($dir . '/grid-runtime-v2.js');
+        self::assertMatchesRegularExpression('/onPull: function \(paused\) \{.*?if \(!paused\) \{.*?channel = null;/s', $grid);
+        self::assertStringContainsString('if (channel) channel.view(currentViewParams());', $grid);
+        self::assertStringContainsString('opts.onPull(paused === true)', (string) file_get_contents($dir . '/ui-core.js'));
+    }
+
+    #[Test]
+    public function a_script_a_region_carries_runs_with_the_region_not_before_it(): void
+    {
+        // Presence only; measured in Chrome: 2 runs before, the first on no markup, then 1 with it.
+        $nav = (string) file_get_contents(\dirname(__DIR__, 3) . '/src/Application/Static/js' . '/navigation.js');
+        // verify:accept-test-change the split into before and after is gone, one filter replaced it
+        self::assertStringContainsString('ensureAssets(assetsOutsideRegions(payload))', $nav);
+        self::assertStringNotContainsString('loadedForThisSwap', $nav);
+    }
+
+    #[Test]
+    public function a_navigation_overtaken_while_its_scripts_load_stays_quiet(): void
+    {
+        $nav = (string) file_get_contents(\dirname(__DIR__, 3) . '/src/Application/Static/js' . '/navigation.js');
+        self::assertMatchesRegularExpression('/activateScripts\(document\)\.then\(\(ok\) => \{\s*if \(!ok\) \{.*?if \(token === navigationToken\) fallback\(/s', $nav);
+    }
+
+    #[Test]
     public function closing_a_page_stream_does_not_announce_a_server_close(): void
     {
         // `semitexa:ui-sse:close` reopens a drain stream.

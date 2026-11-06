@@ -170,8 +170,8 @@ function activateScripts(root) {
         script.textContent = inert.textContent;
 
         // An inline script runs the moment it is inserted, so there is nothing
-        // to wait for and no load event coming.
-        if (!script.src) {
+        // to wait for and no load event coming. A nomodule one never runs here.
+        if (!script.src || script.noModule) {
             inert.replaceWith(script);
             return ok;
         }
@@ -193,6 +193,48 @@ function activateScripts(root) {
  * navigation. The timeout is there so a stylesheet that never loads delays the
  * swap by an instant instead of forever.
  */
+function absoluteUrl(src) {
+    try {
+        return new URL(src, document.baseURI).href;
+    } catch (invalid) {
+        return null;
+    }
+}
+
+/** The external scripts the arriving regions carry and activateScripts will run. */
+function scriptsInRegions(regions) {
+    const carried = new Set();
+    Object.values(regions || {}).forEach((html) => {
+        if (typeof html !== 'string') return;
+        const template = document.createElement('template');
+        template.innerHTML = html;
+        template.content.querySelectorAll('script[src]').forEach((script) => {
+            if (isExecutableScript(script)) carried.add(absoluteUrl(script.getAttribute('src')));
+        });
+    });
+    carried.delete(null);
+
+    return carried;
+}
+
+/**
+ * The page's assets without the scripts a region carries. Those run when the
+ * region is in, with the markup they work on: loaded as assets too they ran
+ * twice, the first time on nothing.
+ */
+function assetsOutsideRegions(payload) {
+    const assets = payload.assets;
+    const carried = scriptsInRegions(payload.regions);
+    if (!assets || carried.size === 0) return assets;
+
+    return {
+        ...assets,
+        js: (assets.js || []).filter((asset) => (
+            !carried.has(absoluteUrl(typeof asset === 'string' ? asset : asset.src))
+        )),
+    };
+}
+
 function ensureAssets(assets) {
     // TRUE, not undefined. This resolves to "did everything load", and the
     // caller falls back to a real navigation on false — so an envelope with no
@@ -235,6 +277,7 @@ function ensureAssets(assets) {
             script.addEventListener('load', () => resolve(true), { once: true });
             script.addEventListener('error', () => resolve(false), { once: true });
             document.body.appendChild(script);
+            if (script.noModule) resolve(true);
             // FALSE on timeout, unlike a stylesheet's. A script that has not
             // arrived is a page whose behaviour is missing, and committing it
             // anyway announces a navigation nothing will bind to.
@@ -645,7 +688,7 @@ function pageMove(url, token, opts) {
         // stylesheet or its runtime, and the page stayed half-dressed until
         // someone reloaded. Awaited BEFORE the swap, which is the whole reason
         // ensureAssets waits at all.
-        return ensureAssets(payload.assets).then((loaded) => {
+        return ensureAssets(assetsOutsideRegions(payload)).then((loaded) => {
             if (token !== navigationToken) return false;
 
             if (!loaded) {
@@ -681,7 +724,7 @@ function applyPage(url, payload, token, opts) {
             fallback(url, opts.replace === true);
             return false;
         }
-        return settlePage(region, payload, opts, url);
+        return settlePage(region, payload, opts, url, token);
     });
 }
 
@@ -701,7 +744,7 @@ function commitWithTransition(payload, mode, token) {
     return transition.updateCallbackDone.then(() => region, () => region);
 }
 
-function settlePage(region, payload, opts, url) {
+function settlePage(region, payload, opts, url, token) {
 
     // The swap itself is done and history already matches it, so the scroll
     // and the focus move now; only the ANNOUNCEMENT waits for the region's own
@@ -711,7 +754,9 @@ function settlePage(region, payload, opts, url) {
 
     return activateScripts(document).then((ok) => {
         if (!ok) {
-            fallback(url, opts.replace === true);
+            // A click while the region's scripts loaded started a newer navigation:
+            // a slow script must not send the browser back to the page just left.
+            if (token === navigationToken) fallback(url, opts.replace === true);
             return false;
         }
 

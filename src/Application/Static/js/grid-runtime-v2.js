@@ -790,6 +790,15 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
                 return;
             }
             state.pulling = true;
+            var generation = state.pullGeneration;
+            var overtaken = function () {
+                if (generation === state.pullGeneration) return false;
+                state.pulling = false;
+                // Paused again meanwhile: the pull it asked for is still wanted.
+                if (state.transport === 'sse') state.pullAgain = false;
+                else drainQueuedPull();
+                return true;
+            };
             root.setAttribute('data-ui-grid-v2-state', 'loading');
             var qs = buildQuery().toString();
             var url = qs === '' ? endpoint : endpoint + '?' + qs;
@@ -803,6 +812,7 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
                     return res.json().then(function (body) { return { ok: res.ok, body: body }; });
                 })
                 .then(function (result) {
+                    if (overtaken()) return;
                     state.pulling = false;
                     if (drainQueuedPull()) return;
                     if (!result.ok || !result.body || !Array.isArray(result.body.data)) {
@@ -813,6 +823,7 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
                     render(result.body);
                 })
                 .catch(function () {
+                    if (overtaken()) return;
                     state.pulling = false;
                     if (drainQueuedPull()) return;
                     showError('The grid feed is unreachable.');
@@ -852,11 +863,21 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
                     handleErrorEnvelope(envelope);
                 },
                 onStreamId: function (id) { state.subscriptionId = id; },
-                onPull: function () {
+                onStatus: function (status) {
+                    if (status === 'live' && channel) {
+                        state.transport = 'sse';
+                        // What a pull still on its way answers is older than the stream.
+                        state.pullGeneration = (state.pullGeneration || 0) + 1;
+                    }
+                },
+                onPull: function (paused) {
                     // No KISS session on this page: the feed's plain JSON GET.
+                    // Paused, the channel stays: a later page resumes it.
                     state.transport = 'pull';
-                    state.subscriptionId = null;
-                    channel = null;
+                    if (!paused) {
+                        state.subscriptionId = null;
+                        channel = null;
+                    }
                     pull();
                 }
             });
@@ -915,6 +936,8 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
                 channel.view(currentViewParams());
                 return;
             }
+            // A paused feed comes back with the view it is told here.
+            if (channel) channel.view(currentViewParams());
             pull();
         }
 

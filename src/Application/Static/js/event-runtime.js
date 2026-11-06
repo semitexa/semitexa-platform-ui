@@ -1606,6 +1606,40 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         return node.nodeType === 3 && node.nodeValue.trim() === '';
     }
 
+    // A move without moveBefore() resets what a control remembers of its edit:
+    // in Safari the blur after it fired no change, and the visitor's text never
+    // reached the server. So the change is owed from here, and paid on blur
+    // unless the browser fired its own first.
+    var focused = { control: null, value: null };
+    var owedChangeOn = null;
+    document.addEventListener('focusin', function (ev) {
+        if (!morphIsMoving) focused = { control: ev.target, value: ev.target.value };
+    }, true);
+    // Enter in a field or a pick in a select already paid: nothing is owed for it.
+    document.addEventListener('change', function (ev) {
+        if (ev.target === focused.control) focused.value = ev.target.value;
+    }, true);
+
+    function oweChange(control) {
+        var started = focused.value;
+        // Focused before this runtime loaded: its first value is unknown, and a
+        // change nobody made must not reach a handler.
+        if (focused.control !== control || typeof control.value !== 'string'
+            || control.value === started || owedChangeOn === control) return;
+        owedChangeOn = control;
+        function settle(ev) {
+            if (morphIsMoving && ev.type === 'blur') return;
+            control.removeEventListener('change', settle, true);
+            control.removeEventListener('blur', settle, true);
+            owedChangeOn = null;
+            if (ev.type === 'blur' && control.value !== started) {
+                control.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        }
+        control.addEventListener('change', settle, true);
+        control.addEventListener('blur', settle, true);
+    }
+
     // Moving a node takes the focus off anything inside it. moveBefore() keeps
     // it and fires nothing; handing it back by hand fires blur and focus, which
     // must not reach a #[UiOn] handler as if the visitor had done it.
@@ -1615,6 +1649,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             return;
         }
         var held = node.contains(document.activeElement) ? document.activeElement : null;
+        if (held) oweChange(held);
         morphIsMoving = true;
         try {
             parent.insertBefore(node, before);
