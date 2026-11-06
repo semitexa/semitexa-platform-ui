@@ -32,9 +32,9 @@ use Semitexa\Core\Attribute\Capability;
  *                  Validated at discovery time.
  *   - $event     — semantic event name (same /^[a-z][a-z0-9:_-]*$/
  *                  shape #[UiOn] enforces).
- *   - $payload   — optional class-string of the typed payload the
- *                  dispatcher should deserialize the request body into
- *                  before invoking the handler. When null, the
+ *   - $payload   — reserved for a typed payload. Decoding one is not supported
+ *                  yet: a binding that sets it is refused at dispatch with
+ *                  typed_payload_not_supported_yet. Leave it null, and the
  *                  dispatcher passes a generic envelope object.
  *
  * Repeatable: a service class may bind to multiple (component, part,

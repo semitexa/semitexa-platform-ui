@@ -25,8 +25,9 @@ use Semitexa\Core\Attribute\Capability;
  *     }
  *
  * - **Where it lives.** In the shared component-state store, keyed by the
- *   visitor's session and the instance. The page carries only a signed
- *   reference, not the values, whatever their size.
+ *   visitor's session and the instance, and the page carries only a signed
+ *   reference, whatever their size. With no shared store or no session the
+ *   props ride the signed context instead, readable in the page.
  * - **What a handler sees.** The property holds the state as last saved: a
  *   prop of the same name on the first render, every change since.
  * - **What a change does.** When a handler leaves a #[UiState] property
@@ -35,7 +36,7 @@ use Semitexa\Core\Attribute\Capability;
  */
 #[Capability(
     id: 'ui.component-state',
-    summary: 'A component property kept on the server as its state: a handler changes it, and the component is saved and drawn again, morphed in place.',
+    summary: 'A component property kept as its state, on the server where there is a shared store: a handler changes it, and the component is saved and drawn again, morphed in place.',
     useWhen: 'A component remembers something between clicks — a count, a selection, a step — or its props are too large to ride every signed context.',
     avoidWhen: 'The value belongs to a record — save it through the ORM and let the page be live instead.',
     replaces: [
