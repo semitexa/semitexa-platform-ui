@@ -17,10 +17,11 @@ use Semitexa\PlatformUi\Domain\Model\Event\UiFormSubmitCsrfTokenHandle;
  *
  * Mirrors {@see \Semitexa\PlatformUi\Application\Service\Event\CacheBackedUiReplayStore}
  * verbatim — same property injection, same namespaced-cache memoisation,
- * same atomicity caveat (get-then-put under the public
- * CacheManagerInterface; a native SETNX upgrade lands alongside the
- * future "real anti-abuse" hardening alongside the replay-store
- * upgrade).
+ * Consumption is atomic: the token is compared first, so a wrong guess
+ * spends nothing, then taken with CacheManagerInterface::take(), which
+ * hands the value to one caller only. Before, two workers holding the
+ * same valid token could both read it before either forgot it, and both
+ * ran the action (review ultimate#130, tk-csrf-consume-atomic).
  *
  * Trust perimeter:
  *
@@ -79,8 +80,11 @@ final class CacheBackedUiFormSubmitCsrfTokenStore implements UiFormSubmitCsrfTok
         if (!hash_equals($stored, $expected)) {
             return false;
         }
-        $cache->forget($tokenId);
-        return true;
+
+        // Only the caller whose take removed it consumed it; a concurrent one gets null.
+        $taken = $cache->take($tokenId);
+
+        return is_string($taken) && hash_equals($taken, $expected);
     }
 
     private static function hash(string $tokenId, string $rawToken): string

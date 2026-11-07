@@ -12,6 +12,7 @@
     "require": {
         "php": "^8.4",
         "semitexa/authorization": "*",
+        "semitexa/cache": "*",
         "semitexa/core": ">=2026.11.04.1744 || dev-master",
         "semitexa/llm": ">=2026.10.29.1052 || dev-master",
         "semitexa/ssr": ">=2026.11.06.0513 || dev-master",
@@ -36,6 +37,7 @@
     "extra": {
         "semitexa": {
             "floors": {
+                "semitexa/cache": "next",
                 "semitexa/core": "2026.11.04.1744",
                 "semitexa/ssr": "2026.11.06.0513",
                 "semitexa/llm": "2026.10.29.1052",
