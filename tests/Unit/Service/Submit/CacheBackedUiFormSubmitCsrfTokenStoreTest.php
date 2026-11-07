@@ -44,7 +44,10 @@ final class CacheBackedUiFormSubmitCsrfTokenStoreTest extends TestCase
         };
         $firstConsumed = self::worker($shared)->consume($handle->id, $handle->raw);
 
-        self::assertSame(1, (int) $firstConsumed + (int) $secondConsumed, 'exactly one of them consumed it');
+        // verify:accept-test-change the sum alone passed when the hook never ran: each worker's outcome is named now
+        self::assertNotNull($secondConsumed, 'the second worker ran between the first one\'s read and its removal');
+        self::assertTrue($secondConsumed, 'it removed the token first, so it consumed it');
+        self::assertFalse($firstConsumed, 'the first read it too, but removed nothing');
     }
 
     #[Test]
