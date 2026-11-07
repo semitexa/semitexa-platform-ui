@@ -29,7 +29,10 @@ final class FormTemplatesPostTest extends TestCase
         $twig = (string) file_get_contents(dirname(__DIR__, 3) . '/resources/twig/' . $template);
         $tag = preg_replace('/\{#.*?#\}/s', '', $twig) ?? '';
 
-        self::assertSame(1, preg_match('/<form\b[^>]*>/s', $tag, $form));
-        self::assertStringContainsString('method="post"', $form[0]);
+        // verify:accept-test-change every form tag is checked now, not only the first one
+        self::assertGreaterThan(0, preg_match_all('/<form\b[^>]*>/s', $tag, $forms));
+        foreach ($forms[0] as $form) {
+            self::assertMatchesRegularExpression('/\smethod="post"/', $form, 'every form, not only the first');
+        }
     }
 }
