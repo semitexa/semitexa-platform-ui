@@ -36,6 +36,17 @@ final class ArrayCacheManager implements CacheManagerInterface
         unset($this->store[$this->ns][$key]);
     }
 
+    public function take(string $key): mixed
+    {
+        if (!array_key_exists($key, $this->store[$this->ns] ?? [])) {
+            return null;
+        }
+        $value = $this->store[$this->ns][$key];
+        unset($this->store[$this->ns][$key]);
+
+        return $value;
+    }
+
     public function withNamespace(string $namespace): CacheManagerInterface
     {
         $clone = clone $this;
