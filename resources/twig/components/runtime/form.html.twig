@@ -22,9 +22,11 @@
  #   - hosts the caller's content slot, the form-status patch target,
  #     and the submit button — all in one natural subtree so a native
  #     submit click bubbles correctly;
- #   - has `action="#"` to avoid any browser-default fallback if
- #     scripting is disabled (the runtime always calls
- #     preventDefault for the managed submit event when JS is on);
+ #   - has `action="#"` and `method="post"` for a submit the runtime did
+ #     not take, before its scripts ran or with scripting off: the browser
+ #     then posts it, so what was typed never lands in the URL, in logs or
+ #     in history, which a form with no method does. With JS on the runtime
+ #     calls preventDefault for the managed submit event;
  #   - has `novalidate` so the browser's built-in form validation
  #     never short-circuits the server-authoritative pipeline.
  #
@@ -135,6 +137,7 @@
     <form
         data-ui-part="form"
         action="#"
+        method="post"
         novalidate
         sx-layout="stack"
         sx-gap="4"
