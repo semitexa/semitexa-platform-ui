@@ -437,8 +437,11 @@ final class PlatformUiTwigExtension
          */
         TwigExtensionRegistry::registerFunction(
             'ui_field_rules',
-            static function (array $rawRules): array {
+            static function (array $rawRules, array $messages = []): array {
                 if ($rawRules === []) {
+                    // Still checked: a message for a rule the field does not
+                    // have fails, and `valid` is held to the same type and size.
+                    UiFieldRuleParser::withMessages([], $messages);
                     return [];
                 }
                 // Resolve the ACTIVE rule registry — set at boot time
@@ -448,7 +451,7 @@ final class PlatformUiTwigExtension
                 // Lazy-defaults to a fresh DefaultUiFieldRuleRegistry
                 // when bootstrap was bypassed (standalone unit tests).
                 $registry = UiFieldRuleRegistry::getActive();
-                return (new UiFieldRuleParser($registry))->parseAllToWire($rawRules);
+                return UiFieldRuleParser::withMessages((new UiFieldRuleParser($registry))->parseAllToWire($rawRules), $messages);
             },
         );
 

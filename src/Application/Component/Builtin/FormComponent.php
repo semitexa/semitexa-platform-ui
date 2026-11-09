@@ -207,9 +207,10 @@ final class FormComponent implements UsesUiFieldRuleRegistry
             );
 
             $result = $validator->validate(
-                value:   $stringValue,
-                rules:   $rules,
-                context: $fieldContext,
+                value:    $stringValue,
+                rules:    $rules,
+                context:  $fieldContext,
+                messages: UiFieldRuleParser::messagesOf($def->rules),
             );
 
             $perField[] = [

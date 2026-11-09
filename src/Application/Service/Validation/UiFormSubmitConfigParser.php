@@ -137,6 +137,23 @@ final class UiFormSubmitConfigParser
         // We capture the wire output verbatim — the same shape the
         // FieldComponent template signs into cfg.r.
         $ruleWire = $this->ruleParser->parseAllToWire($rawRules);
+        $messages = $rawField['messages'] ?? [];
+        if (!is_array($messages)) {
+            throw new UiFieldValidationRuleException(sprintf(
+                'Form submit `fields[%d].messages` must map rule names to messages.',
+                $index,
+            ));
+        }
+        if (array_key_exists(UiFieldRuleParser::VALID_MESSAGE_KEY, $messages)) {
+            // A submit clears the success text; accepting it here would be a
+            // message that is silently never shown.
+            throw new UiFieldValidationRuleException(sprintf(
+                'Form submit `fields[%d].messages.valid` is never shown: a submit clears the success text. Give it to the field itself (platform.field `messages.valid`).',
+                $index,
+            ));
+        }
+        // The field's own text per rule, signed with its rules (`m`).
+        $ruleWire = UiFieldRuleParser::withMessages($ruleWire, $messages);
 
         $label = $rawField['label'] ?? null;
         if ($label !== null) {

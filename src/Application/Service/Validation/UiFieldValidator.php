@@ -28,17 +28,23 @@ final class UiFieldValidator
 
     /**
      * @param list<UiFieldValidationRuleInterface> $rules
+     * @param list<?string> $messages the field's own message for each rule,
+     *        in rule order ({@see UiFieldRuleParser::messagesOf()}); null keeps
+     *        the rule's built-in one
      */
     public function validate(
         mixed $value,
         array $rules,
         UiFieldValidationContext $context,
         ?string $successMessage = self::DEFAULT_SUCCESS_MESSAGE,
+        array $messages = [],
     ): UiFieldValidationResult {
-        foreach ($rules as $rule) {
+        foreach ($rules as $index => $rule) {
             $result = $rule->validate($value, $context);
             if ($result !== null) {
-                return $result;
+                $own = $messages[$index] ?? null;
+
+                return is_string($own) && !$result->isValid() ? UiFieldValidationResult::invalid($own) : $result;
             }
         }
         return UiFieldValidationResult::valid($successMessage);
