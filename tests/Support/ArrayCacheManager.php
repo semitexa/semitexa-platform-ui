@@ -36,6 +36,26 @@ final class ArrayCacheManager implements CacheManagerInterface
         unset($this->store[$this->ns][$key]);
     }
 
+    public function add(string $key, mixed $value, ?int $ttlSeconds = null): bool
+    {
+        if (array_key_exists($key, $this->store[$this->ns] ?? [])) {
+            return false;
+        }
+        $this->store[$this->ns][$key] = $value;
+
+        return true;
+    }
+
+    public function forgetIf(string $key, mixed $expected): bool
+    {
+        if (!array_key_exists($key, $this->store[$this->ns] ?? []) || $this->store[$this->ns][$key] !== $expected) {
+            return false;
+        }
+        unset($this->store[$this->ns][$key]);
+
+        return true;
+    }
+
     public function take(string $key): mixed
     {
         if (!array_key_exists($key, $this->store[$this->ns] ?? [])) {

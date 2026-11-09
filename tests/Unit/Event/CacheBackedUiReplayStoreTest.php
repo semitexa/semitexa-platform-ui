@@ -261,6 +261,21 @@ final class FakeCacheManager implements CacheManagerInterface
         throw new \LogicException('take() should not be reached by CacheBackedUiReplayStore.');
     }
 
+    public function add(string $key, mixed $value, ?int $ttlSeconds = null): bool
+    {
+        if ($this->get($key) !== null) {
+            return false;
+        }
+        $this->put($key, $value, $ttlSeconds);
+
+        return true;
+    }
+
+    public function forgetIf(string $key, mixed $expected): bool
+    {
+        throw new \LogicException('forgetIf() should not be reached by CacheBackedUiReplayStore.');
+    }
+
     public function flushTags(string ...$tags): int
     {
         throw new \LogicException('flushTags() should not be reached.');

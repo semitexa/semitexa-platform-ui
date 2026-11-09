@@ -67,13 +67,9 @@ final class CacheBackedUiReplayStore implements UiReplayStoreInterface
 
     public function claim(string $key, int $ttlSeconds): bool
     {
-        $cache = $this->namespacedCache();
-        if ($cache->get($key) !== null) {
-            return false;
-        }
-        $ttl = $ttlSeconds < 1 ? 1 : $ttlSeconds;
-        $cache->put($key, 1, $ttl);
-        return true;
+        // One step: get() then put() let two workers both read nothing and
+        // both accept one replayed event.
+        return $this->namespacedCache()->add($key, 1, $ttlSeconds < 1 ? 1 : $ttlSeconds);
     }
 
     /**

@@ -33,6 +33,9 @@ use Semitexa\PlatformUi\Domain\Model\Collaboration\FormLockOutcome;
 #[SatisfiesServiceContract(of: FormLockStoreInterface::class)]
 final class CacheBackedFormLockStore implements FormLockStoreInterface
 {
+    /** How often acquire() tries a slot that changes under it before it gives up. */
+    private const ACQUIRE_ROUNDS = 3;
+
     public const NAMESPACE = 'form-collab-lock';
     public const LOCK_TTL_SECONDS = 30;
 
@@ -51,20 +54,33 @@ final class CacheBackedFormLockStore implements FormLockStoreInterface
 
     public function acquire(string $scopeKey, ?string $field, string $holderId, string $holderLabel): FormLockOutcome
     {
-        $entry = $this->read($scopeKey, $field);
-
-        if ($entry !== null && (string) $entry['holderId'] !== $holderId) {
-            // Held by someone else and still live → denied; report the incumbent.
-            return new FormLockOutcome(false, self::toLock($scopeKey, $field, $entry));
+        $slot = self::slot($scopeKey, $field);
+        $fresh = ['holderId' => $holderId, 'label' => $holderLabel, 'ts' => time()];
+        // A lock that lapses or changes hands between the steps below sends the
+        // loop round again; three rounds cover a contended slot.
+        for ($round = 0; $round < self::ACQUIRE_ROUNDS; $round++) {
+            // Free → granted in one step; get() then put() granted one lock to
+            // two holders who both read nothing.
+            if ($this->namespacedCache()->add($slot, $fresh, self::LOCK_TTL_SECONDS)) {
+                return new FormLockOutcome(true, self::toLock($scopeKey, $field, $fresh));
+            }
+            $entry = $this->read($scopeKey, $field);
+            if ($entry === null) {
+                continue;
+            }
+            if ((string) $entry['holderId'] !== $holderId) {
+                // Held by someone else and still live → denied; report the incumbent.
+                return new FormLockOutcome(false, self::toLock($scopeKey, $field, $entry));
+            }
+            // A re-affirm by the same holder: refreshed, acquiredAt kept.
+            $stored = ['holderId' => $holderId, 'label' => $holderLabel, 'ts' => (int) $entry['ts']];
+            if ($this->refresh($scopeKey, $field, $entry, $stored)) {
+                return new FormLockOutcome(true, self::toLock($scopeKey, $field, $stored));
+            }
         }
+        $held = $this->read($scopeKey, $field);
 
-        // Free, or a re-affirm by the same holder → (re)grant and refresh TTL.
-        // Preserve the original acquiredAt on a re-affirm.
-        $acquiredAt = $entry['ts'] ?? time();
-        $stored = ['holderId' => $holderId, 'label' => $holderLabel, 'ts' => $acquiredAt];
-        $this->write($scopeKey, $field, $stored);
-
-        return new FormLockOutcome(true, self::toLock($scopeKey, $field, $stored));
+        return new FormLockOutcome(false, self::toLock($scopeKey, $field, $held ?? $fresh));
     }
 
     public function heartbeat(string $scopeKey, ?string $field, string $holderId): bool
@@ -73,18 +89,36 @@ final class CacheBackedFormLockStore implements FormLockStoreInterface
         if ($entry === null || (string) $entry['holderId'] !== $holderId) {
             return false;
         }
-        // Refresh TTL, keep acquiredAt.
-        $this->write($scopeKey, $field, $entry);
 
-        return true;
+        // Refresh TTL, keep acquiredAt.
+        return $this->refresh($scopeKey, $field, $entry, $entry);
     }
 
     public function release(string $scopeKey, ?string $field, string $holderId): void
     {
         $entry = $this->read($scopeKey, $field);
         if ($entry !== null && (string) $entry['holderId'] === $holderId) {
-            $this->namespacedCache()->forget(self::slot($scopeKey, $field));
+            // Only the entry read: a check then forget() removed a lock another
+            // holder had taken in between.
+            $this->namespacedCache()->forgetIf(self::slot($scopeKey, $field), $entry);
         }
+    }
+
+    /**
+     * The holder's own lock, given a new TTL: removed only while it is still the
+     * entry read, then added back. A put() here overwrote a lock someone else
+     * took after this one expired; between the two steps another holder may win
+     * instead, and the refresh says so.
+     *
+     * @param array{holderId:string,label:string,ts:int} $read
+     * @param array{holderId:string,label:string,ts:int} $stored
+     */
+    private function refresh(string $scopeKey, ?string $field, array $read, array $stored): bool
+    {
+        $slot = self::slot($scopeKey, $field);
+
+        return $this->namespacedCache()->forgetIf($slot, $read)
+            && $this->namespacedCache()->add($slot, $stored, self::LOCK_TTL_SECONDS);
     }
 
     public function current(string $scopeKey, ?string $field): ?FormLock
@@ -100,12 +134,6 @@ final class CacheBackedFormLockStore implements FormLockStoreInterface
         $raw = $this->namespacedCache()->get(self::slot($scopeKey, $field));
 
         return is_array($raw) && isset($raw['holderId']) ? $raw : null;
-    }
-
-    /** @param array{holderId:string,label:string,ts:int} $entry */
-    private function write(string $scopeKey, ?string $field, array $entry): void
-    {
-        $this->namespacedCache()->put(self::slot($scopeKey, $field), $entry, self::LOCK_TTL_SECONDS);
     }
 
     private static function slot(string $scopeKey, ?string $field): string
