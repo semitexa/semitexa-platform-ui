@@ -20,6 +20,7 @@ use Semitexa\PlatformUi\Application\Service\Submit\UiFormSubmitSecurityPolicy;
 use Semitexa\PlatformUi\Application\Service\Twig\PlatformUiTwigExtension;
 use Semitexa\PlatformUi\Application\Service\Validation\DefaultUiFieldRuleRegistry;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleParser;
+use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistry;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFormSubmitConfigParser;
 use Semitexa\PlatformUi\Domain\Exception\UiFieldValidationRuleException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionEvent;
@@ -41,16 +42,29 @@ final class FieldOwnMessagesTest extends TestCase
     private string|false $previousSecret = false;
     private string|false $previousEnv = false;
 
+    /** @var array<string, mixed>|null the Twig functions as they were, when a test registered its own */
+    private ?array $previousFunctions = null;
+
+    private ?\Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistryInterface $previousRegistry = null;
+
     protected function setUp(): void
     {
         $this->previousSecret = getenv('APP_SECRET');
         $this->previousEnv = getenv('APP_ENV');
         putenv('APP_SECRET=platform-ui-field-messages-test');
         putenv('APP_ENV=dev');
+        // getActive() would create one; read what is there, null included.
+        $this->previousRegistry = (new \ReflectionProperty(UiFieldRuleRegistry::class, 'active'))->getValue();
     }
 
     protected function tearDown(): void
     {
+        // Leave the Twig catalog and the active rule registry as the next test expects them.
+        if ($this->previousFunctions !== null) {
+            (new \ReflectionProperty($this->catalog(), 'functions'))->setValue($this->catalog(), $this->previousFunctions);
+            $this->previousFunctions = null;
+        }
+        UiFieldRuleRegistry::setActive($this->previousRegistry);
         UiPrimitiveRegistry::reset();
         UiComponentRegistry::reset();
         UiFormSubmitSecurityPolicy::reset();
@@ -62,10 +76,7 @@ final class FieldOwnMessagesTest extends TestCase
     #[Test]
     public function the_template_function_signs_each_rule_with_the_fields_own_message(): void
     {
-        (new PlatformUiTwigExtension())->registerFunctions();
-        // Read back as registered; getFunctions() would boot class discovery.
-        $catalog = (new \ReflectionMethod(TwigExtensionRegistry::class, 'catalog'))->invoke(null);
-        $rules = (new \ReflectionProperty($catalog, 'functions'))->getValue($catalog)['ui_field_rules']['callback'];
+        $rules = $this->registeredUiFieldRules();
 
         self::assertSame(
             [['n' => 'required', 'm' => self::REQUIRED_UK], ['n' => 'minLength', 'p' => [3]]],
@@ -99,9 +110,7 @@ final class FieldOwnMessagesTest extends TestCase
     #[Test]
     public function every_message_is_checked_even_on_a_field_without_rules_and_together_they_stay_small(): void
     {
-        (new PlatformUiTwigExtension())->registerFunctions();
-        $catalog = (new \ReflectionMethod(TwigExtensionRegistry::class, 'catalog'))->invoke(null);
-        $rules = (new \ReflectionProperty($catalog, 'functions'))->getValue($catalog)['ui_field_rules']['callback'];
+        $rules = $this->registeredUiFieldRules();
 
         foreach ([
             [['valid' => ['not', 'text']], 'must be a non-empty string'],
@@ -182,6 +191,22 @@ final class FieldOwnMessagesTest extends TestCase
         $texts = array_column(array_filter($body['patches'] ?? [], static fn (array $p): bool => ($p['target']['instance'] ?? null) === 'uci_field_messages_name' && $p['op'] === 'setText'), 'value');
         self::assertContains(self::REQUIRED_UK, $texts);
         self::assertNotContains('This field is required.', $texts);
+    }
+
+    /** The real ui_field_rules, as PlatformUiTwigExtension registers it; the catalog is put back in tearDown(). */
+    private function registeredUiFieldRules(): callable
+    {
+        $property = new \ReflectionProperty($this->catalog(), 'functions');
+        $this->previousFunctions ??= $property->getValue($this->catalog());
+        (new PlatformUiTwigExtension())->registerFunctions();
+
+        // Read back as registered; getFunctions() would boot class discovery.
+        return $property->getValue($this->catalog())['ui_field_rules']['callback'];
+    }
+
+    private function catalog(): object
+    {
+        return (new \ReflectionMethod(TwigExtensionRegistry::class, 'catalog'))->invoke(null);
     }
 
     /**
