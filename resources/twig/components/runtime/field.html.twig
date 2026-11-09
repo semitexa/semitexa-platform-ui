@@ -169,13 +169,19 @@
                  Only emitted when the `name` prop matches the safe
                  identifier shape.
     -#}
-    {%- set _ui_field_rules_wire = ui_field_rules(rules|default([])) -%}
+    {#- `messages`: the field's own text per rule (signed into each rule's
+        spec as `m`), and `valid` for a value that passes (signed as cfg.vm). -#}
+    {%- set _ui_field_messages = messages|default({}) -%}
+    {%- set _ui_field_rules_wire = ui_field_rules(rules|default([]), _ui_field_messages) -%}
     {%- set _ui_cfg_input_change = {} -%}
     {%- if _ui_field_rules_wire is not empty -%}
         {%- set _ui_cfg_input_change = _ui_cfg_input_change|merge({'r': _ui_field_rules_wire}) -%}
     {%- endif -%}
     {%- if _safe_field_name -%}
         {%- set _ui_cfg_input_change = _ui_cfg_input_change|merge({'fn': _safe_field_name}) -%}
+    {%- endif -%}
+    {%- if _ui_field_messages.valid is defined -%}
+        {%- set _ui_cfg_input_change = _ui_cfg_input_change|merge({'vm': _ui_field_messages.valid}) -%}
     {%- endif -%}
     {#- Only a field that shows the server-ack target asks for its echo. -#}
     {%- if showServerAckTarget|default(false) -%}

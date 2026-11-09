@@ -54,9 +54,110 @@ use Semitexa\PlatformUi\Domain\Model\Event\UiFieldRuleSpec;
  */
 final class UiFieldRuleParser
 {
+    /** The longest message a field may give one of its rules. */
+    public const MAX_MESSAGE_LENGTH = 500;
+
+    /**
+     * All of one field's messages together, in bytes. They ride in the signed
+     * ctx twice (each rule's `m` and the field's props), and props past the
+     * manifest's 4096-byte budget are dropped, so the field would re-render
+     * from incomplete props.
+     */
+    public const MAX_MESSAGES_BYTES = 2048;
+
+    /**
+     * Not a rule: the field's own text for a value that passed every rule
+     * (in place of "Looks good."). Signed into the field's cfg, not a spec.
+     */
+    public const VALID_MESSAGE_KEY = 'valid';
+
     public function __construct(
         private readonly UiFieldRuleRegistryInterface $registry,
     ) {}
+
+    /**
+     * Give each rule of a field the field's own message: `messages` is
+     * `{rule name: text}`, the text goes into that rule's wire spec as `m`,
+     * and validation shows it instead of the rule's built-in English one.
+     * Signed with the rules, so the field config, the autoFields marker and
+     * the form's cfg.f all carry it, and the client cannot change it.
+     *
+     * Before this a field could not say "Обов'язкове поле": a live run
+     * (2026-11-07) wrote its own rule registry to get Ukrainian errors.
+     * The app passes the text already translated (`trans()` in its template).
+     *
+     * A message for a rule the field does not have is refused, as a typo
+     * that would otherwise show the English text with no sign why.
+     *
+     * @param list<array<string, mixed>> $wire specs from parseAllToWire()
+     * @param array<mixed> $messages
+     * @return list<array<string, mixed>>
+     *
+     * @throws UiFieldValidationRuleException
+     */
+    public static function withMessages(array $wire, array $messages): array
+    {
+        if ($messages === []) {
+            return $wire;
+        }
+        if (array_is_list($messages)) {
+            throw new UiFieldValidationRuleException('Field `messages` must map rule names to messages, as {required: "…"}.');
+        }
+        $names = array_values(array_filter(array_map(static fn (array $spec): mixed => $spec['n'] ?? null, $wire), 'is_string'));
+        $bytes = 0;
+        foreach ($messages as $rule => $message) {
+            $rule = (string) $rule;
+            self::assertMessage($rule, $message, $rule === self::VALID_MESSAGE_KEY);
+            /** @var string $message */
+            $bytes += strlen($message);
+            if ($bytes > self::MAX_MESSAGES_BYTES) {
+                throw new UiFieldValidationRuleException(sprintf('Field `messages` exceed %d bytes together.', self::MAX_MESSAGES_BYTES), $rule);
+            }
+            if ($rule !== self::VALID_MESSAGE_KEY && !in_array($rule, $names, true)) {
+                throw new UiFieldValidationRuleException(sprintf(
+                    'Field `messages` names rule "%s", which the field does not have (rules: %s).',
+                    $rule,
+                    $names === [] ? 'none' : implode(', ', $names),
+                ), $rule);
+            }
+        }
+        foreach ($wire as $index => $spec) {
+            $name = $spec['n'] ?? null;
+            if (is_string($name) && is_string($messages[$name] ?? null)) {
+                $wire[$index]['m'] = $messages[$name];
+            }
+        }
+
+        return $wire;
+    }
+
+    /**
+     * The field's own message for each rule, in rule order; null where the
+     * rule keeps its built-in one.
+     *
+     * @param array<int, mixed> $wire
+     * @return list<?string>
+     */
+    public static function messagesOf(array $wire): array
+    {
+        return array_map(
+            static fn (mixed $spec): ?string => is_array($spec) && is_string($spec['m'] ?? null) && $spec['m'] !== '' ? $spec['m'] : null,
+            array_values($wire),
+        );
+    }
+
+    /**
+     * @throws UiFieldValidationRuleException
+     */
+    private static function assertMessage(string $rule, mixed $message, bool $mayBeEmpty): void
+    {
+        if (!is_string($message) || (!$mayBeEmpty && trim($message) === '')) {
+            throw new UiFieldValidationRuleException(sprintf('Field `messages.%s` must be a non-empty string.', $rule), $rule);
+        }
+        if (mb_strlen($message) > self::MAX_MESSAGE_LENGTH) {
+            throw new UiFieldValidationRuleException(sprintf('Field `messages.%s` exceeds %d characters.', $rule, self::MAX_MESSAGE_LENGTH), $rule);
+        }
+    }
 
     /**
      * Parse a list of raw specs into normalized UiFieldRuleSpec

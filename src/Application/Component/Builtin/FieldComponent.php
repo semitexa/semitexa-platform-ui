@@ -100,6 +100,7 @@ use Semitexa\Ssr\Attribute\AsComponent;
         new UiProp('maxBytes', UiPropType::Integer, nullable: true, description: 'File control: size limit in bytes (default 1 MiB).'),
         new UiProp('shrinkImages', UiPropType::Boolean, default: true, description: 'File control: shrink a photo in the browser before upload (2400 px, JPEG, EXIF dropped); GIF, SVG, transparent images and fields that do not take JPEG are sent as chosen.'),
         new UiProp('rules', UiPropType::Array, default: [], description: 'Validation rules, signed into the page: "required", ["minLength", 5], …'),
+        new UiProp('messages', UiPropType::Object, default: [], description: 'The field\'s own text per rule, in place of the built-in English one: {required: "…", minLength: "…"}; `valid` replaces "Looks good." ("" shows none). Pass it translated, e.g. trans(\'form.required\'). A rule the field does not have is refused.'),
         new UiProp('inputProps', UiPropType::Object, default: [], description: 'Overrides merged onto the input primitive last.'),
         new UiProp('showValidationTarget', UiPropType::Boolean, default: false, description: 'Render the live validation message the server patches.'),
         new UiProp('showServerAckTarget', UiPropType::Boolean, default: false, description: 'Render the server echo of each change (demo).'),
@@ -333,11 +334,15 @@ final class FieldComponent implements UsesUiFieldRuleRegistry
     {
         $signedRules = $event->rules();
         $signedFieldName = $event->config['fn'] ?? null;
+        // The field's own success text, signed as cfg.vm. "" clears the
+        // message slot (a null would leave the last error standing there).
+        $validMessage = $event->config['vm'] ?? null;
         if ($signedRules === [] && is_string($signedFieldName) && $signedFieldName !== '') {
             // A named field rendered without rules declared none: nothing to
             // check (a switch is not "at least 3 characters"). The demo rule
-            // below is only for contexts that carry neither.
-            return UiFieldValidationResult::valid();
+            // below is only for contexts that carry neither. Its own success
+            // text, if it gave one, is still what it says.
+            return UiFieldValidationResult::valid(is_string($validMessage) ? $validMessage : null);
         }
         $rawRules = $signedRules !== [] ? $signedRules : self::DEFAULT_RULES;
 
@@ -360,8 +365,10 @@ final class FieldComponent implements UsesUiFieldRuleRegistry
             submittedList: is_array($submitted) ? array_values(array_map(static fn ($v): string => is_scalar($v) ? (string) $v : '', $submitted)) : null,
         );
 
+        $successMessage = is_string($validMessage) ? $validMessage : UiFieldValidator::DEFAULT_SUCCESS_MESSAGE;
+
         try {
-            return $this->runValidation($value, $rawRules, $context);
+            return $this->runValidation($value, $rawRules, $context, $successMessage);
         } catch (UiFieldValidationRuleException $e) {
             throw new UiInteractionUnprocessableException(
                 'invalid_validation_rule',
@@ -377,6 +384,7 @@ final class FieldComponent implements UsesUiFieldRuleRegistry
         string $value,
         array $rawRules,
         UiFieldValidationContext $context,
+        ?string $successMessage = UiFieldValidator::DEFAULT_SUCCESS_MESSAGE,
     ): UiFieldValidationResult {
         // Prefer the registry the dispatcher provided through the
         // UsesUiFieldRuleRegistry bridge. Fall back to the static
@@ -391,14 +399,17 @@ final class FieldComponent implements UsesUiFieldRuleRegistry
         // ({n, p}). The default-rules path passes the DSL shape
         // (['required'] / ['minLength', 3]). Try the wire shape first;
         // fall back to the DSL parser when the input doesn't match.
-        $rules = $this->isWireShape($rawRules)
+        $wire = $this->isWireShape($rawRules);
+        $rules = $wire
             ? $parser->resolveFromWire($rawRules)
             : $parser->resolveAll($parser->parseAll($rawRules));
 
         return (new UiFieldValidator())->validate(
-            value:   $value,
-            rules:   $rules,
-            context: $context,
+            value:          $value,
+            rules:          $rules,
+            context:        $context,
+            successMessage: $successMessage,
+            messages:       $wire ? UiFieldRuleParser::messagesOf($rawRules) : [],
         );
     }
 
