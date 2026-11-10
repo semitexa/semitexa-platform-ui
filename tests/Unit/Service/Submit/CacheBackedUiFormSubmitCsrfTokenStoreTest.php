@@ -109,6 +109,28 @@ final class CacheBackedUiFormSubmitCsrfTokenStoreTest extends TestCase
                 return $value;
             }
 
+            public function add(string $key, mixed $value, ?int $ttlSeconds = null): bool
+            {
+                $k = $this->ns . '|' . $key;
+                if ($this->data->offsetExists($k)) {
+                    return false;
+                }
+                $this->data[$k] = $value;
+
+                return true;
+            }
+
+            public function forgetIf(string $key, mixed $expected): bool
+            {
+                $k = $this->ns . '|' . $key;
+                if (!$this->data->offsetExists($k) || $this->data[$k] !== $expected) {
+                    return false;
+                }
+                unset($this->data[$k]);
+
+                return true;
+            }
+
             public function withNamespace(string $namespace): CacheManagerInterface
             {
                 // The same store and the same hook: a namespace is a key prefix, not another cache.

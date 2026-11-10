@@ -37,7 +37,7 @@
     "extra": {
         "semitexa": {
             "floors": {
-                "semitexa/cache": "2026.11.08.0141",
+                "semitexa/cache": "next",
                 "semitexa/core": "2026.11.04.1744",
                 "semitexa/ssr": "2026.11.06.0513",
                 "semitexa/llm": "2026.10.29.1052",
