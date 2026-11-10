@@ -110,9 +110,13 @@ final class InterleavingCache implements CacheManagerInterface
     /** @var (\Closure(): void)|null */
     public ?\Closure $afterRead = null;
 
-    public function __construct(private ?\ArrayObject $data = null, private string $ns = '')
+    /** @var \ArrayObject<string, mixed> */
+    private \ArrayObject $data;
+
+    /** @param \ArrayObject<string, mixed>|null $data */
+    public function __construct(?\ArrayObject $data = null, private string $ns = '')
     {
-        $this->data ??= new \ArrayObject();
+        $this->data = $data ?? new \ArrayObject();
     }
 
     public function expireAll(): void

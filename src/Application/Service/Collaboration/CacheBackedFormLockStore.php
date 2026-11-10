@@ -107,8 +107,11 @@ final class CacheBackedFormLockStore implements FormLockStoreInterface
     /**
      * The holder's own lock, given a new TTL: removed only while it is still the
      * entry read, then added back. A put() here overwrote a lock someone else
-     * took after this one expired; between the two steps another holder may win
-     * instead, and the refresh says so.
+     * took after this one expired: two holders editing one field. Between the
+     * two steps another holder may win instead; the holder is told (false) and
+     * can acquire again, which a second holder never was. An atomic
+     * replace-if-unchanged in semitexa/cache would close that window too
+     * (tk-cache-replace-if).
      *
      * @param array{holderId:string,label:string,ts:int} $read
      * @param array{holderId:string,label:string,ts:int} $stored
