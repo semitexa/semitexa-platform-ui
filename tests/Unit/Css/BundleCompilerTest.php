@@ -141,4 +141,38 @@ final class BundleCompilerTest extends TestCase
         self::assertSame(['badge'], $registry->primitiveIds());
         self::assertSame(['sx-tone:warning'], $registry->grammarSliceIds());
     }
+
+    /**
+     * tk-sx-modifiers-lose-to-layout-rules: every grammar rule weighs (0,1,0), so
+     * the later one wins. [sx-layout="cluster"] sets align-items: center, and
+     * emitted alphabetically it came after [sx-align="end"]: the data-grid filter
+     * bar (cluster + align end) centred its Apply button on the label+input stack.
+     */
+    #[Test]
+    public function a_layout_rule_comes_before_the_modifiers_that_adjust_it(): void
+    {
+        $catalog = SliceCatalog::withDefaults();
+        $primitives = new PrimitiveRegistry();
+        $registry = new SliceRegistry();
+        (new TwigExtractor($catalog, $primitives))
+            ->extract('<form sx-layout="cluster" sx-gap="2" sx-align="end" sx-justify="between"></form>')
+            ->applyTo($registry);
+
+        $bundle = self::compiler()->compile($registry, includeBaseline: false);
+
+        $at = static function (string $sliceId) use ($catalog, $bundle): int {
+            [$attr, $value] = explode(':', $sliceId, 2);
+            $rule = trim((string) $catalog->emitter($attr)?->emit($value)->css);
+            self::assertNotSame('', $rule, $sliceId . ' emits nothing');
+            $offset = strpos($bundle->css, $rule);
+            self::assertIsInt($offset, $sliceId . ' is not in the bundle');
+
+            return $offset;
+        };
+        $layout = $at('sx-layout:cluster');
+        self::assertGreaterThan($layout, $at('sx-align:end'), 'sx-align must come after the layout it adjusts');
+        self::assertGreaterThan($layout, $at('sx-gap:2'));
+        self::assertGreaterThan($layout, $at('sx-justify:between'));
+        self::assertSame(['sx-align:end', 'sx-gap:2', 'sx-justify:between', 'sx-layout:cluster'], $bundle->sliceIds, 'the ids stay listed in order');
+    }
 }

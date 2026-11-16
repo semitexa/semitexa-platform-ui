@@ -56,7 +56,7 @@ final class BundleCompiler
         sort($grammarSliceIds);
         if ($grammarSliceIds !== []) {
             $rules = [];
-            foreach ($grammarSliceIds as $sliceId) {
+            foreach (self::inCascadeOrder($grammarSliceIds) as $sliceId) {
                 [$attr, $value] = explode(':', $sliceId, 2);
                 $emitter = $this->catalog->emitter($attr);
                 if ($emitter === null) {
@@ -96,6 +96,29 @@ final class BundleCompiler
             primitiveIds: $primitiveIds,
             skinName: $skinName,
         );
+    }
+
+    /**
+     * The grammar rules in the order the cascade needs: layouts first, then the
+     * attributes that modify them.
+     *
+     * Every grammar rule is one attribute selector, so all of them weigh the
+     * same (0,1,0) inside platform-ui.grammar and the later rule wins. Emitted
+     * alphabetically, sx-align came before sx-layout, and the default a layout
+     * sets lost nothing to it: [sx-layout="cluster"] sets align-items: center,
+     * so sx-align="end" on a cluster never applied (the data-grid filter bar's
+     * Apply button floated above its inputs; reported 2026-11-16). A layout
+     * sets defaults and the rest adjust them, so the rest come after.
+     *
+     * @param list<string> $sliceIds sorted
+     * @return list<string>
+     */
+    private static function inCascadeOrder(array $sliceIds): array
+    {
+        $layouts = array_values(array_filter($sliceIds, static fn (string $id): bool => str_starts_with($id, 'sx-layout:')));
+        $modifiers = array_values(array_filter($sliceIds, static fn (string $id): bool => !str_starts_with($id, 'sx-layout:')));
+
+        return [...$layouts, ...$modifiers];
     }
 
     private function readFile(string $relative): string

@@ -287,6 +287,11 @@
 
 
 @layer platform-ui.grammar {
+[sx-layout="cluster"] { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; }
+[sx-layout="container"] { display: block; width: 100%; max-width: var(--ui-container-max); margin-inline: auto; padding-inline: var(--ui-space-4); }
+[sx-layout="frame"] { display: block; }
+[sx-layout="grid"] { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--grid-min, var(--ui-grid-min, 16rem)), 100%), 1fr)); }
+[sx-layout="stack"] { display: flex; flex-direction: column; }
 [sx-align="center"] { align-items: center; }
 [sx-align="end"] { align-items: flex-end; }
 [sx-align="start"] { align-items: flex-start; }
@@ -302,11 +307,6 @@
 [sx-justify="center"] { justify-content: center; }
 [sx-justify="end"] { justify-content: flex-end; }
 [sx-justify="start"] { justify-content: flex-start; }
-[sx-layout="cluster"] { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; }
-[sx-layout="container"] { display: block; width: 100%; max-width: var(--ui-container-max); margin-inline: auto; padding-inline: var(--ui-space-4); }
-[sx-layout="frame"] { display: block; }
-[sx-layout="grid"] { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(var(--grid-min, var(--ui-grid-min, 16rem)), 100%), 1fr)); }
-[sx-layout="stack"] { display: flex; flex-direction: column; }
 [sx-padding="0"] { padding: 0; }
 [sx-padding="1"] { padding: var(--ui-space-1); }
 [sx-padding="2"] { padding: var(--ui-space-2); }
@@ -569,7 +569,7 @@
     /* Soft: the tone tinted onto the surface. Without a tone it is a quiet neutral button. */
     [ui="button"][ui-variant="soft"] {
         background: color-mix(in oklab, var(--_tone) var(--ui-tint-weak), var(--ui-surface-raised));
-        color: color-mix(in oklab, var(--_tone) 82%, var(--ui-text-primary));
+        color: color-mix(in oklab, var(--_tone) 60%, var(--ui-text-primary));
         border-color: color-mix(in oklab, var(--_tone) var(--ui-tint-strong), transparent);
     }
     [ui="button"][ui-variant="soft"]:hover:not(:disabled, [aria-disabled="true"]) {
@@ -717,7 +717,6 @@
         outline: none;
         box-shadow: 0 0 0 3px color-mix(in oklab, var(--ui-focus-ring) 30%, transparent);
     }
-    :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input[aria-invalid="true"] { border-color: var(--ui-state-danger); }
     :is([ui="checkbox"], [ui="radio"], [ui="switch"]):has(> input:disabled) { color: var(--ui-text-muted); cursor: not-allowed; }
     :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input:disabled { opacity: 0.55; }
 
@@ -769,6 +768,10 @@
     }
     [ui="switch"] > input:checked { background: var(--ui-accent-brand); border-color: var(--ui-accent-brand); }
     [ui="switch"] > input:checked::before { translate: 1rem 0; }
+
+    /* invalid comes after every :checked rule: equal specificity, so source order
+       decides, and a checked control that fails validation keeps the danger border. */
+    :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input[aria-invalid="true"] { border-color: var(--ui-state-danger); }
 
     @media (prefers-reduced-motion: reduce) {
         :is([ui="checkbox"], [ui="radio"], [ui="switch"]) > input,
