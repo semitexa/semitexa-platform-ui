@@ -32,16 +32,32 @@ final class BuildCommand extends Command
         $this
             ->addArgument('bundle', InputArgument::OPTIONAL, 'Bundle id (full|baseline), empty = all', '')
             ->addOption('skin', null, InputOption::VALUE_REQUIRED, '(DEPRECATED — no effect; full.css is skin-neutral)', 'default')
-            ->addOption('json', null, InputOption::VALUE_NONE, 'JSON envelope output');
+            ->addOption('json', null, InputOption::VALUE_NONE, 'JSON envelope output')
+            ->addOption('check', null, InputOption::VALUE_NONE, 'Compile and compare with the committed bundles; write nothing, fail when one differs');
     }
+
+    /**
+     * Test seam: read and write the bundles in $dir instead of the package's own
+     * static css (the sources stay the package's).
+     */
+    public function withStaticCssDir(string $dir): self
+    {
+        $command = clone $this;
+        $command->staticCssDir = $dir;
+
+        return $command;
+    }
+
+    private ?string $staticCssDir = null;
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $packageRoot = $this->packageRoot();
         $resourcesPath = $packageRoot . '/resources';
-        $staticCssDir = $packageRoot . '/src/Application/Static/css';
+        $staticCssDir = $this->staticCssDir ?? $packageRoot . '/src/Application/Static/css';
+        $check = (bool) $input->getOption('check');
 
-        if (!is_dir($staticCssDir) && !mkdir($staticCssDir, 0755, true) && !is_dir($staticCssDir)) {
+        if (!$check && !is_dir($staticCssDir) && !mkdir($staticCssDir, 0755, true) && !is_dir($staticCssDir)) {
             $output->writeln("<error>Failed to create {$staticCssDir}</error>");
             return Command::FAILURE;
         }
@@ -56,6 +72,7 @@ final class BuildCommand extends Command
         }
 
         $bundles = [];
+        $stale = [];
         foreach (array_keys(self::BUNDLES) as $bundleId) {
             $registry = $this->populateRegistry($bundleId, $catalog, $primitives);
             $bundle = $compiler->compile(
@@ -65,7 +82,15 @@ final class BuildCommand extends Command
             );
 
             $outPath = $staticCssDir . '/' . $bundleId . '.css';
-            file_put_contents($outPath, $bundle->css);
+            if ($check) {
+                // The served CSS is the committed file, not the sources: a source fix
+                // nobody rebuilt never reaches a page (tk-full-css-drifts-from-its-sources).
+                if (!is_file($outPath) || file_get_contents($outPath) !== $bundle->css) {
+                    $stale[] = $bundleId . '.css';
+                }
+            } else {
+                file_put_contents($outPath, $bundle->css);
+            }
 
             $bundles[$bundleId] = [
                 'path' => $outPath,
@@ -75,6 +100,10 @@ final class BuildCommand extends Command
                 'slices' => count($bundle->sliceIds),
                 'primitives' => count($bundle->primitiveIds),
             ];
+        }
+
+        if ($check) {
+            return $this->reportCheck($output, $stale, (bool) $input->getOption('json'));
         }
 
         if ((bool) $input->getOption('json')) {
@@ -105,6 +134,35 @@ final class BuildCommand extends Command
         $output->writeln('Or via ssr asset pipeline: $collector->requireModule("platform-ui");');
 
         return Command::SUCCESS;
+    }
+
+    /** @param list<string> $stale the committed bundles that differ from a fresh compile */
+    private function reportCheck(OutputInterface $output, array $stale, bool $json): int
+    {
+        $rebuild = 'bin/semitexa platform-ui:css:build';
+        if ($json) {
+            $output->writeln((string) json_encode([
+                'artifact' => 'semitexa.platform-ui.css-build/v1',
+                'check' => true,
+                'up_to_date' => $stale === [],
+                'stale' => $stale,
+                'rebuild' => $rebuild,
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), OutputInterface::OUTPUT_RAW);
+
+            return $stale === [] ? Command::SUCCESS : Command::FAILURE;
+        }
+        if ($stale === []) {
+            $output->writeln('<info>' . implode(' and ', array_map(static fn (string $id): string => $id . '.css', array_keys(self::BUNDLES))) . ' match their sources.</info>');
+
+            return Command::SUCCESS;
+        }
+        $output->writeln(sprintf(
+            '<error>Stale: %s. The sources changed since it was built, and pages are served the built file, not the sources. Rebuild: %s, and commit the result.</error>',
+            implode(', ', $stale),
+            $rebuild,
+        ));
+
+        return Command::FAILURE;
     }
 
     private function populateRegistry(
