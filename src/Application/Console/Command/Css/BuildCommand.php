@@ -14,6 +14,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
 #[AsCommand(
@@ -71,7 +72,13 @@ final class BuildCommand extends Command
         $skin = (string) $input->getOption('skin');
         $skinFlagUsed = $skin !== 'default';
         if ($skinFlagUsed) {
-            $output->writeln("<comment>Warning: --skin flag is deprecated and has no effect. full.css is skin-neutral; the active skin loads at runtime via the theme resolver.</comment>");
+            // To stderr: on stdout it came before --json's envelope and made it invalid JSON (review, platform-ui#91).
+            $warning = '<comment>Warning: --skin flag is deprecated and has no effect. full.css is skin-neutral; the active skin loads at runtime via the theme resolver.</comment>';
+            if ($output instanceof ConsoleOutputInterface) {
+                $output->getErrorOutput()->writeln($warning);
+            } elseif (!(bool) $input->getOption('json')) {
+                $output->writeln($warning);
+            }
         }
 
         $bundles = [];
