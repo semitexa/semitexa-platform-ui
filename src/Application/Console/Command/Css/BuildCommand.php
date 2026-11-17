@@ -37,23 +37,26 @@ final class BuildCommand extends Command
     }
 
     /**
-     * Test seam: read and write the bundles in $dir instead of the package's own
-     * static css (the sources stay the package's).
+     * Test seam: read and write the bundles in $staticCssDir instead of the
+     * package's own static css, and read the baseline sources from $resourcesDir
+     * when given.
      */
-    public function withStaticCssDir(string $dir): self
+    public function withDirectories(string $staticCssDir, ?string $resourcesDir = null): self
     {
         $command = clone $this;
-        $command->staticCssDir = $dir;
+        $command->staticCssDir = $staticCssDir;
+        $command->resourcesDir = $resourcesDir;
 
         return $command;
     }
 
     private ?string $staticCssDir = null;
+    private ?string $resourcesDir = null;
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $packageRoot = $this->packageRoot();
-        $resourcesPath = $packageRoot . '/resources';
+        $resourcesPath = $this->resourcesDir ?? $packageRoot . '/resources';
         $staticCssDir = $this->staticCssDir ?? $packageRoot . '/src/Application/Static/css';
         $check = (bool) $input->getOption('check');
 
@@ -73,6 +76,7 @@ final class BuildCommand extends Command
 
         $bundles = [];
         $stale = [];
+        $unread = [];
         foreach (array_keys(self::BUNDLES) as $bundleId) {
             $registry = $this->populateRegistry($bundleId, $catalog, $primitives);
             $bundle = $compiler->compile(
@@ -80,6 +84,7 @@ final class BuildCommand extends Command
                 $skin,
                 includeBaseline: true,
             );
+            $unread = [...$unread, ...$compiler->unreadSources()];
 
             $outPath = $staticCssDir . '/' . $bundleId . '.css';
             if ($check) {
@@ -103,7 +108,7 @@ final class BuildCommand extends Command
         }
 
         if ($check) {
-            return $this->reportCheck($output, $stale, (bool) $input->getOption('json'));
+            return $this->reportCheck($output, $stale, array_values(array_unique($unread)), (bool) $input->getOption('json'));
         }
 
         if ((bool) $input->getOption('json')) {
@@ -136,31 +141,45 @@ final class BuildCommand extends Command
         return Command::SUCCESS;
     }
 
-    /** @param list<string> $stale the committed bundles that differ from a fresh compile */
-    private function reportCheck(OutputInterface $output, array $stale, bool $json): int
+    /**
+     * @param list<string> $stale  the committed bundles that differ from a fresh compile
+     * @param list<string> $unread the sources the compile could not read: a bundle cannot be
+     *        said to match a source nobody read, so they fail the check too (review, platform-ui#91)
+     */
+    private function reportCheck(OutputInterface $output, array $stale, array $unread, bool $json): int
     {
         $rebuild = 'bin/semitexa platform-ui:css:build';
+        $upToDate = $stale === [] && $unread === [];
         if ($json) {
             $output->writeln((string) json_encode([
                 'artifact' => 'semitexa.platform-ui.css-build/v1',
                 'check' => true,
-                'up_to_date' => $stale === [],
+                'up_to_date' => $upToDate,
                 'stale' => $stale,
+                'unreadable' => $unread,
                 'rebuild' => $rebuild,
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), OutputInterface::OUTPUT_RAW);
 
-            return $stale === [] ? Command::SUCCESS : Command::FAILURE;
+            return $upToDate ? Command::SUCCESS : Command::FAILURE;
         }
-        if ($stale === []) {
+        if ($upToDate) {
             $output->writeln('<info>' . implode(' and ', array_map(static fn (string $id): string => $id . '.css', array_keys(self::BUNDLES))) . ' match their sources.</info>');
 
             return Command::SUCCESS;
         }
-        $output->writeln(sprintf(
-            '<error>Stale: %s. The sources changed since it was built, and pages are served the built file, not the sources. Rebuild: %s, and commit the result.</error>',
-            implode(', ', $stale),
-            $rebuild,
-        ));
+        if ($unread !== []) {
+            $output->writeln(sprintf(
+                '<error>Could not read: %s. A bundle cannot be said to match a source nobody read.</error>',
+                implode(', ', $unread),
+            ));
+        }
+        if ($stale !== []) {
+            $output->writeln(sprintf(
+                '<error>Stale: %s. The sources changed since it was built, and pages are served the built file, not the sources. Rebuild: %s, and commit the result.</error>',
+                implode(', ', $stale),
+                $rebuild,
+            ));
+        }
 
         return Command::FAILURE;
     }

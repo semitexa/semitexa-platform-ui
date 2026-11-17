@@ -19,17 +19,23 @@ use Symfony\Component\Console\Tester\CommandTester;
  */
 final class CommittedBundlesMatchTheirSourcesTest extends TestCase
 {
+    private const COMMITTED = __DIR__ . '/../../../src/Application/Static/css';
+    private const RESOURCES = __DIR__ . '/../../../resources';
+
     private ?string $dir = null;
 
     protected function tearDown(): void
     {
-        if ($this->dir === null) {
+        if ($this->dir === null || !is_dir($this->dir)) {
             return;
         }
-        foreach (['full.css', 'baseline.css'] as $file) {
-            if (is_file($this->dir . '/' . $file)) {
-                unlink($this->dir . '/' . $file);
-            }
+        $entries = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($this->dir, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST,
+        );
+        foreach ($entries as $entry) {
+            \assert($entry instanceof \SplFileInfo);
+            $entry->isDir() ? rmdir($entry->getPathname()) : unlink($entry->getPathname());
         }
         rmdir($this->dir);
     }
@@ -48,23 +54,22 @@ final class CommittedBundlesMatchTheirSourcesTest extends TestCase
     #[Test]
     public function a_bundle_that_drifted_from_its_sources_fails_and_names_the_rebuild(): void
     {
-        $this->dir = sys_get_temp_dir() . '/css-drift-' . bin2hex(random_bytes(6));
-        mkdir($this->dir);
-        $committed = dirname(__DIR__, 3) . '/src/Application/Static/css';
-        copy($committed . '/baseline.css', $this->dir . '/baseline.css');
-        file_put_contents($this->dir . '/full.css', file_get_contents($committed . '/full.css') . "\n/* a source fix nobody rebuilt */\n");
+        $static = $this->directory('static');
+        copy(self::COMMITTED . '/baseline.css', $static . '/baseline.css');
+        file_put_contents($static . '/full.css', file_get_contents(self::COMMITTED . '/full.css') . "\n/* a source fix nobody rebuilt */\n");
 
-        $json = new CommandTester((new BuildCommand())->withStaticCssDir($this->dir));
+        $json = new CommandTester((new BuildCommand())->withDirectories($static));
         self::assertSame(Command::FAILURE, $json->execute(['--check' => true, '--json' => true]));
         self::assertSame([
             'artifact' => 'semitexa.platform-ui.css-build/v1',
             'check' => true,
             'up_to_date' => false,
             'stale' => ['full.css'],
+            'unreadable' => [],
             'rebuild' => 'bin/semitexa platform-ui:css:build',
         ], json_decode($json->getDisplay(), true, 512, JSON_THROW_ON_ERROR));
 
-        $text = new CommandTester((new BuildCommand())->withStaticCssDir($this->dir));
+        $text = new CommandTester((new BuildCommand())->withDirectories($static));
         self::assertSame(Command::FAILURE, $text->execute(['--check' => true]));
         self::assertSame(
             'Stale: full.css. The sources changed since it was built, and pages are served the built file, not the sources. '
@@ -74,8 +79,50 @@ final class CommittedBundlesMatchTheirSourcesTest extends TestCase
 
         self::assertStringEndsWith(
             "/* a source fix nobody rebuilt */\n",
-            (string) file_get_contents($this->dir . '/full.css'),
+            (string) file_get_contents($static . '/full.css'),
             'a check writes nothing',
         );
+    }
+
+    /**
+     * A source the compile could not read leaves the same bytes out of the fresh
+     * bundle as out of one built without it, so the comparison alone passed
+     * (review, platform-ui#91). The check fails and names the source.
+     */
+    #[Test]
+    public function a_source_the_check_cannot_read_fails_it_even_when_the_bytes_agree(): void
+    {
+        $resources = $this->directory('resources/baseline');
+        foreach (glob(self::RESOURCES . '/baseline/*.css') ?: [] as $source) {
+            if (basename($source) !== 'reset.css') {
+                copy($source, $resources . '/' . basename($source));
+            }
+        }
+        $static = $this->directory('static');
+        $resourcesRoot = dirname($resources);
+
+        // Built without the source: a build goes on without it, as before.
+        $build = new CommandTester((new BuildCommand())->withDirectories($static, $resourcesRoot));
+        self::assertSame(Command::SUCCESS, $build->execute([]));
+
+        $check = new CommandTester((new BuildCommand())->withDirectories($static, $resourcesRoot));
+        self::assertSame(Command::FAILURE, $check->execute(['--check' => true, '--json' => true]));
+        self::assertSame([
+            'artifact' => 'semitexa.platform-ui.css-build/v1',
+            'check' => true,
+            'up_to_date' => false,
+            'stale' => [],
+            'unreadable' => [$resourcesRoot . '/baseline/reset.css'],
+            'rebuild' => 'bin/semitexa platform-ui:css:build',
+        ], json_decode($check->getDisplay(), true, 512, JSON_THROW_ON_ERROR));
+    }
+
+    private function directory(string $relative): string
+    {
+        $this->dir ??= sys_get_temp_dir() . '/css-drift-' . bin2hex(random_bytes(6));
+        $path = $this->dir . '/' . $relative;
+        mkdir($path, 0777, true);
+
+        return $path;
     }
 }
