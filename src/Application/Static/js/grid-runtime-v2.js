@@ -163,7 +163,11 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
     var TH_STYLE = 'text-align:left;padding:0.5rem 0.75rem;font-size:0.75rem;letter-spacing:0.04em;text-transform:uppercase;';
     var TD_STYLE = 'padding:0.5rem 0.75rem;font-size:0.8125rem;';
     var BUTTON_STYLE = 'padding:0.25rem 0.625rem;border:1px solid var(--ui-border-subtle);background:var(--ui-surface-raised);border-radius:var(--ui-radius-sm);font-size:0.8125rem;cursor:pointer;color:inherit;';
-    var INPUT_STYLE = 'padding:0.5rem 0.75rem;border:1px solid var(--ui-border-subtle);border-radius:var(--ui-radius-sm);font-size:0.875rem;background:var(--ui-surface-raised);color:var(--ui-text-primary);';
+    // One height for every control in the filter bar, the theme's, as components.css sizes its
+    // controls: by padding alone a search input, a <select> and a button each took the height
+    // their element type gives (37, 39 and 21 px against the theme's 38, measured 2026-11-17).
+    var CONTROL_HEIGHT = 'box-sizing:border-box;height:var(--ui-control-height-md);';
+    var INPUT_STYLE = CONTROL_HEIGHT + 'padding:0 0.75rem;border:1px solid var(--ui-border-subtle);border-radius:var(--ui-radius-sm);font-size:0.875rem;background:var(--ui-surface-raised);color:var(--ui-text-primary);';
     var BADGE_BASE = 'display:inline-block;padding:0.125rem 0.5rem;border-radius:999px;font-size:0.75rem;font-weight:600;line-height:1.4;';
     function toneBadge(tone) {
         return BADGE_BASE + 'background:color-mix(in oklab, var(' + tone + ') 13%, var(--ui-surface-raised));color:color-mix(in oklab, var(' + tone + ') 62%, var(--ui-text-primary));';
@@ -536,9 +540,9 @@ import { withCsrf, openFeedChannel, mount } from 'platform-ui/core';
                 if (search !== null || Object.keys(state.filters).length > 0 || Object.keys(state.ranges).length > 0) {
                     r.form.appendChild(el('button', {
                         type: 'submit',
-                        style: 'padding:0.5rem 1rem;border:0;border-radius:var(--ui-radius-sm);background:var(--ui-accent-brand);color:var(--ui-text-on-accent);font-size:0.875rem;cursor:pointer;',
+                        style: CONTROL_HEIGHT + 'padding:0 1rem;border:0;border-radius:var(--ui-radius-sm);background:var(--ui-accent-brand);color:var(--ui-text-on-accent);font-size:0.875rem;cursor:pointer;',
                     }, 'Apply'));
-                    var clear = el('button', { type: 'button', 'data-ui-grid-clear': '', 'ui-text': 'muted', style: 'font-size:0.875rem;border:0;background:none;cursor:pointer;' }, 'Clear');
+                    var clear = el('button', { type: 'button', 'data-ui-grid-clear': '', 'ui-text': 'muted', style: CONTROL_HEIGHT + 'font-size:0.875rem;border:0;background:none;cursor:pointer;' }, 'Clear');
                     clear.addEventListener('click', function () {
                         if (r.search) r.search.value = '';
                         Object.keys(r.filterInputs || {}).forEach(function (f) { r.filterInputs[f].value = ''; });
