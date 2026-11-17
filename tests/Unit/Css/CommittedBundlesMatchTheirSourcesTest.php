@@ -123,13 +123,22 @@ final class CommittedBundlesMatchTheirSourcesTest extends TestCase
     {
         $console = new CommandTester(new BuildCommand());
         self::assertSame(Command::SUCCESS, $console->execute(['--check' => true, '--json' => true, '--skin' => 'legacy'], ['capture_stderr_separately' => true]));
-        self::assertTrue(json_decode($console->getDisplay(), true, 512, JSON_THROW_ON_ERROR)['up_to_date'] ?? null);
+        self::assertTrue(self::upToDate($console->getDisplay()));
         self::assertStringContainsString('Warning: --skin flag is deprecated and has no effect.', $console->getErrorOutput());
 
         // An output with no stderr of its own drops the warning rather than break the JSON.
         $plain = new CommandTester(new BuildCommand());
         self::assertSame(Command::SUCCESS, $plain->execute(['--check' => true, '--json' => true, '--skin' => 'legacy']));
-        self::assertTrue(json_decode($plain->getDisplay(), true, 512, JSON_THROW_ON_ERROR)['up_to_date'] ?? null);
+        self::assertTrue(self::upToDate($plain->getDisplay()));
+    }
+
+    /** The envelope's verdict; decoding throws when stdout is not JSON alone. */
+    private static function upToDate(string $stdout): mixed
+    {
+        $envelope = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($envelope);
+
+        return $envelope['up_to_date'] ?? null;
     }
 
     private function directory(string $relative): string
