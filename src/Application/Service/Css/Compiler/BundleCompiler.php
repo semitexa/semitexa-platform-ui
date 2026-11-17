@@ -33,11 +33,27 @@ final class BundleCompiler
     ) {
     }
 
+    /** @var list<string> the sources the last compile() could not read */
+    private array $unread = [];
+
+    /**
+     * The sources the last compile() could not read. A build goes on without
+     * them; a gate must fail on them, since comparing bytes cannot tell a source
+     * it never read from one that is empty (review, platform-ui#91).
+     *
+     * @return list<string>
+     */
+    public function unreadSources(): array
+    {
+        return $this->unread;
+    }
+
     public function compile(
         SliceRegistry $registry,
         string $skinName = 'default',
         bool $includeBaseline = true,
     ): CompiledBundle {
+        $this->unread = [];
         $segments = [];
 
         if ($includeBaseline) {
@@ -77,13 +93,15 @@ final class BundleCompiler
         sort($primitiveIds);
         foreach ($primitiveIds as $id) {
             $primitive = $this->primitives->get($id);
-            if ($primitive === null || !is_file($primitive->cssPath)) {
+            if ($primitive === null) {
                 continue;
             }
-            $css = file_get_contents($primitive->cssPath);
-            if ($css !== false) {
-                $segments[] = $css;
+            $css = is_file($primitive->cssPath) ? @file_get_contents($primitive->cssPath) : false;
+            if ($css === false) {
+                $this->unread[] = $primitive->cssPath;
+                continue;
             }
+            $segments[] = $css;
         }
 
         $css = implode("\n\n", array_filter($segments, static fn(string $s): bool => $s !== ''));
@@ -124,7 +142,13 @@ final class BundleCompiler
     private function readFile(string $relative): string
     {
         $contents = @file_get_contents($this->resourcesPath . $relative);
-        return $contents === false ? '' : $contents;
+        if ($contents === false) {
+            $this->unread[] = $this->resourcesPath . $relative;
+
+            return '';
+        }
+
+        return $contents;
     }
 
     private function fileExists(string $relative): bool

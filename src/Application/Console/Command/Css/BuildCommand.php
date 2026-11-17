@@ -14,6 +14,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
 #[AsCommand(
@@ -32,16 +33,35 @@ final class BuildCommand extends Command
         $this
             ->addArgument('bundle', InputArgument::OPTIONAL, 'Bundle id (full|baseline), empty = all', '')
             ->addOption('skin', null, InputOption::VALUE_REQUIRED, '(DEPRECATED — no effect; full.css is skin-neutral)', 'default')
-            ->addOption('json', null, InputOption::VALUE_NONE, 'JSON envelope output');
+            ->addOption('json', null, InputOption::VALUE_NONE, 'JSON envelope output')
+            ->addOption('check', null, InputOption::VALUE_NONE, 'Compile and compare with the committed bundles; write nothing, fail when one differs');
     }
+
+    /**
+     * Test seam: read and write the bundles in $staticCssDir instead of the
+     * package's own static css, and read the baseline sources from $resourcesDir
+     * when given.
+     */
+    public function withDirectories(string $staticCssDir, ?string $resourcesDir = null): self
+    {
+        $command = clone $this;
+        $command->staticCssDir = $staticCssDir;
+        $command->resourcesDir = $resourcesDir;
+
+        return $command;
+    }
+
+    private ?string $staticCssDir = null;
+    private ?string $resourcesDir = null;
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $packageRoot = $this->packageRoot();
-        $resourcesPath = $packageRoot . '/resources';
-        $staticCssDir = $packageRoot . '/src/Application/Static/css';
+        $resourcesPath = $this->resourcesDir ?? $packageRoot . '/resources';
+        $staticCssDir = $this->staticCssDir ?? $packageRoot . '/src/Application/Static/css';
+        $check = (bool) $input->getOption('check');
 
-        if (!is_dir($staticCssDir) && !mkdir($staticCssDir, 0755, true) && !is_dir($staticCssDir)) {
+        if (!$check && !is_dir($staticCssDir) && !mkdir($staticCssDir, 0755, true) && !is_dir($staticCssDir)) {
             $output->writeln("<error>Failed to create {$staticCssDir}</error>");
             return Command::FAILURE;
         }
@@ -52,10 +72,18 @@ final class BuildCommand extends Command
         $skin = (string) $input->getOption('skin');
         $skinFlagUsed = $skin !== 'default';
         if ($skinFlagUsed) {
-            $output->writeln("<comment>Warning: --skin flag is deprecated and has no effect. full.css is skin-neutral; the active skin loads at runtime via the theme resolver.</comment>");
+            // To stderr: on stdout it came before --json's envelope and made it invalid JSON (review, platform-ui#91).
+            $warning = '<comment>Warning: --skin flag is deprecated and has no effect. full.css is skin-neutral; the active skin loads at runtime via the theme resolver.</comment>';
+            if ($output instanceof ConsoleOutputInterface) {
+                $output->getErrorOutput()->writeln($warning);
+            } elseif (!(bool) $input->getOption('json')) {
+                $output->writeln($warning);
+            }
         }
 
         $bundles = [];
+        $stale = [];
+        $unread = [];
         foreach (array_keys(self::BUNDLES) as $bundleId) {
             $registry = $this->populateRegistry($bundleId, $catalog, $primitives);
             $bundle = $compiler->compile(
@@ -63,9 +91,18 @@ final class BuildCommand extends Command
                 $skin,
                 includeBaseline: true,
             );
+            $unread = [...$unread, ...$compiler->unreadSources()];
 
             $outPath = $staticCssDir . '/' . $bundleId . '.css';
-            file_put_contents($outPath, $bundle->css);
+            if ($check) {
+                // The served CSS is the committed file, not the sources: a source fix
+                // nobody rebuilt never reaches a page (tk-full-css-drifts-from-its-sources).
+                if (!is_file($outPath) || file_get_contents($outPath) !== $bundle->css) {
+                    $stale[] = $bundleId . '.css';
+                }
+            } else {
+                file_put_contents($outPath, $bundle->css);
+            }
 
             $bundles[$bundleId] = [
                 'path' => $outPath,
@@ -75,6 +112,10 @@ final class BuildCommand extends Command
                 'slices' => count($bundle->sliceIds),
                 'primitives' => count($bundle->primitiveIds),
             ];
+        }
+
+        if ($check) {
+            return $this->reportCheck($output, $stale, array_values(array_unique($unread)), (bool) $input->getOption('json'));
         }
 
         if ((bool) $input->getOption('json')) {
@@ -105,6 +146,49 @@ final class BuildCommand extends Command
         $output->writeln('Or via ssr asset pipeline: $collector->requireModule("platform-ui");');
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * @param list<string> $stale  the committed bundles that differ from a fresh compile
+     * @param list<string> $unread the sources the compile could not read: a bundle cannot be
+     *        said to match a source nobody read, so they fail the check too (review, platform-ui#91)
+     */
+    private function reportCheck(OutputInterface $output, array $stale, array $unread, bool $json): int
+    {
+        $rebuild = 'bin/semitexa platform-ui:css:build';
+        $upToDate = $stale === [] && $unread === [];
+        if ($json) {
+            $output->writeln((string) json_encode([
+                'artifact' => 'semitexa.platform-ui.css-build/v1',
+                'check' => true,
+                'up_to_date' => $upToDate,
+                'stale' => $stale,
+                'unreadable' => $unread,
+                'rebuild' => $rebuild,
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), OutputInterface::OUTPUT_RAW);
+
+            return $upToDate ? Command::SUCCESS : Command::FAILURE;
+        }
+        if ($upToDate) {
+            $output->writeln('<info>' . implode(' and ', array_map(static fn (string $id): string => $id . '.css', array_keys(self::BUNDLES))) . ' match their sources.</info>');
+
+            return Command::SUCCESS;
+        }
+        if ($unread !== []) {
+            $output->writeln(sprintf(
+                '<error>Could not read: %s. A bundle cannot be said to match a source nobody read.</error>',
+                implode(', ', $unread),
+            ));
+        }
+        if ($stale !== []) {
+            $output->writeln(sprintf(
+                '<error>Stale: %s. The sources changed since it was built, and pages are served the built file, not the sources. Rebuild: %s, and commit the result.</error>',
+                implode(', ', $stale),
+                $rebuild,
+            ));
+        }
+
+        return Command::FAILURE;
     }
 
     private function populateRegistry(
