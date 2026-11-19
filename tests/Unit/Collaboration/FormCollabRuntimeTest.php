@@ -558,6 +558,676 @@ final class FormCollabRuntimeTest extends TestCase
         self::assertSame([], $fieldLock['htmlSinks']);
     }
 
+    #[Test]
+    public function edits_answered_out_of_order_leave_the_last_value_typed_on_the_server(): void
+    {
+        // Every field.edit carries the whole value and the server keeps the
+        // one that arrives last. Three keystrokes, answered newest first.
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('shared', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['field.edit'],
+            'steps' => [
+                ['focus' => 'title'],
+                ['type' => 'title', 'value' => 'Flat'],
+                ['type' => 'title', 'value' => 'Flat by the town hall'],
+                ['type' => 'title', 'value' => 'Flat by the town hall.'],
+                ['answer' => 'newest-first'],
+            ],
+        ]);
+
+        $arrived = self::edits($seen['served']);
+        self::assertSame(['field' => 'title', 'value' => 'Flat by the town hall.'], end($arrived), 'the draft ends on what was typed last');
+        self::assertSame(['title' => 1], $seen['maxInFlight']);
+    }
+
+    #[Test]
+    public function a_field_has_one_edit_in_flight_and_keeps_only_the_latest_value_behind_it(): void
+    {
+        $scenario = [
+            'manifest' => self::manifest('shared', 'bob', ['title', 'price']),
+            'inputs' => ['title' => '', 'price' => ''],
+            'hold' => ['field.edit'],
+            'steps' => [
+                ['type' => 'title', 'value' => 'a'],
+                ['type' => 'title', 'value' => 'ab'],
+                ['type' => 'title', 'value' => 'abc'],
+                ['type' => 'price', 'value' => '1'],
+            ],
+        ];
+        $seen = $this->editorSees($scenario);
+
+        self::assertSame(
+            [['field' => 'title', 'value' => 'a'], ['field' => 'price', 'value' => '1']],
+            self::edits($seen['posts']),
+            'one request per field; another field does not wait for this one',
+        );
+
+        $scenario['steps'][] = ['answer' => 'oldest'];
+        $seen = $this->editorSees($scenario);
+
+        self::assertSame(
+            [['field' => 'title', 'value' => 'a'], ['field' => 'price', 'value' => '1'], ['field' => 'title', 'value' => 'abc']],
+            self::edits($seen['posts']),
+            'when it settles the latest value goes out, not every one typed meanwhile',
+        );
+        self::assertSame(['title' => 1, 'price' => 1], $seen['maxInFlight']);
+    }
+
+    #[Test]
+    public function an_edit_that_failed_is_sent_again(): void
+    {
+        $scenario = [
+            'manifest' => self::manifest('shared', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['field.edit'],
+            'steps' => [['type' => 'title', 'value' => 'abc'], ['fail' => 'oldest']],
+        ];
+        $once = $this->editorSees($scenario);
+        self::assertSame(
+            [['field' => 'title', 'value' => 'abc'], ['field' => 'title', 'value' => 'abc']],
+            self::edits($once['posts']),
+            'nothing newer was typed, so the value that failed is the one to send',
+        );
+
+        // It fails again: no loop, the value waits for the heartbeat.
+        $scenario['steps'][] = ['fail' => 'oldest'];
+        self::assertCount(2, self::edits($this->editorSees($scenario)['posts']), 'two attempts, then it waits');
+
+        $scenario['steps'][] = ['tick' => true];
+        $scenario['steps'][] = ['answer' => 'oldest'];
+        $seen = $this->editorSees($scenario);
+        self::assertCount(3, self::edits($seen['posts']), 'the heartbeat sends it');
+        self::assertSame([['field' => 'title', 'value' => 'abc']], self::edits($seen['served']), 'and the server has it');
+        self::assertSame(['title' => 1], $seen['maxInFlight']);
+    }
+
+    #[Test]
+    public function a_newer_value_replaces_the_one_that_failed(): void
+    {
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('shared', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['field.edit'],
+            'steps' => [
+                ['type' => 'title', 'value' => 'a'],
+                ['type' => 'title', 'value' => 'ab'],
+                ['fail' => 'oldest'],
+                ['answer' => 'oldest'],
+            ],
+        ]);
+
+        self::assertSame([['field' => 'title', 'value' => 'ab']], self::edits($seen['served']));
+        self::assertSame(['title' => 1], $seen['maxInFlight']);
+    }
+
+    #[Test]
+    public function a_frame_does_not_put_back_an_older_value_while_the_edit_is_on_its_way(): void
+    {
+        // Bob typed and left the field; his edit has not arrived yet. Alice
+        // edits the price, and the frame that causes still shows his old title.
+        $payload = $this->feedOf('shared', ['title', 'price']);
+        $this->draft->mergeFields(self::SCOPE, ['title' => 'Flat', 'price' => '120'], 'alice');
+
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('shared', 'bob', ['title', 'price']),
+            'inputs' => ['title' => 'Flat', 'price' => '100'],
+            'hold' => ['field.edit'],
+            'steps' => [
+                ['focus' => 'title'],
+                ['type' => 'title', 'value' => 'Flat with a view'],
+                ['blur' => 'title'],
+                ['snapshot' => $this->frame($payload)],
+            ],
+        ]);
+
+        self::assertSame(['title' => 'Flat with a view', 'price' => '120'], $seen['values']);
+    }
+
+    #[Test]
+    public function a_field_lock_is_released_after_the_last_edit_of_the_field_arrived(): void
+    {
+        // The server refuses an edit of a field the editor no longer holds:
+        // a release that overtakes the last edit loses what was typed last.
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('field-lock', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['field.edit'],
+            'steps' => [
+                ['focus' => 'title'],
+                ['type' => 'title', 'value' => 'a'],
+                ['type' => 'title', 'value' => 'ab'],
+                ['blur' => 'title'],
+                ['answer' => 'oldest'],
+                ['answer' => 'oldest'],
+            ],
+        ]);
+
+        self::assertSame(
+            [
+                ['event' => 'field.edit', 'payload' => ['field' => 'title', 'value' => 'a']],
+                ['event' => 'field.edit', 'payload' => ['field' => 'title', 'value' => 'ab']],
+                ['event' => 'lock.release', 'payload' => ['field' => 'title']],
+            ],
+            array_values(array_filter($seen['served'], static fn (array $p): bool => in_array($p['event'], ['field.edit', 'lock.release'], true))),
+        );
+    }
+
+    #[Test]
+    public function a_field_focused_again_before_its_release_went_out_keeps_the_lock(): void
+    {
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('field-lock', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['field.edit'],
+            'steps' => [
+                ['focus' => 'title'],
+                ['type' => 'title', 'value' => 'a'],
+                ['blur' => 'title'],
+                ['focus' => 'title'],
+                ['answer' => 'oldest'],
+                ['type' => 'title', 'value' => 'ab'],
+                ['answer' => 'oldest'],
+            ],
+        ]);
+
+        self::assertSame(['lock.acquire', 'field.edit', 'field.edit'], array_values(array_diff(array_column($seen['served'], 'event'), ['presence.ping'])));
+    }
+
+    #[Test]
+    public function a_form_lock_is_released_after_the_last_edit_arrived(): void
+    {
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('form-lock', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['field.edit'],
+            'steps' => [
+                ['focus' => 'title'],
+                ['type' => 'title', 'value' => 'a'],
+                // The editor is removed from the page with the edit in flight.
+                ['unmount' => true],
+                ['answer' => 'oldest'],
+            ],
+        ]);
+
+        self::assertSame(['lock.acquire', 'field.edit', 'lock.release'], array_values(array_diff(array_column($seen['served'], 'event'), ['presence.ping'])));
+    }
+
+    #[Test]
+    public function a_value_waiting_behind_an_edit_in_flight_is_sent_when_the_page_is_hidden(): void
+    {
+        // The app's own form post navigates away; nothing will be there when
+        // the edit in flight settles.
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('shared', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['field.edit'],
+            'steps' => [['type' => 'title', 'value' => 'a'], ['type' => 'title', 'value' => 'ab'], ['pagehide' => true]],
+        ]);
+
+        self::assertSame([['field' => 'title', 'value' => 'a'], ['field' => 'title', 'value' => 'ab']], self::edits($seen['posts']));
+        self::assertSame([['field' => 'title', 'value' => 'ab']], self::edits($seen['keepalive']), 'with keepalive, or the navigation cancels it');
+    }
+
+    #[Test]
+    public function the_form_data_carries_the_fields_a_lock_disabled_and_they_stay_locked(): void
+    {
+        // Alice holds the form. Bob's browser leaves every disabled control
+        // out of the data of the form the app posts.
+        $this->locks->acquire(self::SCOPE, null, 'alice', 'Alice');
+        $fields = ['address', 'furnished', 'balcony', 'kind', 'tags', 'internal'];
+
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('form-lock', 'bob', $fields),
+            'inputs' => ['address' => 'Rynok 1', 'furnished' => '1', 'balcony' => '1', 'kind' => 'flat', 'tags' => '', 'internal' => 'x'],
+            'form' => true,
+            'controls' => [
+                'furnished' => ['type' => 'checkbox', 'checked' => true],
+                'balcony' => ['type' => 'checkbox'],
+                'kind' => ['tag' => 'select', 'options' => [['value' => 'house'], ['value' => 'flat', 'selected' => true]]],
+                'tags' => ['tag' => 'select', 'multiple' => true, 'name' => 'tags[]', 'options' => [['value' => 'a', 'selected' => true], ['value' => 'b'], ['value' => 'c', 'selected' => true]]],
+                'internal' => ['name' => null],
+            ],
+            'steps' => [['snapshot' => $this->frame($this->feedOf('form-lock', $fields))], ['submit' => true]],
+        ]);
+
+        self::assertSame(
+            [['address', 'Rynok 1'], ['furnished', '1'], ['kind', 'flat'], ['tags[]', 'a'], ['tags[]', 'c']],
+            $seen['formData'],
+            'what the form shows: no unchecked box, every selected option, nothing without a name',
+        );
+        self::assertSame(array_fill_keys($fields, true), $seen['disabledAfterSubmit'], 'locked again as soon as the browser has read the form');
+    }
+
+    #[Test]
+    public function a_locked_field_is_in_the_form_data_once_also_when_the_page_enabled_it_itself(): void
+    {
+        $this->locks->acquire(self::SCOPE, 'address', 'alice', 'Alice');
+        $scenario = [
+            'manifest' => self::manifest('field-lock', 'bob', ['title', 'address']),
+            'inputs' => ['title' => 'Flat', 'address' => 'Rynok 1'],
+            'form' => true,
+            'steps' => [['snapshot' => $this->frame($this->feedOf('field-lock', ['title', 'address']))], ['submit' => true]],
+        ];
+        $seen = $this->editorSees($scenario);
+
+        self::assertSame([['title', 'Flat'], ['address', 'Rynok 1']], $seen['formData']);
+        self::assertSame(['title' => false, 'address' => true], $seen['disabledAfterSubmit']);
+        self::assertSame('Alice', $seen['fieldLocks']['address']);
+
+        // An app that enables the inputs in its own submit listener.
+        array_splice($scenario['steps'], 1, 0, [['enable' => 'address']]);
+        self::assertSame([['title', 'Flat'], ['address', 'Rynok 1']], $this->editorSees($scenario)['formData']);
+    }
+
+    #[Test]
+    public function two_locked_rows_with_the_same_name_and_value_are_both_in_the_form_data(): void
+    {
+        $this->locks->acquire(self::SCOPE, null, 'alice', 'Alice');
+
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('form-lock', 'bob', ['q1', 'q2']),
+            'inputs' => ['q1' => '1', 'q2' => '1'],
+            'form' => true,
+            'controls' => ['q1' => ['name' => 'qty[]'], 'q2' => ['name' => 'qty[]']],
+            'steps' => [['snapshot' => $this->frame($this->feedOf('form-lock', ['q1', 'q2']))], ['submit' => true]],
+        ]);
+
+        self::assertSame([['qty[]', '1'], ['qty[]', '1']], $seen['formData'], 'two rows, not one: equal values are not duplicates');
+    }
+
+    #[Test]
+    public function a_locked_row_keeps_its_place_among_the_rows_of_the_same_name(): void
+    {
+        $this->locks->acquire(self::SCOPE, 'a', 'alice', 'Alice');
+
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('field-lock', 'bob', ['a', 'b', 'c']),
+            'inputs' => ['a' => 'A', 'b' => 'B', 'c' => 'C'],
+            'form' => true,
+            'controls' => ['a' => ['name' => 'line[]'], 'b' => ['name' => 'line[]'], 'c' => ['name' => 'line[]']],
+            'steps' => [['snapshot' => $this->frame($this->feedOf('field-lock', ['a', 'b', 'c']))], ['submit' => true]],
+        ]);
+
+        self::assertSame([['line[]', 'A'], ['line[]', 'B'], ['line[]', 'C']], $seen['formData'], 'document order, as the server indexes line[]');
+        self::assertSame(['a' => true, 'b' => false, 'c' => false], $seen['disabledAfterSubmit']);
+    }
+
+    #[Test]
+    public function an_edit_with_no_answer_is_aborted_and_what_was_typed_after_it_goes_out(): void
+    {
+        $scenario = [
+            'manifest' => self::manifest('shared', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['field.edit'],
+            'steps' => [['type' => 'title', 'value' => 'a'], ['type' => 'title', 'value' => 'ab'], ['elapse' => 9000]],
+        ];
+        $waiting = $this->editorSees($scenario);
+        self::assertSame([['field' => 'title', 'value' => 'a']], self::edits($waiting['posts']), 'not yet');
+        self::assertSame(0, $waiting['aborted']);
+
+        $scenario['steps'][] = ['elapse' => 1000];
+        $seen = $this->editorSees($scenario);
+        self::assertSame(1, $seen['aborted'], 'the stalled request is given up after 10 s');
+        self::assertSame([['field' => 'title', 'value' => 'a'], ['field' => 'title', 'value' => 'ab']], self::edits($seen['posts']));
+        self::assertSame(['title' => 1], $seen['maxInFlight']);
+    }
+
+    #[Test]
+    public function a_stalled_edit_does_not_hold_the_field_lock_for_ever(): void
+    {
+        // Bob typed, left the field, and the request hangs. Without a bound
+        // the release never goes out while the heartbeat keeps the lock.
+        $steps = [['focus' => 'title'], ['type' => 'title', 'value' => 'a'], ['blur' => 'title']];
+        $fieldLock = $this->editorSees([
+            'manifest' => self::manifest('field-lock', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['field.edit'],
+            'steps' => [...$steps, ['elapse' => 30000]],
+        ]);
+        self::assertSame([['field' => 'title']], self::releases($fieldLock['posts']), 'once: by the settlement or by the deadline, not both');
+        self::assertSame(2, $fieldLock['aborted'], 'the edit and its one retry');
+
+        // The same for a form removed from the page while its edit hangs.
+        $formLock = $this->editorSees([
+            'manifest' => self::manifest('form-lock', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['field.edit'],
+            'steps' => [['focus' => 'title'], ['type' => 'title', 'value' => 'a'], ['unmount' => true], ['elapse' => 30000]],
+        ]);
+        self::assertSame([[]], self::releases($formLock['posts']));
+    }
+
+    #[Test]
+    public function a_page_hidden_after_blur_with_the_edit_in_flight_still_releases_the_field(): void
+    {
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('field-lock', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['field.edit'],
+            'steps' => [['focus' => 'title'], ['type' => 'title', 'value' => 'a'], ['blur' => 'title'], ['pagehide' => true]],
+        ]);
+
+        // The edit in flight was sent without keepalive and dies with the
+        // page: its value goes again, then the release that waited for it.
+        self::assertSame(
+            [
+                ['event' => 'field.edit', 'payload' => ['field' => 'title', 'value' => 'a']],
+                ['event' => 'lock.release', 'payload' => ['field' => 'title']],
+            ],
+            self::withoutPings($seen['keepalive']),
+        );
+    }
+
+    #[Test]
+    public function a_value_that_failed_twice_gets_one_more_try_before_its_lock_is_released(): void
+    {
+        // Two quick failures, then blur. The release used to go out at once,
+        // the value was dropped, and the next frame put the old text back.
+        $payload = $this->feedOf('field-lock', ['title']);
+        $this->draft->mergeFields(self::SCOPE, ['title' => 'old'], 'alice');
+
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('field-lock', 'bob', ['title']),
+            'inputs' => ['title' => 'old'],
+            'hold' => ['field.edit'],
+            'steps' => [
+                ['focus' => 'title'],
+                ['type' => 'title', 'value' => 'new text'],
+                ['fail' => 'oldest'],
+                ['fail' => 'oldest'],
+                ['blur' => 'title'],
+                ['snapshot' => $this->frame($payload)],
+                ['answer' => 'oldest'],
+            ],
+        ]);
+
+        self::assertSame(
+            [
+                ['event' => 'field.edit', 'payload' => ['field' => 'title', 'value' => 'new text']],
+                ['event' => 'lock.release', 'payload' => ['field' => 'title']],
+            ],
+            array_values(array_filter($seen['served'], static fn (array $p): bool => in_array($p['event'], ['field.edit', 'lock.release'], true))),
+        );
+        self::assertSame(['title' => 'new text'], $seen['values']);
+    }
+
+    #[Test]
+    public function a_value_that_keeps_failing_is_dropped_after_three_heartbeats(): void
+    {
+        $payload = $this->feedOf('shared', ['title']);
+        $this->draft->mergeFields(self::SCOPE, ['title' => 'from alice'], 'alice');
+        $beat = [['tick' => true], ['fail' => 'oldest']];
+
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('shared', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['field.edit'],
+            'steps' => [
+                ['type' => 'title', 'value' => 'mine'],
+                ['fail' => 'oldest'],
+                ['fail' => 'oldest'],
+                ...$beat, ...$beat, ...$beat,
+                ['tick' => true],
+                ['tick' => true],
+                ['snapshot' => $this->frame($payload)],
+            ],
+        ]);
+
+        self::assertCount(5, self::edits($seen['posts']), 'twice at once, three heartbeats, and no more');
+        self::assertSame(['title' => 'from alice'], $seen['values'], 'the field is open to the others again');
+        self::assertSame([], self::withoutPings($seen['keepalive']), 'no edit asked for keepalive: its 64 KiB quota fails a long text every time');
+    }
+
+    #[Test]
+    public function a_server_error_is_retried_and_a_refusal_is_not(): void
+    {
+        $scenario = [
+            'manifest' => self::manifest('shared', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'steps' => [['type' => 'title', 'value' => 'abc'], ['tick' => true]],
+        ];
+
+        $broke = $this->editorSees($scenario + ['replies' => ['field.edit' => [['http' => 503]]]]);
+        self::assertSame(
+            [['field' => 'title', 'value' => 'abc'], ['field' => 'title', 'value' => 'abc']],
+            self::edits($broke['posts']),
+            '5xx: the server does not have the value',
+        );
+
+        $refused = $this->editorSees($scenario + ['replies' => ['field.edit' => [['http' => 422, 'data' => ['status' => 'rejected', 'reason' => 'field_locked']]]]]);
+        self::assertSame([['field' => 'title', 'value' => 'abc']], self::edits($refused['posts']), '4xx is an answer: not at once, not on the heartbeat');
+    }
+
+    #[Test]
+    public function a_field_the_page_disabled_itself_stays_out_of_the_post_and_stays_disabled(): void
+    {
+        // `internal` was rendered disabled by the app; `zone` sits in a
+        // fieldset the app disabled. Neither is the lock's to submit.
+        $fields = ['address', 'internal', 'zone'];
+        $scenario = [
+            'manifest' => self::manifest('form-lock', 'bob', $fields),
+            'inputs' => ['address' => 'Rynok 1', 'internal' => 'x', 'zone' => 'north'],
+            'form' => true,
+            'controls' => ['internal' => ['disabled' => true], 'zone' => ['fieldset' => true]],
+            'steps' => [['snapshot' => $this->frame($this->feedOf('form-lock', $fields))]],
+        ];
+        $free = $this->editorSees($scenario);
+        self::assertSame(['address' => false, 'internal' => true, 'zone' => false], $free['disabled'], 'a free form does not enable what the page disabled');
+
+        $this->locks->acquire(self::SCOPE, null, 'alice', 'Alice');
+        $scenario['steps'] = [['snapshot' => $this->frame($this->feedOf('form-lock', $fields))], ['submit' => true]];
+        $locked = $this->editorSees($scenario);
+        self::assertSame([['address', 'Rynok 1']], $locked['formData'], 'the locked field, and nothing the page had disabled');
+        self::assertSame(['address' => true, 'internal' => true, 'zone' => true], $locked['disabledAfterSubmit']);
+
+        $this->locks->release(self::SCOPE, null, 'alice');
+        $scenario['steps'][] = ['snapshot' => $this->frame($this->feedOf('form-lock', $fields))];
+        self::assertSame(['address' => false, 'internal' => true, 'zone' => false], $this->editorSees($scenario)['disabled'], 'the release frees what the lock disabled, no more');
+    }
+
+    #[Test]
+    public function a_cancelled_submit_leaves_the_field_locked(): void
+    {
+        $this->locks->acquire(self::SCOPE, 'address', 'alice', 'Alice');
+        $scenario = [
+            'manifest' => self::manifest('field-lock', 'bob', ['title', 'address']),
+            'inputs' => ['title' => 'Flat', 'address' => 'Rynok 1'],
+            'form' => true,
+            'steps' => [
+                ['snapshot' => $this->frame($this->feedOf('field-lock', ['title', 'address']))],
+                // The app posts the form itself: its listener reads it and cancels.
+                ['submit' => ['prevent' => true, 'appFormData' => true]],
+                ['elapse' => 1],
+            ],
+        ];
+        $seen = $this->editorSees($scenario);
+
+        self::assertSame([['title', 'Flat'], ['address', 'Rynok 1']], $seen['appFormData'], 'what the app read in its submit listener');
+        self::assertNull($seen['formData'], 'the browser posted nothing');
+        self::assertSame(['title' => false, 'address' => true], $seen['disabled'], 'locked again in the next task');
+    }
+
+    #[Test]
+    public function an_app_that_reads_the_form_in_its_submit_listener_does_not_empty_the_browsers_post(): void
+    {
+        $this->locks->acquire(self::SCOPE, 'address', 'alice', 'Alice');
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('field-lock', 'bob', ['title', 'address']),
+            'inputs' => ['title' => 'Flat', 'address' => 'Rynok 1'],
+            'form' => true,
+            'steps' => [
+                ['snapshot' => $this->frame($this->feedOf('field-lock', ['title', 'address']))],
+                ['submit' => ['appFormData' => true]],
+            ],
+        ]);
+
+        self::assertSame([['title', 'Flat'], ['address', 'Rynok 1']], $seen['appFormData']);
+        self::assertSame([['title', 'Flat'], ['address', 'Rynok 1']], $seen['formData'], 'the post that follows carries it too');
+        self::assertSame(['title' => false, 'address' => true], $seen['disabledAfterSubmit']);
+    }
+
+    #[Test]
+    public function form_data_built_outside_a_submit_does_not_hold_a_locked_field(): void
+    {
+        // The documented limit: nothing tells the runtime the form is about
+        // to be read, and it never unlocks a field on a guess.
+        $this->locks->acquire(self::SCOPE, 'address', 'alice', 'Alice');
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('field-lock', 'bob', ['title', 'address']),
+            'inputs' => ['title' => 'Flat', 'address' => 'Rynok 1'],
+            'form' => true,
+            'steps' => [['snapshot' => $this->frame($this->feedOf('field-lock', ['title', 'address']))], ['formData' => true]],
+        ]);
+
+        self::assertSame([['title', 'Flat']], $seen['formData']);
+        self::assertSame(['title' => false, 'address' => true], $seen['disabled']);
+    }
+
+    #[Test]
+    public function the_page_hidden_by_the_apps_own_post_does_not_send_the_edits_again(): void
+    {
+        // The post carries the values and the app ends the draft; an edit
+        // arriving behind that would open a new draft with a replaced value.
+        $steps = [['focus' => 'title'], ['type' => 'title', 'value' => 'a'], ['type' => 'title', 'value' => 'ab'], ['blur' => 'title']];
+        $scenario = [
+            'manifest' => self::manifest('field-lock', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'form' => true,
+            'hold' => ['field.edit'],
+        ];
+
+        $posted = $this->editorSees($scenario + ['steps' => [...$steps, ['submit' => true], ['pagehide' => true]]]);
+        self::assertSame([['field' => 'title', 'value' => 'a']], self::edits($posted['posts']), 'only the edit sent while typing');
+        self::assertSame([['event' => 'lock.release', 'payload' => ['field' => 'title']]], self::withoutPings($posted['keepalive']), 'the lock is still released');
+
+        // A submit the app cancelled posted nothing: a later page hide is an
+        // ordinary one.
+        $cancelled = $this->editorSees($scenario + ['steps' => [...$steps, ['submit' => ['prevent' => true]], ['elapse' => 1], ['pagehide' => true]]]);
+        self::assertSame([['field' => 'title', 'value' => 'ab']], self::edits($cancelled['keepalive']));
+    }
+
+    #[Test]
+    public function the_post_of_one_form_does_not_keep_another_forms_edit_from_the_page_hide(): void
+    {
+        // One runtime, two forms: `title` is in the form the app posts,
+        // `notes` in another. That post carries `title` only, so the page
+        // hide behind it must still send the last value of `notes`, and only
+        // that: `title` is in the post. Typing into `title` after the submit
+        // takes it out of the post again.
+        $typed = [
+            ['focus' => 'title'], ['type' => 'title', 'value' => 'a'], ['type' => 'title', 'value' => 'ab'], ['blur' => 'title'],
+            ['focus' => 'notes'], ['type' => 'notes', 'value' => 'n'], ['type' => 'notes', 'value' => 'no'], ['blur' => 'notes'],
+        ];
+        $scenario = [
+            'manifest' => self::manifest('field-lock', 'bob', ['title', 'notes']),
+            'inputs' => ['title' => '', 'notes' => ''],
+            'form' => true,
+            'controls' => ['notes' => ['form' => 'other']],
+            'hold' => ['field.edit'],
+        ];
+
+        $posted = $this->editorSees($scenario + ['steps' => [...$typed, ['submit' => true], ['pagehide' => true]]]);
+        self::assertSame([['field' => 'notes', 'value' => 'no']], self::edits($posted['keepalive']), 'the other form\'s field, and not the posted one');
+
+        $retyped = $this->editorSees($scenario + ['steps' => [...$typed, ['submit' => true], ['focus' => 'title'], ['type' => 'title', 'value' => 'abc'], ['pagehide' => true]]]);
+        self::assertSame(
+            [['field' => 'title', 'value' => 'abc'], ['field' => 'notes', 'value' => 'no']],
+            self::edits($retyped['keepalive']),
+            'a field typed into after the submit is not in that post',
+        );
+    }
+
+    #[Test]
+    public function a_release_that_focus_cancelled_does_not_act_for_a_later_one(): void
+    {
+        // Blur at 0 s with `a` in flight, back at 5 s. `a` times out at 10 s
+        // and `ab` goes out; blur again at 19 s; `ab` times out at 20 s and is
+        // sent once more. At 25 s the FIRST blur's deadline passes: the
+        // second release has until 44 s, and the lock must still be held.
+        $steps = [
+            ['focus' => 'title'],
+            ['type' => 'title', 'value' => 'a'],
+            ['blur' => 'title'],
+            ['elapse' => 5000],
+            ['focus' => 'title'],
+            ['type' => 'title', 'value' => 'ab'],
+            ['elapse' => 14000],
+            ['blur' => 'title'],
+            ['elapse' => 6500],
+        ];
+        $scenario = ['manifest' => self::manifest('field-lock', 'bob', ['title']), 'inputs' => ['title' => ''], 'hold' => ['field.edit']];
+
+        $at25s = $this->editorSees($scenario + ['steps' => $steps]);
+        self::assertSame(2, $at25s['aborted']);
+        self::assertSame([], self::releases($at25s['posts']), 'not yet: the last value is on its way');
+
+        $seen = $this->editorSees($scenario + ['steps' => [...$steps, ['answer' => 'oldest']]]);
+        self::assertSame(
+            [
+                ['event' => 'field.edit', 'payload' => ['field' => 'title', 'value' => 'ab']],
+                ['event' => 'lock.release', 'payload' => ['field' => 'title']],
+            ],
+            array_values(array_filter($seen['served'], static fn (array $p): bool => in_array($p['event'], ['field.edit', 'lock.release'], true))),
+        );
+    }
+
+    #[Test]
+    public function a_refusal_whose_body_never_arrives_is_not_sent_again(): void
+    {
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('shared', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'replies' => ['field.edit' => [['http' => 422, 'stall' => true]]],
+            'steps' => [['type' => 'title', 'value' => 'abc'], ['elapse' => 10000], ['tick' => true]],
+        ]);
+
+        self::assertSame([['field' => 'title', 'value' => 'abc']], self::edits($seen['posts']), 'the status was the answer');
+    }
+
+    #[Test]
+    public function a_form_that_left_the_page_stops_its_heartbeat(): void
+    {
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('shared', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'steps' => [['unmount' => true], ['tick' => true]],
+        ]);
+
+        self::assertSame(['presence.ping'], array_column($seen['posts'], 'event'), 'the one sent on boot');
+    }
+
+    /**
+     * The lock.release payloads of a list of requests, in order.
+     *
+     * @param list<array{event: string, payload: array<string, mixed>}> $requests
+     * @return list<array<string, mixed>>
+     */
+    private static function releases(array $requests): array
+    {
+        return array_column(array_filter($requests, static fn (array $p): bool => $p['event'] === 'lock.release'), 'payload');
+    }
+
+    /**
+     * @param list<array{event: string, payload: array<string, mixed>}> $requests
+     * @return list<array{event: string, payload: array<string, mixed>}>
+     */
+    private static function withoutPings(array $requests): array
+    {
+        return array_values(array_filter($requests, static fn (array $p): bool => $p['event'] !== 'presence.ping'));
+    }
+
+    /**
+     * The field.edit payloads of a list of requests, in order.
+     *
+     * @param list<array{event: string, payload: array<string, mixed>}> $requests
+     * @return list<array<string, mixed>>
+     */
+    private static function edits(array $requests): array
+    {
+        return array_column(array_filter($requests, static fn (array $p): bool => $p['event'] === 'field.edit'), 'payload');
+    }
+
     /**
      * The form.save posts of a run.
      *
@@ -655,7 +1325,7 @@ final class FormCollabRuntimeTest extends TestCase
 
     /**
      * @param array<string, mixed> $scenario
-     * @return array{values: array<string, string>, fieldLocks: array<string, ?string>, chips: list<array{text: string, attrs: array<string, string>, elements: int}>, lock: ?array{text: string, attrs: array<string, string>, elements: int}, conflict: array{text: string, hidden: bool, buttons: list<string>}, saveStatus: string, events: list<array{type: string, detail: mixed}>, posts: list<array{event: string, payload: array<string, mixed>}>, htmlSinks: list<mixed>}
+     * @return array{values: array<string, string>, fieldLocks: array<string, ?string>, chips: list<array{text: string, attrs: array<string, string>, elements: int}>, lock: ?array{text: string, attrs: array<string, string>, elements: int}, conflict: array{text: string, hidden: bool, buttons: list<string>}, saveStatus: string, events: list<array{type: string, detail: mixed}>, posts: list<array{event: string, payload: array<string, mixed>}>, served: list<array{event: string, payload: array<string, mixed>}>, keepalive: list<array{event: string, payload: array<string, mixed>}>, aborted: int, maxInFlight: array<string, int>, disabled: array<string, bool>, disabledAfterSubmit: ?array<string, bool>, formData: ?list<array{string, string}>, appFormData: ?list<array{string, string}>, htmlSinks: list<mixed>}
      */
     private function editorSees(array $scenario): array
     {
@@ -677,7 +1347,7 @@ final class FormCollabRuntimeTest extends TestCase
         $seen = json_decode($stdout, true);
         self::assertTrue($exit === 0 && is_array($seen), "the runtime harness failed (exit {$exit}).\nstdout: {$stdout}\nstderr: {$stderr}");
 
-        /** @var array{values: array<string, string>, fieldLocks: array<string, ?string>, chips: list<array{text: string, attrs: array<string, string>, elements: int}>, lock: ?array{text: string, attrs: array<string, string>, elements: int}, conflict: array{text: string, hidden: bool, buttons: list<string>}, saveStatus: string, events: list<array{type: string, detail: mixed}>, posts: list<array{event: string, payload: array<string, mixed>}>, htmlSinks: list<mixed>} $seen */
+        /** @var array{values: array<string, string>, fieldLocks: array<string, ?string>, chips: list<array{text: string, attrs: array<string, string>, elements: int}>, lock: ?array{text: string, attrs: array<string, string>, elements: int}, conflict: array{text: string, hidden: bool, buttons: list<string>}, saveStatus: string, events: list<array{type: string, detail: mixed}>, posts: list<array{event: string, payload: array<string, mixed>}>, served: list<array{event: string, payload: array<string, mixed>}>, keepalive: list<array{event: string, payload: array<string, mixed>}>, aborted: int, maxInFlight: array<string, int>, disabled: array<string, bool>, disabledAfterSubmit: ?array<string, bool>, formData: ?list<array{string, string}>, appFormData: ?list<array{string, string}>, htmlSinks: list<mixed>} $seen */
         return $seen;
     }
 }

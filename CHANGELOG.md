@@ -12,6 +12,39 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
   was present in for 30 minutes (`PLATFORM_UI_COLLAB_DRAFT_IDLE_MINUTES`,
   0 = never, at most a day) is dropped on the next read. Before, an unsaved edit
   from days ago was written into the next editor's inputs.
+- A collaborative form no longer lets an older value of a field overwrite the
+  one typed last while the editor stays on the page. Each keystroke was its
+  own request carrying the whole value, and a request that arrived late
+  overwrote a newer one in the shared draft. A field now has one edit in
+  flight and the latest value follows when it settles. An edit with no answer
+  in 10 s is aborted; a value that failed (network, timeout, 5xx) is sent
+  again at once, then on up to three presence heartbeats, then dropped.
+  A lock release waits for the field's edits, at most 25 s, and tries a failed
+  value once more first. This is best effort: when that try fails too, or the
+  wait runs out, the lock is released and the value is not in the draft.
+  When the page is hidden the latest value and a waiting release go out at
+  once with `keepalive`, except for the fields the app's own form post
+  carried: the post carries their values, and an edit arriving behind the
+  save would start a new draft. A field of another form, or one typed into
+  after the submit, is sent as usual.
+  Known limits: a value sent as the page is hidden can still arrive before an
+  older edit that was in flight, and a page restored from the back/forward
+  cache can retry an older edit after the newer value went out with
+  `keepalive` (only a sequence number from the server would order them); an
+  edit one participant sent before another participant's save can still
+  arrive after that save and open a new draft holding the older value (only
+  a server check of the save that ended the draft would refuse it); a
+  refused edit (4xx, for example an expired session) is not sent again, as
+  before.
+- A field another participant holds (FormLock, FieldLock) is in the form the
+  app posts. It is `disabled`, a browser leaves disabled controls out, and a
+  save made meanwhile stored the field empty. On the form's `submit` the
+  runtime enables the fields it disabled itself while the browser reads the
+  form, and disables them again right after; an app that enabled the inputs in
+  its own submit listener can drop that. A control the page disabled itself is
+  left alone, also when a lock is released (it used to be enabled).
+  Not covered: `form.submit()` and a `new FormData(form)` built outside a
+  submit listener, neither of which fires `submit`.
 - Presence chips and "Locked by …" show a name instead of the user id: the
   app's optional `FormCollaboratorLabelResolverInterface`, else the user's
   `getDisplayName()` / `getName()`, else the id.
