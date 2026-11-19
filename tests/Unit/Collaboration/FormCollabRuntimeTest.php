@@ -351,6 +351,91 @@ final class FormCollabRuntimeTest extends TestCase
     }
 
     #[Test]
+    public function a_repeat_of_the_frame_with_the_dying_draft_does_not_put_its_values_back(): void
+    {
+        // Two heartbeats land between the notice and the delete: the same
+        // frame twice. The second is no news, and the draft it carries is
+        // still the one the save replaced.
+        $payload = $this->feedOf('shared', ['price']);
+        $this->draft->mergeFields(self::SCOPE, ['price' => '120'], 'alice');
+        $whileEditing = $this->frame($payload);
+        $this->notices->publish(self::SCOPE, ['price' => '125']);
+        $between = $this->frame($payload);
+        $this->draft->discard(self::SCOPE);
+
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('shared', 'bob', ['price']),
+            'inputs' => ['price' => '100'],
+            'steps' => [['snapshot' => $whileEditing], ['snapshot' => $between], ['snapshot' => $between], ['snapshot' => $between], ['snapshot' => $this->frame($payload)]],
+        ]);
+
+        self::assertSame(['price' => '125'], $seen['values'], 'what was stored');
+        self::assertSame([['type' => 'semitexa:collab:reset', 'detail' => ['rebased' => true]]], $seen['events']);
+    }
+
+    #[Test]
+    public function values_for_a_managed_field_the_page_has_no_input_for_rebase_nothing(): void
+    {
+        // The page and the save disagree about the form. Moving the fields
+        // that happen to exist and reporting a re-base would be half of one.
+        $payload = $this->feedOf('shared', ['price', 'notes']);
+        $this->draft->mergeFields(self::SCOPE, ['price' => '120'], 'alice');
+        $whileEditing = $this->frame($payload);
+        $this->drafts()->discard(self::SCOPE, ['price' => '125', 'notes' => 'stored']);
+
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('shared', 'bob', ['price', 'notes']),
+            'inputs' => ['price' => '100'],
+            'steps' => [['snapshot' => $whileEditing], ['snapshot' => $this->frame($payload)]],
+        ]);
+
+        self::assertSame(['price' => '120'], $seen['values'], 'no input moved');
+        self::assertSame([['type' => 'semitexa:collab:reset', 'detail' => ['rebased' => false]]], $seen['events']);
+    }
+
+    #[Test]
+    public function values_the_app_passes_for_what_is_not_a_managed_field_are_no_target(): void
+    {
+        $payload = $this->feedOf('shared', ['price']);
+        $this->draft->mergeFields(self::SCOPE, ['price' => '120'], 'alice');
+        $whileEditing = $this->frame($payload);
+        $this->drafts()->discard(self::SCOPE, ['id' => '42', 'price' => '125', 'owner' => 'u-7']);
+
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('shared', 'bob', ['price']),
+            'inputs' => ['price' => '100'],
+            'steps' => [['snapshot' => $whileEditing], ['snapshot' => $this->frame($payload)]],
+        ]);
+
+        self::assertSame(['price' => '125'], $seen['values']);
+        self::assertSame([['type' => 'semitexa:collab:reset', 'detail' => ['rebased' => true]]], $seen['events']);
+    }
+
+    #[Test]
+    public function take_theirs_does_not_offer_what_an_earlier_save_stored(): void
+    {
+        // Save 1 said price=125. Save 2 ended the next draft and said nothing:
+        // it may have stored 150. "Theirs" is then not known, and 125 is not it.
+        $payload = $this->feedOf('optimistic', ['price']);
+        $this->draft->apply(self::SCOPE, ['price' => '100'], 0, 'alice');
+        $base = $this->frame($payload);
+        $this->drafts()->discard(self::SCOPE, ['price' => '125']);
+        $afterFirst = $this->frame($payload);
+        $this->draft->apply(self::SCOPE, ['price' => '140'], 0, 'carol');
+        $this->drafts()->discard(self::SCOPE);
+        $afterSecond = $this->frame($payload);
+        $steps = [['snapshot' => $base], ['type' => 'price', 'value' => '999'], ['snapshot' => $afterFirst], ['snapshot' => $afterSecond], ['save' => true]];
+        $scenario = ['manifest' => self::manifest('optimistic', 'bob', ['price']), 'inputs' => ['price' => '100'], 'save' => true, 'steps' => $steps];
+
+        $conflict = $this->answer(self::saves($this->editorSees($scenario))[0]);
+        self::assertSame('form_draft_version_conflict', $conflict['reason']);
+        $scenario['replies'] = ['form.save' => [$conflict]];
+        $scenario['steps'][] = ['click' => 'data-ui-collab-take-theirs'];
+
+        self::assertSame(['price' => '999'], $this->editorSees($scenario)['values'], 'left as it is: neither 125 nor blank');
+    }
+
+    #[Test]
     public function a_discard_that_failed_after_its_notice_does_not_hide_the_real_end_of_the_draft(): void
     {
         // Notice published, delete failed: the draft lives on, frame after

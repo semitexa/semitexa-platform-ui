@@ -131,6 +131,8 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         // uncommitted local edits.
         this.version = 0;
         this.latestServerVersion = 0;
+        this.serverValues = Object.create(null);
+        this.dirtyDoc = false;
         // Which draft the versions above count (see applySnapshot), and the
         // one the unsaved optimistic edits are based on: frozen with `version`,
         // sent with the save, checked by the server.
@@ -146,7 +148,8 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         this.savedId = typeof manifest.saved === 'string' ? manifest.saved : '';
         this.savedKnown = this.savedId !== '';
         this.savedValues = Object.create(null);
-        this.swallowEpochChange = false;
+        // The draft a save notice arrived with, still undeleted: {epoch, version}.
+        this.dying = null;
         // Lock-mode state (FormLock / FieldLock): whether this participant holds
         // the whole-form lock, the current holder (from the projected snapshot),
         // and the lock-renewal timer.
@@ -244,22 +247,28 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         }
         this.savedKnown = true;
         // The notice is published before the draft is deleted, so a frame can
-        // carry the notice and the dying draft together: its values are not
-        // applied, and the epoch change in the NEXT frame is the same event.
-        // Only the next: the flag is taken here whatever this frame holds, so
-        // a discard that failed after its notice cannot swallow the real end
-        // of that draft later.
-        var dyingDraft = savedNow && !draftEnded && this.epoch !== '';
-        var swallow = this.swallowEpochChange;
-        this.swallowEpochChange = false;
+        // carry the notice and the dying draft together. Its values are what
+        // the save replaced: they are not applied, in that frame or in any
+        // repeat of it, and its end is the same event, not a second one. A
+        // draft that moved on instead (another version: the delete failed and
+        // someone edited) is a live draft again.
+        var dyingNow = savedNow && !draftEnded && hasVersion && epoch !== '';
+        var stillDying = !savedNow && this.dying !== null && hasVersion
+            && epoch === this.dying.epoch && data.version === this.dying.version;
+        var endOfDying = this.dying !== null
+            && this.epoch === this.dying.epoch && this.latestServerVersion === this.dying.version;
         try {
             if (savedNow) {
                 this.onRecordSaved(saved.values && typeof saved.values === 'object' ? saved.values : null);
-            } else if (draftEnded && !swallow) {
+            } else if (draftEnded && !endOfDying) {
                 this.onRecordSaved(null);
             }
         } finally {
-            this.swallowEpochChange = dyingDraft;
+            if (dyingNow) {
+                this.dying = { epoch: epoch, version: data.version };
+            } else if (!stillDying) {
+                this.dying = null;
+            }
         }
 
         // Optimistic-mode version tracking. The base (version + epoch) follows
@@ -277,7 +286,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         }
         this.serverValues = values;
 
-        if (!dyingDraft) {
+        if (!dyingNow && !stillDying) {
             for (var name in values) {
                 if (!Object.prototype.hasOwnProperty.call(values, name)) {
                     continue;
@@ -309,13 +318,33 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
      * server answers it with the conflict prompt.
      */
     CollabForm.prototype.onRecordSaved = function (values) {
+        // Every target is found before any input moves: a managed field the
+        // app named and this page has no input for means the page and the
+        // save disagree about the form, and half a re-base reported as done
+        // is worse than none. Names that are not managed fields are not
+        // targets (an app may pass the whole record).
+        var managed = Array.isArray(this.m.fields) ? this.m.fields.map(String) : [];
+        var targets = [];
+        if (values) {
+            for (var name in values) {
+                if (!Object.prototype.hasOwnProperty.call(values, name) || managed.indexOf(name) === -1) {
+                    continue;
+                }
+                if (!this.inputOf(this.fieldEl(name))) {
+                    values = null;
+                    break;
+                }
+                targets.push(name);
+            }
+        }
         if (values) {
             this.savedValues = values;
-            for (var name in values) {
-                if (Object.prototype.hasOwnProperty.call(values, name)) {
-                    this.rebaseField(name, values[name]);
-                }
+            for (var i = 0; i < targets.length; i++) {
+                this.rebaseField(targets[i], values[targets[i]]);
             }
+        } else {
+            // What an earlier save stored says nothing about this one.
+            this.savedValues = Object.create(null);
         }
         this.root.dispatchEvent(new CustomEvent('semitexa:collab:reset', {
             bubbles: true,
@@ -986,13 +1015,15 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             if (!input) {
                 continue;
             }
-            if (hasDraft || !Object.prototype.hasOwnProperty.call(this.savedValues, name)) {
+            if (hasDraft) {
                 var v = draft[name];
                 input.value = (v === null || v === undefined) ? '' : String(v);
-            } else {
+            } else if (Object.prototype.hasOwnProperty.call(this.savedValues, name)) {
                 var stored = this.savedValues[name];
                 input.value = (stored === null || stored === undefined) ? '' : String(stored);
             }
+            // Neither: nothing here knows what the record holds, and the
+            // input is left as it is rather than blanked or set to a guess.
         }
         this.clearConflict();
         this.setSaveStatus('saved');

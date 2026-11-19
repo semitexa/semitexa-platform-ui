@@ -172,8 +172,11 @@ final class FormCollaborationEventHandlerTest extends TestCase
         // the label here would break the author's optimistic-echo suppression.
         self::assertSame('actor-A', $this->draft->load(self::SCOPE)?->updatedBy);
 
-        // Re-saving with the now-stale version 0 conflicts.
-        $stale = $this->handler->handle((object) [], $this->ctx('form.save', 'optimistic', ['values' => ['title' => 'Two'], 'version' => 0, 'epoch' => '']));
+        // Re-saving with the now-stale version 0 conflicts. The epoch is the
+        // current draft's, so it is the VERSION guard that refuses.
+        $epoch = $this->draft->load(self::SCOPE)->epoch;
+        self::assertNotSame('', $epoch);
+        $stale = $this->handler->handle((object) [], $this->ctx('form.save', 'optimistic', ['values' => ['title' => 'Two'], 'version' => 0, 'epoch' => $epoch]));
         self::assertSame('form_draft_version_conflict', $stale->error?->code);
         self::assertSame(1, $stale->error?->details['currentVersion']);
     }
@@ -231,6 +234,42 @@ final class FormCollaborationEventHandlerTest extends TestCase
         $current = $this->handler->handle((object) [], $this->ctx('form.save', 'optimistic', ['values' => ['title' => 'Mine'], 'version' => 1, 'epoch' => $new->epoch]));
         self::assertSame(UiEventResponseStatus::Ok, $current->status);
         self::assertSame(['title' => 'Mine'], $this->draft->load(self::SCOPE)?->values);
+    }
+
+    #[Test]
+    public function a_draft_replaced_between_the_check_and_the_write_is_not_overwritten(): void
+    {
+        // The save is validated, and before the store writes, the app discards
+        // the draft and another editor's save starts the next one, which
+        // reaches the same version number. A check made apart from the write
+        // (the handler's own load, then apply by version) let the old save
+        // through onto the new draft.
+        $store = new class extends InMemoryFormCollabDraftStore {
+            public ?\Closure $beforeWrite = null;
+
+            public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor, ?string $expectedEpoch = null): FormCollabDraftState
+            {
+                $interleaved = $this->beforeWrite;
+                $this->beforeWrite = null;
+                if ($interleaved !== null) {
+                    $interleaved();
+                }
+
+                return parent::apply($scopeKey, $values, $expectedVersion, $actor, $expectedEpoch);
+            }
+        };
+        $old = $store->apply(self::SCOPE, ['title' => 'Old draft'], 0, 'alice');
+        $store->beforeWrite = static function () use ($store): void {
+            $store->discard(self::SCOPE);
+            $store->apply(self::SCOPE, ['title' => "Carol's new draft"], 0, 'carol');
+        };
+        $handler = (new FormCollaborationEventHandler())->withCollaborationDeps($store, $this->presence, $this->lock, $this->invalidator);
+
+        $resp = $handler->handle((object) [], $this->ctx('form.save', 'optimistic', ['values' => ['title' => 'Mine, on the old draft'], 'version' => 1, 'epoch' => $old->epoch]));
+
+        self::assertSame('form_draft_version_conflict', $resp->error?->code);
+        self::assertSame(["title" => "Carol's new draft"], $store->load(self::SCOPE)?->values);
+        self::assertSame(1, $store->load(self::SCOPE)->version, 'the same number the old save carried');
     }
 
     #[Test]
@@ -326,7 +365,7 @@ final class ThrowingDraftStore implements FormCollabDraftStoreInterface
         throw new \RuntimeException('draft store offline');
     }
 
-    public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor): FormCollabDraftState
+    public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor, ?string $expectedEpoch = null): FormCollabDraftState
     {
         throw new \RuntimeException('draft store offline');
     }

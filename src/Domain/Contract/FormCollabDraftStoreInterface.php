@@ -53,10 +53,17 @@ interface FormCollabDraftStoreInterface
      * caller passes the version it last read; if the draft has since advanced,
      * the write is rejected.
      *
+     * The version restarts at 1 with every new draft, so the number alone can
+     * match a draft the caller never read. `$expectedEpoch` names the draft the
+     * caller read ({@see FormCollabDraftState::$epoch}, '' for "none"): the
+     * store compares it on the very row it then writes, so a draft discarded
+     * and replaced between the caller's read and this write is a conflict and
+     * not an overwrite. Null skips that check (a caller that holds no epoch).
+     *
      * @param array<string, scalar|null> $values
-     * @throws FormDraftVersionConflictException when `$expectedVersion` is stale
+     * @throws FormDraftVersionConflictException when `$expectedVersion` is stale or the draft is not `$expectedEpoch`
      */
-    public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor): FormCollabDraftState;
+    public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor, ?string $expectedEpoch = null): FormCollabDraftState;
 
     /**
      * Last-write-wins merge of partial field values into the draft (the live

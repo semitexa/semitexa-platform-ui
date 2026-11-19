@@ -99,12 +99,12 @@ class InMemoryFormCollabDraftStore implements FormCollabDraftStoreInterface
         );
     }
 
-    public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor): FormCollabDraftState
+    public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor, ?string $expectedEpoch = null): FormCollabDraftState
     {
         $current = $this->live($scopeKey);
         $currentVersion = $current?->version ?? 0;
 
-        if ($currentVersion !== $expectedVersion) {
+        if ($currentVersion !== $expectedVersion || ($expectedEpoch !== null && $expectedEpoch !== ($current->epoch ?? ''))) {
             throw new FormDraftVersionConflictException($scopeKey, $expectedVersion, $currentVersion);
         }
 

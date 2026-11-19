@@ -174,6 +174,31 @@ final class FormCollabDraftConcurrentMergeTest extends TestCase
     }
 
     #[Test]
+    public function a_versioned_save_whose_draft_is_replaced_under_it_does_not_land_on_the_new_one(): void
+    {
+        // Between Alice's read and her write the draft is discarded and Bob's
+        // save starts the next, at the version she holds. Her update is
+        // addressed to the row she read: it is gone, and the new one stands.
+        $old = $this->alice->load(self::SCOPE);
+        self::assertNotNull($old);
+        $this->bobDuringAlicesRead = function (): void {
+            $this->bob->discard(self::SCOPE);
+            $this->bob->apply(self::SCOPE, ['seed' => 'new draft'], 0, 'bob', '');
+        };
+
+        try {
+            $this->alice->apply(self::SCOPE, ['seed' => 'mine'], 1, 'alice', $old->epoch);
+            self::fail('expected a version conflict');
+        } catch (FormDraftVersionConflictException) {
+            $this->addToAssertionCount(1);
+        }
+
+        $now = $this->bob->load(self::SCOPE);
+        self::assertSame(['seed' => 'new draft'], $now?->values);
+        self::assertNotSame($old->epoch, $now->epoch);
+    }
+
+    #[Test]
     public function a_field_edit_racing_a_discard_starts_the_new_draft(): void
     {
         $this->bobDuringAlicesRead = fn () => $this->bob->discard(self::SCOPE);

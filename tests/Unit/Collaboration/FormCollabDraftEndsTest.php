@@ -125,6 +125,35 @@ final class FormCollabDraftEndsTest extends TestCase
 
     #[Test]
     #[DataProvider('stores')]
+    public function a_versioned_write_names_its_draft_and_is_refused_on_another_at_the_same_version(string $kind): void
+    {
+        $store = $this->store($kind);
+        $old = $store->apply(self::SCOPE, ['price' => '1'], 0, 'alice', '');
+        $store->discard(self::SCOPE);
+        $new = $store->apply(self::SCOPE, ['price' => '2'], 0, 'carol', '');
+        self::assertSame($old->version, $new->version);
+
+        try {
+            $store->apply(self::SCOPE, ['price' => 'stale'], 1, 'alice', $old->epoch);
+            self::fail('expected a conflict');
+        } catch (\Semitexa\PlatformUi\Domain\Exception\FormDraftVersionConflictException $e) {
+            self::assertSame(1, $e->getErrorContext()['currentVersion']);
+        }
+        self::assertSame(['price' => '2'], $store->load(self::SCOPE)?->values);
+
+        try {
+            $store->apply(self::SCOPE, ['price' => 'stale'], 1, 'alice', '');
+            self::fail('expected a conflict: "no draft" is not this draft either');
+        } catch (\Semitexa\PlatformUi\Domain\Exception\FormDraftVersionConflictException) {
+            self::assertSame(['price' => '2'], $store->load(self::SCOPE)->values);
+        }
+
+        self::assertSame(2, $store->apply(self::SCOPE, ['price' => '3'], 1, 'carol', $new->epoch)->version);
+        self::assertSame(3, $store->apply(self::SCOPE, ['price' => '4'], 2, 'carol')->version, 'no epoch given: the version alone, as before');
+    }
+
+    #[Test]
+    #[DataProvider('stores')]
     public function discard_of_a_draft_that_is_not_there_is_no_error(string $kind): void
     {
         $store = $this->store($kind);

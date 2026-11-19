@@ -151,12 +151,16 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
         throw new FormDraftVersionConflictException($scopeKey, 0, $this->currentVersion($scopeKey));
     }
 
-    public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor): FormCollabDraftState
+    public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor, ?string $expectedEpoch = null): FormCollabDraftState
     {
         $existing = $this->findByScope($scopeKey);
         $currentVersion = $existing?->getVersion() ?? 0;
 
-        if ($currentVersion !== $expectedVersion) {
+        // The epoch is the row id, and the update below is addressed to this
+        // row's id under its version: the draft that is checked here is the
+        // draft that is written, or the write is refused. A draft discarded
+        // and replaced since the caller's read has another id.
+        if ($currentVersion !== $expectedVersion || ($expectedEpoch !== null && $expectedEpoch !== ($existing?->getId() ?? ''))) {
             throw new FormDraftVersionConflictException($scopeKey, $expectedVersion, $currentVersion);
         }
 

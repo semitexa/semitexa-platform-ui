@@ -237,20 +237,17 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
             return self::error(self::OUTDATED_CLIENT, 'This page is out of date. Reload to continue.');
         }
 
-        // The version restarts at 1 with every new draft (a discard, an
-        // expiry), so a number alone can match a draft the client never saw.
-        $current = $this->draftStore->load($scope);
-        if ($basedOn !== ($current->epoch ?? '')) {
-            throw new FormDraftVersionConflictException($scope, $expectedVersion, $current->version ?? 0);
-        }
-
         // Stamp the STABLE per-participant id (not the display label) as the
         // draft origin, identical to onFieldEdit: it is the echo-suppression
         // coordinate the client compares against its own `self`. Passing the
         // label here made anonymous savers ("Guest") never match their own
         // `self` (the instance id), so the re-projected snapshot failed to
         // suppress the author's optimistic echo.
-        $saved = $this->draftStore->apply($scope, $values, $expectedVersion, $actorId);
+        //
+        // The version restarts at 1 with every new draft (a discard, an
+        // expiry), so the number alone can match a draft the client never
+        // saw: the store checks the epoch on the row it writes.
+        $saved = $this->draftStore->apply($scope, $values, $expectedVersion, $actorId, $basedOn);
         $this->scopeInvalidator->touch($scope);
 
         // The ack says what the next save is based on. The feed says it too,
