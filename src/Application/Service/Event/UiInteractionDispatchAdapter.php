@@ -48,6 +48,7 @@ final class UiInteractionDispatchAdapter
             throw new UiInteractionUnprocessableException(
                 $error->code,
                 $error->message,
+                $error->details,
             );
         }
 

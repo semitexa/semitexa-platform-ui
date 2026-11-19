@@ -16,6 +16,7 @@ use Semitexa\Orm\OrmManager;
 use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
 use Semitexa\PlatformUi\Application\Db\MySQL\Model\FormCollabDraftResource;
+use Semitexa\PlatformUi\Application\Service\Collaboration\FormCollabDraftRetention;
 use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraft;
 use Semitexa\PlatformUi\Domain\Contract\FormCollabDraftStoreInterface;
 use Semitexa\PlatformUi\Domain\Exception\FormDraftVersionConflictException;
@@ -40,6 +41,11 @@ use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
  * the common stale-edit case is caught. True per-scope serialisation of
  * simultaneous writers is the lock store's job (Field/Form-lock modes); the
  * Optimistic baseline intentionally tolerates the last-write-wins window.
+ *
+ * Every read goes through {@see findByScope()}, which drops a draft the
+ * retention rule calls abandoned before anyone sees it; both deletes (that one
+ * and {@see discard()}) go through the ORM's #[Version] guard, so an edit that
+ * lands in between is never deleted with the old row.
  */
 #[SatisfiesRepositoryContract(of: FormCollabDraftStoreInterface::class)]
 final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
@@ -69,6 +75,16 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
      */
     #[InjectAsReadonly]
     protected TenantContextStoreInterface $tenantContextStore;
+
+    #[InjectAsReadonly]
+    protected FormCollabDraftRetention $retention;
+
+    /** Test seam — production path uses property injection. */
+    public function withRetention(FormCollabDraftRetention $retention): self
+    {
+        $this->retention = $retention;
+        return $this;
+    }
 
     /** Test seam — production path uses property injection. */
     public function withTenantContext(?TenantContextInterface $tenantContext): self
@@ -123,21 +139,28 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
 
     public function open(string $scopeKey, array $seedValues, ?string $actor): FormCollabDraftState
     {
-        $existing = $this->findByScope($scopeKey);
-        if ($existing !== null) {
-            return $existing->toState();
+        // A concurrent open() may seed it first (theirs stands), and a discard
+        // may then remove that one: look again rather than fail.
+        for ($attempt = 1; $attempt <= self::MERGE_ATTEMPTS; $attempt++) {
+            $draft = $this->findByScope($scopeKey) ?? $this->tryInsertDraft($scopeKey, $seedValues, $actor);
+            if ($draft !== null) {
+                return $draft->toState();
+            }
         }
 
-        // A concurrent open() may have seeded it first: theirs stands.
-        return ($this->tryInsertDraft($scopeKey, $seedValues, $actor) ?? $this->requireByScope($scopeKey))->toState();
+        throw new FormDraftVersionConflictException($scopeKey, 0, $this->currentVersion($scopeKey));
     }
 
-    public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor): FormCollabDraftState
+    public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor, ?string $expectedEpoch = null): FormCollabDraftState
     {
         $existing = $this->findByScope($scopeKey);
         $currentVersion = $existing?->getVersion() ?? 0;
 
-        if ($currentVersion !== $expectedVersion) {
+        // The epoch is the row id, and the update below is addressed to this
+        // row's id under its version: the draft that is checked here is the
+        // draft that is written, or the write is refused. A draft discarded
+        // and replaced since the caller's read has another id.
+        if ($currentVersion !== $expectedVersion || ($expectedEpoch !== null && $expectedEpoch !== ($existing?->getId() ?? ''))) {
             throw new FormDraftVersionConflictException($scopeKey, $expectedVersion, $currentVersion);
         }
 
@@ -146,15 +169,17 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
             // Losing that race to another first write is a version conflict:
             // the draft is now at version 1, not the 0 this client read.
             return ($this->tryInsertDraft($scopeKey, $values, $actor)
-                ?? throw new FormDraftVersionConflictException($scopeKey, $expectedVersion, $this->requireByScope($scopeKey)->getVersion()))
+                ?? throw new FormDraftVersionConflictException($scopeKey, $expectedVersion, $this->currentVersion($scopeKey)))
                 ->toState();
         }
 
         try {
             return $this->updateDraft($existing, $values, $actor)->toState();
         } catch (StaleAggregateException) {
-            // Another save landed between our read and our write.
-            throw new FormDraftVersionConflictException($scopeKey, $expectedVersion, $this->requireByScope($scopeKey)->getVersion());
+            // Another save landed between our read and our write, or a discard
+            // removed the draft: then the current version is 0, and the client
+            // is told the document changed, not that the save failed.
+            throw new FormDraftVersionConflictException($scopeKey, $expectedVersion, $this->currentVersion($scopeKey));
         }
     }
 
@@ -162,39 +187,85 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
      * Field-level merge: two people editing different fields of one form must
      * both keep their edit. The version guard turns a concurrent write into a
      * StaleAggregateException, and the merge is redone on the row as it now
-     * stands, a few times, before the edit is reported as a conflict.
+     * stands, a few times, before the edit is reported as a conflict. A row
+     * that a discard removed in between is simply absent on the next round:
+     * the edit starts the new draft.
      */
     public function mergeFields(string $scopeKey, array $partialValues, ?string $actor): FormCollabDraftState
     {
         for ($attempt = 1; ; $attempt++) {
             $existing = $this->findByScope($scopeKey);
-            if ($existing === null) {
-                $inserted = $this->tryInsertDraft($scopeKey, $partialValues, $actor);
-                if ($inserted !== null) {
-                    return $inserted->toState();
-                }
-                // Another first edit created the row a moment ago (1062 on the
-                // (tenant_id, scope_key) key, seen live 2026-10-15): merge into
-                // it instead of failing the event and dropping this edit.
-                $existing = $this->requireByScope($scopeKey);
-            }
-
-            $merged = $existing->getValues();
-            foreach ($partialValues as $field => $value) {
-                $merged[$field] = $value;
-            }
-
             try {
-                return $this->updateDraft($existing, $merged, $actor)->toState();
+                if ($existing === null) {
+                    // Null: another first edit created the row a moment ago
+                    // (1062 on the (tenant_id, scope_key) key, seen live
+                    // 2026-10-15). Merge into it on the next round instead of
+                    // failing the event and dropping this edit.
+                    $inserted = $this->tryInsertDraft($scopeKey, $partialValues, $actor);
+                    if ($inserted !== null) {
+                        return $inserted->toState();
+                    }
+                } else {
+                    $merged = $existing->getValues();
+                    foreach ($partialValues as $field => $value) {
+                        $merged[$field] = $value;
+                    }
+
+                    return $this->updateDraft($existing, $merged, $actor)->toState();
+                }
             } catch (StaleAggregateException) {
+                // Written or discarded since the read: redo on what is there now.
+            }
+            if ($attempt >= self::MERGE_ATTEMPTS) {
+                throw new FormDraftVersionConflictException($scopeKey, $existing?->getVersion() ?? 0, $this->currentVersion($scopeKey));
+            }
+        }
+    }
+
+    /**
+     * The record is persisted: delete the draft, whatever version it reached.
+     * An edit landing between the read and the delete moves the version, the
+     * delete is refused, and it is redone on the row as it now stands.
+     */
+    public function discard(string $scopeKey): void
+    {
+        for ($attempt = 1; ($existing = $this->readByScope($scopeKey)) !== null; $attempt++) {
+            try {
+                $this->repository()->delete($existing);
+
+                return;
+            } catch (StaleAggregateException $e) {
                 if ($attempt >= self::MERGE_ATTEMPTS) {
-                    throw new FormDraftVersionConflictException($scopeKey, $existing->getVersion(), $this->requireByScope($scopeKey)->getVersion());
+                    throw $e;
                 }
             }
         }
     }
 
+    /**
+     * The live draft of a scope: an abandoned one is dropped here, on the way
+     * to every reader and writer, and reads as absent.
+     */
     private function findByScope(string $scopeKey): ?FormCollabDraft
+    {
+        $draft = $this->readByScope($scopeKey);
+        if ($draft === null || !isset($this->retention)) {
+            return $draft;
+        }
+        if (!$this->retention->isAbandoned($scopeKey, ($draft->getUpdatedAt() ?? new \DateTimeImmutable())->getTimestamp())) {
+            return $draft;
+        }
+
+        try {
+            $this->repository()->delete($draft);
+        } catch (StaleAggregateException) {
+            // Written to a moment ago: no longer abandoned, and what is there now stands.
+        }
+
+        return $this->readByScope($scopeKey);
+    }
+
+    private function readByScope(string $scopeKey): ?FormCollabDraft
     {
         // Scope to the owning tenant so the same scope_key under another tenant
         // is never read. Default/single-tenant rows carry the 'default' sentinel.
@@ -209,28 +280,32 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
 
     /**
      * Seed the draft at version 1, or return null when a concurrent writer
-     * created the same (tenant, scope) row first. Any other constraint
-     * failure is rethrown.
+     * created the same (tenant, scope) row first. That row may already be gone
+     * again (a discard): the insert is then tried once more, and a constraint
+     * failure with still no row in the way is some other constraint, rethrown.
      *
      * @param array<string, scalar|null> $values
      */
     private function tryInsertDraft(string $scopeKey, array $values, ?string $actor): ?FormCollabDraft
     {
-        try {
-            return $this->insertDraft($scopeKey, $values, 1, $actor);
-        } catch (ConstraintViolationException $e) {
-            if ($this->findByScope($scopeKey) === null) {
-                throw $e;
+        for ($attempt = 1; ; $attempt++) {
+            try {
+                return $this->insertDraft($scopeKey, $values, 1, $actor);
+            } catch (ConstraintViolationException $e) {
+                if ($this->readByScope($scopeKey) !== null) {
+                    return null;
+                }
+                if ($attempt >= 2) {
+                    throw $e;
+                }
             }
-
-            return null;
         }
     }
 
-    private function requireByScope(string $scopeKey): FormCollabDraft
+    /** The draft's version now, 0 when there is none (never opened, discarded, expired). */
+    private function currentVersion(string $scopeKey): int
     {
-        return $this->findByScope($scopeKey)
-            ?? throw new \LogicException("Draft '{$scopeKey}' vanished right after a duplicate-key insert.");
+        return $this->findByScope($scopeKey)?->getVersion() ?? 0;
     }
 
     /**

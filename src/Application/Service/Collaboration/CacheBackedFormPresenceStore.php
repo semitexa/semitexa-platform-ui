@@ -32,6 +32,8 @@ final class CacheBackedFormPresenceStore implements FormPresenceStoreInterface
 {
     public const NAMESPACE = 'form-collab-presence';
     public const PRESENCE_TTL_SECONDS = 30;
+    /** Scope keys start with `formdoc:` or `form:`, so this prefix names no roster. */
+    private const LAST_SEEN_PREFIX = 'seen|';
 
     #[InjectAsReadonly]
     protected CacheManagerInterface $cacheManager;
@@ -51,6 +53,7 @@ final class CacheBackedFormPresenceStore implements FormPresenceStoreInterface
         $map = $this->prune($this->read($scopeKey));
         $map[$participantId] = ['label' => $label, 'role' => $role, 'ts' => time()];
         $this->write($scopeKey, $map);
+        $this->namespacedCache()->put(self::LAST_SEEN_PREFIX . $scopeKey, time(), self::LAST_SEEN_MEMORY_SECONDS);
 
         return self::toRoster($map);
     }
@@ -71,6 +74,13 @@ final class CacheBackedFormPresenceStore implements FormPresenceStoreInterface
         $this->write($scopeKey, $map);
 
         return self::toRoster($map);
+    }
+
+    public function lastSeenAt(string $scopeKey): ?int
+    {
+        $seen = $this->namespacedCache()->get(self::LAST_SEEN_PREFIX . $scopeKey);
+
+        return is_int($seen) && $seen > 0 ? $seen : null;
     }
 
     /** @return array<string, array{label:string,role:string,ts:int}> */

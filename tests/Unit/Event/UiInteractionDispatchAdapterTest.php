@@ -7,6 +7,8 @@ namespace Semitexa\PlatformUi\Tests\Unit\Event;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use Semitexa\PlatformUi\Application\Service\Event\UiInteractionDispatchAdapter;
+use Semitexa\PlatformUi\Application\Service\Event\PlatformUiResponseDispatcher;
+use Semitexa\Ssr\Application\Service\UiEvent\UiResponseDispatchResult;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionUnprocessableException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventError;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventResponse;
@@ -154,5 +156,28 @@ final class UiInteractionDispatchAdapterTest extends TestCase
             self::assertSame('grid_dp_forbidden', $e->reason);
             self::assertSame(422, $e->httpStatus);
         }
+    }
+
+    #[Test]
+    public function error_details_reach_the_wire_and_an_error_without_them_adds_nothing(): void
+    {
+        // The details are what the client acts on: a collaborative save that
+        // conflicts is told which draft and version to retry on.
+        $withDetails = UiEventResponse::error(new UiEventError('form_draft_version_conflict', 'Changed.', ['currentEpoch' => 'fcd_1', 'currentVersion' => 3]));
+        $translate = new \ReflectionMethod(PlatformUiResponseDispatcher::class, 'translateFailure');
+
+        try {
+            $this->adapter->toInteractionResult($withDetails);
+            self::fail('Expected UiInteractionUnprocessableException to be thrown.');
+        } catch (UiInteractionUnprocessableException $e) {
+            self::assertSame(['currentEpoch' => 'fcd_1', 'currentVersion' => 3], $e->details);
+            $result = $translate->invoke(new PlatformUiResponseDispatcher(), $e, 'evt-1');
+            self::assertInstanceOf(UiResponseDispatchResult::class, $result);
+            self::assertSame(['dispatchId' => 'evt-1', 'details' => ['currentEpoch' => 'fcd_1', 'currentVersion' => 3]], $result->body);
+        }
+
+        $plain = $translate->invoke(new PlatformUiResponseDispatcher(), new UiInteractionUnprocessableException('nope', 'No.'), 'evt-2');
+        self::assertInstanceOf(UiResponseDispatchResult::class, $plain);
+        self::assertSame(['dispatchId' => 'evt-2'], $plain->body);
     }
 }

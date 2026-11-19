@@ -52,6 +52,7 @@ final class CollabManifestBuilder
         string $mode,
         array $fields,
         ?int $ttlSeconds = null,
+        ?FormCollabSaveNotices $notices = null,
     ): array {
         $resolvedMode = FormCollaborationMode::tryFrom($mode) ?? FormCollaborationMode::default();
         $scope = FormDocumentScope::forRecord($formKey, $recordId);
@@ -95,7 +96,20 @@ final class CollabManifestBuilder
             'events'      => $events,
             'fields'      => array_values(array_map(static fn ($f): string => (string) $f, $fields)),
             'heartbeatMs' => self::HEARTBEAT_MS,
+            // The save notice current while this page was rendered: what the
+            // page shows already includes that save, so the runtime starts
+            // from it and reacts only to a later one. '' = none, or not known.
+            'saved'       => self::currentNoticeId($notices, $scope),
         ];
+    }
+
+    private static function currentNoticeId(?FormCollabSaveNotices $notices, string $scope): string
+    {
+        try {
+            return $notices?->current($scope)['id'] ?? '';
+        } catch (\Throwable) {
+            return '';
+        }
     }
 
     /**

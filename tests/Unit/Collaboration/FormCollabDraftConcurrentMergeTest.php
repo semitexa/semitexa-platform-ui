@@ -10,7 +10,9 @@ use Semitexa\Orm\Adapter\SqliteAdapter;
 use Semitexa\Orm\Domain\Model\ConnectionConfig;
 use Semitexa\Orm\OrmManager;
 use Semitexa\PlatformUi\Application\Db\MySQL\Repository\FormCollabDraftDbRepository;
+use Semitexa\PlatformUi\Application\Service\Collaboration\FormCollabDraftRetention;
 use Semitexa\PlatformUi\Domain\Exception\FormDraftVersionConflictException;
+use Semitexa\PlatformUi\Tests\Support\SettablePresenceStore;
 
 /**
  * Two people edit different fields of one collaborative form at once.
@@ -119,6 +121,95 @@ final class FormCollabDraftConcurrentMergeTest extends TestCase
         self::assertSame(3, $state->version);
         self::assertSame(3, $this->bob->load(self::SCOPE)?->version);
     }
+
+    #[Test]
+    public function a_discard_racing_an_edit_still_ends_the_draft(): void
+    {
+        // The app saved the record and discards; Bob's keystroke lands between
+        // Alice's read and her delete. The delete is refused on the version
+        // and redone: a discard that gave up here left the saved edits behind.
+        $this->bobDuringAlicesRead = fn () => $this->bob->mergeFields(self::SCOPE, ['title' => 'theirs'], 'bob');
+
+        $this->alice->discard(self::SCOPE);
+
+        self::assertNull($this->bob->load(self::SCOPE));
+    }
+
+    #[Test]
+    public function an_edit_landing_while_an_abandoned_draft_is_being_dropped_is_not_dropped_with_it(): void
+    {
+        // Alice's read finds a draft nobody touched for an hour; before she
+        // deletes it Bob edits. The delete carries the version she read, so
+        // Bob's edit, which made the draft current again, stands.
+        $now = time() + 3600;
+        $presence = new SettablePresenceStore(static fn (): int => $now);
+        $presence->lastSeen[self::SCOPE] = $now - 3600;
+        $this->alice->withRetention((new FormCollabDraftRetention())->with($presence, 30, static fn (): int => $now));
+        $this->bobDuringAlicesRead = fn () => $this->bob->mergeFields(self::SCOPE, ['title' => 'theirs'], 'bob');
+
+        $loaded = $this->alice->load(self::SCOPE);
+
+        self::assertSame(['seed' => 'x', 'title' => 'theirs'], $loaded?->values);
+        self::assertSame(['seed' => 'x', 'title' => 'theirs'], $this->bob->load(self::SCOPE)?->values, 'and it is still stored');
+    }
+
+
+    #[Test]
+    public function a_versioned_save_racing_a_discard_is_a_conflict_at_version_zero(): void
+    {
+        // Alice saves on version 1; between her read and her write the app
+        // discards the draft. She must get the conflict prompt ("the document
+        // changed"), with nothing current: it used to be a LogicException,
+        // shown as "Save failed".
+        $this->bobDuringAlicesRead = fn () => $this->bob->discard(self::SCOPE);
+
+        try {
+            $this->alice->apply(self::SCOPE, ['seed' => 'mine'], 1, 'alice');
+            self::fail('expected a version conflict');
+        } catch (FormDraftVersionConflictException $e) {
+            self::assertSame(['expected' => 1, 'current' => 0], ['expected' => $e->getErrorContext()['expectedVersion'], 'current' => $e->getErrorContext()['currentVersion']]);
+        }
+
+        self::assertNull($this->bob->load(self::SCOPE), 'and the save did not bring the draft back');
+    }
+
+    #[Test]
+    public function a_versioned_save_whose_draft_is_replaced_under_it_does_not_land_on_the_new_one(): void
+    {
+        // Between Alice's read and her write the draft is discarded and Bob's
+        // save starts the next, at the version she holds. Her update is
+        // addressed to the row she read: it is gone, and the new one stands.
+        $old = $this->alice->load(self::SCOPE);
+        self::assertNotNull($old);
+        $this->bobDuringAlicesRead = function (): void {
+            $this->bob->discard(self::SCOPE);
+            $this->bob->apply(self::SCOPE, ['seed' => 'new draft'], 0, 'bob', '');
+        };
+
+        try {
+            $this->alice->apply(self::SCOPE, ['seed' => 'mine'], 1, 'alice', $old->epoch);
+            self::fail('expected a version conflict');
+        } catch (FormDraftVersionConflictException) {
+            $this->addToAssertionCount(1);
+        }
+
+        $now = $this->bob->load(self::SCOPE);
+        self::assertSame(['seed' => 'new draft'], $now?->values);
+        self::assertNotSame($old->epoch, $now->epoch);
+    }
+
+    #[Test]
+    public function a_field_edit_racing_a_discard_starts_the_new_draft(): void
+    {
+        $this->bobDuringAlicesRead = fn () => $this->bob->discard(self::SCOPE);
+
+        $state = $this->alice->mergeFields(self::SCOPE, ['body' => 'mine'], 'alice');
+
+        self::assertSame(['body' => 'mine'], $state->values, 'her edit, and nothing of the draft that ended');
+        self::assertSame(1, $state->version);
+        self::assertSame(['body' => 'mine'], $this->bob->load(self::SCOPE)?->values);
+    }
+
     /** Register a SQL function on whichever PDO the adapter opened. */
     private static function createFunction(\PDO $pdo, string $name, callable $fn): void
     {
