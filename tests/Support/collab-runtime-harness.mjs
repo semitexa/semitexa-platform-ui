@@ -2,20 +2,28 @@
 // FormCollabRuntimeTest. stdin: {runtime, manifest, inputs, lockHost, save, steps, replies,
 // hold, form, controls};
 // replies maps an event to the queue of answers HUG gives it (default: accepted);
-// an answer {http: 503} is that status with no body, {http: 422, data} one with a body.
+// an answer {http: 503} is that status with no body, {http: 422, data} one with a body,
+// {http: 422, stall: true} one whose status arrives and whose body never does.
 // hold lists the events whose requests stay in flight until a step answers them.
 // form puts the inputs in a <form>; controls gives an input another shape:
-// {tag, type, name, checked, multiple, options: [{value, selected}]} (name null = no name).
+// {tag, type, name, checked, multiple, options: [{value, selected}]} (name null = no name),
+// disabled (the page rendered it disabled), fieldset (inside a disabled <fieldset>).
 // A step is {snapshot}, {focus}, {blur}, {type, value}, {save}, {click: '<attribute>'},
 // {answer: 'oldest' | 'newest-first'} (the server gets and answers one held request, or
 // all of them and what they cause, newest first), {fail: 'oldest'} (it never arrives),
-// {tick} (every interval fires once), {elapse: ms} (the clock moves; timeouts due fire), {pagehide}, {unmount} (the form leaves the page),
-// {enable} (the page enables an input itself) or {formData} (what `new FormData(form)` holds).
+// {tick} (every interval fires once), {elapse: ms} (the clock moves; timeouts due fire),
+// {pagehide}, {unmount} (the form leaves the page), {enable} (the page enables an input
+// itself), {formData} (what `new FormData(form)` holds, built outside any submit) or
+// {submit: true | {prevent, appFormData}} (the form is submitted: the app's own submit
+// listener may build a FormData and may cancel; unless cancelled the browser then builds
+// the data it posts).
 // stdout: what a person would see (input values, presence chips, lock texts, prompts),
 // what the page heard (events), what was posted, what the server received and in
 // which order (served), which posts asked for keepalive, how many requests the page
-// aborted, the most requests one field had in flight at once, the form data, and every write to an HTML sink (innerHTML and the like) — a label must
-// never reach one.
+// aborted, the most requests one field had in flight at once, the form data (the
+// browser's, the app's own, and which inputs were disabled right after the submit),
+// and every write to an HTML sink (innerHTML and the like) — a label must never
+// reach one.
 import { readFileSync } from 'node:fs';
 
 const scenario = JSON.parse(readFileSync(0, 'utf8'));
@@ -56,10 +64,13 @@ class El {
     }
     get form() { for (let n = this.parent; n; n = n.parent) { if (n.tagName === 'FORM') { return n; } } return null; }
     dispatchEvent(ev) {
+        const outermost = !ev.eventPhase;
+        if (outermost) { ev.eventPhase = 2; }
         ev.target = ev.target || this;
         this.heard.push({ type: ev.type, detail: ev.detail === undefined ? null : ev.detail });
         for (const fn of this.listeners[ev.type] || []) { fn(ev); }
         if (ev.bubbles && this.parent) { this.parent.dispatchEvent(ev); }
+        if (outermost) { ev.eventPhase = 0; }
         return true;
     }
     matches(selector) { return selector.split(',').some((alt) => matchesOne(this, alt.trim())); }
@@ -86,7 +97,7 @@ function matchesOne(el, selector) {
     return true;
 }
 
-class FakeEvent { constructor(type, init) { this.type = type; this.bubbles = !!(init && init.bubbles); this.detail = init ? init.detail : undefined; } preventDefault() {} }
+class FakeEvent { constructor(type, init) { this.type = type; this.bubbles = !!(init && init.bubbles); this.detail = init ? init.detail : undefined; this.defaultPrevented = false; this.eventPhase = 0; } preventDefault() { this.defaultPrevented = true; } }
 
 const documentEl = new El('html');
 const fakeDocument = { activeElement: null, documentElement: documentEl, createElement: (tag) => new El(tag) };
@@ -110,7 +121,10 @@ const inputs = {};
 const formEl = scenario.form ? root.appendChild(new El('form')) : null;
 for (const [name, value] of Object.entries(scenario.inputs)) {
     const shape = (scenario.controls || {})[name] || {};
-    const input = (formEl || root).appendChild(new El(shape.tag || 'input'));
+    let holder = formEl || root;
+    if (shape.fieldset) { holder = holder.appendChild(new El('fieldset')); holder.disabled = true; }
+    const input = holder.appendChild(new El(shape.tag || 'input'));
+    input.disabled = !!shape.disabled;
     input.setAttribute('data-ui-field-name', name);
     input.value = String(value);
     input.type = shape.type || (input.tagName === 'INPUT' ? 'text' : input.tagName.toLowerCase());
@@ -126,7 +140,9 @@ class FakeFormData {
     constructor(form) {
         this.entries = [];
         const walk = (el) => {
-            if (['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName) && el.name !== '' && !el.disabled) {
+            if (el.tagName === 'FIELDSET' && el.disabled) { return; }
+            if (['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName) && el.name !== '' && !el.disabled
+                && !['submit', 'reset', 'button', 'image'].includes(el.type)) {
                 if (el.tagName === 'SELECT') {
                     const chosen = el.options.filter((o) => o.selected);
                     for (const o of el.multiple ? chosen : chosen.slice(0, 1)) { this.append(el.name, o.value); }
@@ -151,7 +167,11 @@ let feed = null;
 const posts = [];
 const served = [];
 const held = [];
-const intervals = [];
+let intervals = [];
+let intervalId = 0;
+let appFormData = null;
+let disabledAfterSubmit = null;
+const disabledNow = () => Object.fromEntries(Object.entries(inputs).map(([n, el]) => [n, el.disabled]));
 const keepalive = [];
 let aborted = 0;
 let clock = 0;
@@ -165,14 +185,16 @@ let formData = null;
 const replies = scenario.replies || {};
 const holds = scenario.hold || [];
 const fieldOf = (e) => (e.semanticEvent === 'field.edit' ? String(e.payload.field) : null);
-const serve = (e) => {
+// The answer of the real client: the status first (opts.onResponse), then the body.
+const serve = (e, opts) => {
     served.push({ event: e.semanticEvent, payload: e.payload });
     const queue = replies[e.semanticEvent] || [];
     const reply = queue.length ? queue.shift() : { status: 'accepted' };
-    if (reply && typeof reply.http === 'number') {
-        return { ok: reply.http < 400, status: reply.http, data: reply.data === undefined ? null : reply.data };
-    }
-    return { data: reply };
+    const http = reply && typeof reply.http === 'number' ? reply.http : null;
+    if (opts && typeof opts.onResponse === 'function') { opts.onResponse({ ok: http === null || http < 400, status: http === null ? 200 : http }); }
+    if (http === null) { return { data: reply }; }
+    if (reply.stall) { return new Promise(() => {}); }
+    return { ok: http < 400, status: http, data: reply.data === undefined ? null : reply.data };
 };
 const landed = (e) => { const f = fieldOf(e); if (f !== null) { flying[f]--; } };
 const core = {
@@ -190,7 +212,7 @@ const core = {
         if (holds.includes(e.semanticEvent)) {
             return new Promise((resolve, reject) => {
                 const request = {
-                    answer: () => { landed(e); resolve(serve(e)); },
+                    answer: () => { landed(e); resolve(serve(e, opts)); },
                     fail: () => { landed(e); reject(new TypeError('Failed to fetch')); },
                 };
                 held.push(request);
@@ -206,7 +228,7 @@ const core = {
                 }
             });
         }
-        return Promise.resolve().then(() => { landed(e); return serve(e); });
+        return Promise.resolve().then(() => { landed(e); return serve(e, opts); });
     },
 };
 
@@ -215,7 +237,7 @@ if (/^\s*import\s/m.test(source)) { throw new Error('the runtime has an import t
 new Function(
     'openFeedChannel', 'mount', 'envelope', 'hug', 'window', 'document', 'Event', 'CustomEvent', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout',
     source,
-)(core.openFeedChannel, core.mount, core.envelope, core.hug, fakeWindow, fakeDocument, FakeEvent, FakeEvent, (fn) => intervals.push(fn), () => {}, fakeSetTimeout, fakeClearTimeout);
+)(core.openFeedChannel, core.mount, core.envelope, core.hug, fakeWindow, fakeDocument, FakeEvent, FakeEvent, (fn) => { intervals.push({ id: ++intervalId, fn }); return intervalId; }, (id) => { intervals = intervals.filter((t) => t.id !== id); }, fakeSetTimeout, fakeClearTimeout);
 
 const mountedForm = mounted.connect(manifestEl);
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -251,11 +273,34 @@ for (const step of scenario.steps) {
         }
         clock = until;
     } else if (step.tick) {
-        intervals.forEach((fn) => fn());
+        intervals.slice().forEach((t) => t.fn());
     } else if (step.pagehide) {
         (windowListeners.pagehide || []).forEach((fn) => fn(new FakeEvent('pagehide')));
     } else if (step.enable) {
         inputs[step.enable].disabled = false;
+    } else if (step.submit) {
+        const how = step.submit === true ? {} : step.submit;
+        const ev = new FakeEvent('submit', { bubbles: true });
+        // The app's own listener, added after the runtime's.
+        const app = () => {
+            if (how.appFormData) {
+                const fd = new FakeEvent('formdata');
+                fd.formData = new FakeFormData(formEl);
+                formEl.dispatchEvent(fd);
+                appFormData = fd.formData.entries;
+            }
+            if (how.prevent) { ev.preventDefault(); }
+        };
+        formEl.addEventListener('submit', app);
+        formEl.dispatchEvent(ev);
+        formEl.removeEventListener('submit', app);
+        if (!ev.defaultPrevented) {
+            const fd = new FakeEvent('formdata');
+            fd.formData = new FakeFormData(formEl);
+            formEl.dispatchEvent(fd);
+            formData = fd.formData.entries;
+        }
+        disabledAfterSubmit = disabledNow();
     } else if (step.formData) {
         const ev = new FakeEvent('formdata');
         ev.formData = new FakeFormData(formEl);
@@ -286,7 +331,9 @@ process.stdout.write(JSON.stringify({
     keepalive,
     aborted,
     maxInFlight,
-    disabled: Object.fromEntries(Object.entries(inputs).map(([n, el]) => [n, el.disabled])),
+    disabled: disabledNow(),
+    disabledAfterSubmit,
     formData,
+    appFormData,
     htmlSinks,
 }));

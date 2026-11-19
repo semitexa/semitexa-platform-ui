@@ -447,7 +447,9 @@
 
     /**
      * POST one body to HUG. opts.keepalive for fire-and-forget on unload;
-     * opts.signal (an AbortSignal) for a caller that gives up on the answer.
+     * opts.signal (an AbortSignal) for a caller that gives up on the answer;
+     * opts.onResponse(response) as soon as the status is known, before the
+     * body is read.
      */
     function hug(body, opts) {
         opts = opts || {};
@@ -459,6 +461,9 @@
             headers: withCsrf('POST', { 'Content-Type': 'application/json', 'Accept': 'application/json' }),
             body: typeof body === 'string' ? body : JSON.stringify(body)
         }).then(function (resp) {
+            if (typeof opts.onResponse === 'function') {
+                opts.onResponse(resp);
+            }
             return resp.text().then(function (text) {
                 var data = null;
                 if (text) {

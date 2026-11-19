@@ -44,10 +44,14 @@
  * again.
  *
  * LOCKED FIELDS AND THE APP'S OWN POST: a field someone else holds is
- * `disabled`, and a browser leaves disabled controls out of a form's data. A
- * `formdata` listener on the field's form puts the value back, in document
- * order among the controls of the same name, so a save made while a field is
- * locked stores what the form shows, not an empty value.
+ * `disabled`, and a browser leaves disabled controls out of a form's data, so
+ * a save made meanwhile stored the field empty. When the field's form is
+ * submitted, the controls THIS runtime disabled are enabled for the moment
+ * the browser builds the form's data and disabled again right after; what the
+ * data holds, and in which order, is the browser's doing alone. A control the
+ * page disabled itself (or a disabled fieldset around it) is never touched.
+ *   Not covered: data built with no submit event before it, that is
+ * `form.submit()` and a `new FormData(form)` outside a submit listener.
  *
  * Manifest contract (emitted by the server `ui_collab_manifest()` helper as
  * `<script type="application/json" data-ui-collab-manifest>`):
@@ -80,12 +84,6 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
     var EDIT_HEARTBEAT_RETRIES = 3;
     // The longest a lock release waits for edits in flight (two timeouts and a margin).
     var RELEASE_WAIT_MS = 25000;
-
-    // Controls a collaboration lock disabled (any form instance on the page),
-    // as opposed to a control the page disabled for its own reasons; and the
-    // form data already completed, when two instances share one form.
-    var lockedControls = new WeakSet();
-    var completedFormData = new WeakSet();
 
     /** Booted instances, keyed by render instance id, so a re-scan is idempotent. */
     var booted = Object.create(null);
@@ -142,54 +140,6 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         b.textContent = label;
         b.addEventListener('click', onClick);
         return b;
-    }
-
-    /** A named control a collaboration lock disabled, and that still is. */
-    function isLockedControl(control) {
-        return lockedControls.has(control) && control.disabled === true
-            && typeof control.name === 'string' && control.name !== '';
-    }
-
-    /** Disabled itself, or by a disabled fieldset around it. */
-    function isDisabledControl(control) {
-        return control.disabled === true
-            || (typeof control.closest === 'function' && control.closest('fieldset[disabled]') !== null);
-    }
-
-    /**
-     * What a browser would submit for `input` were it enabled: nothing for an
-     * unchecked checkbox or radio and for buttons, every selected option of a
-     * select, the files of a file input, else the value.
-     */
-    function submittedValues(input) {
-        var tag = String(input.tagName || '').toLowerCase();
-        var type = String(input.type || '').toLowerCase();
-        if (tag !== 'input' && tag !== 'select' && tag !== 'textarea') {
-            return []; // a fieldset, an output, a button: listed, never submitted here
-        }
-        if (tag === 'select') {
-            var out = [];
-            var options = input.options || [];
-            for (var i = 0; i < options.length; i++) {
-                if (options[i].selected && !options[i].disabled) {
-                    out.push(options[i].value);
-                    if (!input.multiple) {
-                        break;
-                    }
-                }
-            }
-            return out;
-        }
-        if (type === 'checkbox' || type === 'radio') {
-            return input.checked ? [input.value] : [];
-        }
-        if (type === 'submit' || type === 'button' || type === 'reset' || type === 'image') {
-            return [];
-        }
-        if (type === 'file') {
-            return Array.prototype.slice.call(input.files || []);
-        }
-        return [input.value];
     }
 
     // ---- one collaborative form instance ----------------------------------
@@ -258,9 +208,20 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         this.edits = Object.create(null);
         this.editWaiters = [];
         // Lock releases asked for while an edit was still in flight.
-        this.lockReleasing = false;
+        // Each is the token of the one release asked for (null / absent: none),
+        // so a release that focus cancelled never acts for a later one.
+        this.lockReleasing = null;
         this.fieldReleasing = Object.create(null);
-        this.formDataListeners = [];
+        // The fields THIS runtime disabled for a lock, as opposed to a control
+        // the page disabled for its own reasons; the ones enabled for the
+        // form submit under way; and that submit.
+        this.lockedInputs = Object.create(null);
+        this.submitUnlocked = [];
+        this.submitEvent = null;
+        // The app's form was submitted and no edit was typed since: the post
+        // carries the values, and the app ends the draft.
+        this.submitted = false;
+        this.formListeners = [];
         this.pageHideListener = null;
     }
 
@@ -280,7 +241,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
 
     CollabForm.prototype.start = function () {
         this.wireLocalEdits();
-        this.wireLockedFieldsIntoFormData();
+        this.wireLockedFieldsIntoSubmit();
         this.wirePageHide();
         this.subscribe();
         this.startHeartbeat();
@@ -533,11 +494,15 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
 
     /** Disable (or free) one managed input, remembering that the lock did it. */
     CollabForm.prototype.setInputLocked = function (name, input, locked) {
-        input.disabled = locked;
         if (locked) {
-            lockedControls.add(input);
-        } else {
-            lockedControls.delete(input);
+            // Already disabled and not by a lock: the page's own, left alone.
+            if (!input.disabled) {
+                input.disabled = true;
+                this.lockedInputs[name] = true;
+            }
+        } else if (this.lockedInputs[name]) {
+            input.disabled = false;
+            delete this.lockedInputs[name];
         }
     };
 
@@ -593,18 +558,18 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         if (!this.iHoldLock) {
             return;
         }
-        this.lockReleasing = true;
+        var token = this.lockReleasing = {};
         var self = this;
         this.retryUnsentEdits(null, false);
         this.afterEdits(null, function () {
-            if (self.lockReleasing) {
+            if (self.lockReleasing === token) {
                 self.finishLockRelease();
             }
         });
     };
 
     CollabForm.prototype.finishLockRelease = function () {
-        this.lockReleasing = false;
+        this.lockReleasing = null;
         if (!this.iHoldLock) {
             return;
         }
@@ -716,11 +681,11 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         if (!this.myFieldLocks[name]) {
             return;
         }
-        this.fieldReleasing[name] = true;
+        var token = this.fieldReleasing[name] = {};
         var self = this;
         this.retryUnsentEdits([name], false);
         this.afterEdits([name], function () {
-            if (self.fieldReleasing[name]) {
+            if (self.fieldReleasing[name] === token) {
                 self.finishFieldRelease(name);
             }
         });
@@ -896,7 +861,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
                     self.dirty[name] = true;
                     // Back before a release waiting for its last edit went
                     // out: the lock is kept.
-                    self.lockReleasing = false;
+                    self.lockReleasing = null;
                     delete self.fieldReleasing[name];
                     // FormLock: claim the whole-form lock the moment this
                     // participant starts editing (the "first editor wins" rule).
@@ -1004,6 +969,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         q.value = value;
         q.retried = false;
         q.beats = 0;
+        this.submitted = false; // typed after the submit: not in that post
         this.sendNextEdit(field);
     };
 
@@ -1052,11 +1018,17 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         // No keepalive: a browser refuses a keepalive body past its 64 KiB
         // quota at once, every time. The page being hidden sends with it.
         var abort = typeof AbortController === 'function' ? new AbortController() : null;
+        // The status is the answer; the body is not used. Waiting for it
+        // would turn a refusal whose body stalls into a timeout and a retry.
+        var options = { onResponse: function (resp) { settled(resp.ok === false && resp.status >= 500); } };
+        if (abort) {
+            options.signal = abort.signal;
+        }
         var request;
         try {
             request = hug(
                 envelope({ semanticEvent: 'field.edit', signedContext: ctx, payload: { field: field, value: value } }),
-                abort ? { signal: abort.signal } : {}
+                options
             );
         } catch (e) {
             settled(true);
@@ -1088,7 +1060,8 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
 
     /**
      * Run `fn` once no edit of `names` (null: any field) is in flight, and
-     * after RELEASE_WAIT_MS whatever is.
+     * after RELEASE_WAIT_MS whatever is. The deadline is this call's own: `fn`
+     * decides whether what it was asked for is still wanted (a release token).
      */
     CollabForm.prototype.afterEdits = function (names, fn) {
         if (!this.editsInFlight(names)) {
@@ -1164,11 +1137,14 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
     };
 
     /**
-     * The page is going away (a navigation, the app's own form post, a closed
-     * tab) and nothing will be here when an edit in flight settles. Sent now,
-     * with keepalive: the latest value of every field that has one waiting or
-     * in flight (a request without keepalive dies with the page), then the
-     * lock releases that were waiting for those edits.
+     * The page is going away (a navigation, a closed tab) and nothing will be
+     * here when an edit in flight settles. Sent now, with keepalive: the
+     * latest value of every field that has one waiting or in flight (a
+     * request without keepalive dies with the page), then the lock releases
+     * that were waiting for those edits.
+     *   After the app's own form post the values are NOT sent: the post
+     * carries them and the app ends the draft, and an edit arriving behind
+     * that would start a new draft holding a value the save already replaced.
      */
     CollabForm.prototype.wirePageHide = function () {
         if (typeof window.addEventListener !== 'function') {
@@ -1179,13 +1155,10 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             var ctx = self.m.events && self.m.events['field.edit'];
             for (var name in self.edits) {
                 var q = self.edits[name];
-                if (ctx && (q.waiting || q.inFlight)) {
-                    // q.waiting stays set: a page restored from the back-forward
-                    // cache sends the latest value again when the edit in flight
-                    // settles, so a late failure of the older one cannot end on
-                    // it (review round 2: a, ab, then the failed a resent).
+                if (ctx && !self.submitted && (q.waiting || q.inFlight)) {
                     self.postEvent('field.edit', ctx, { field: name, value: q.waiting ? q.value : q.sent });
                 }
+                q.waiting = false;
             }
             var releasing = [];
             for (var field in self.fieldReleasing) {
@@ -1203,7 +1176,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
 
     // -- locked fields in the app's own form post ----------------------------
 
-    CollabForm.prototype.wireLockedFieldsIntoFormData = function () {
+    CollabForm.prototype.wireLockedFieldsIntoSubmit = function () {
         var self = this;
         var fields = Array.isArray(this.m.fields) ? this.m.fields : [];
         var forms = [];
@@ -1215,68 +1188,58 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             }
         }
         forms.forEach(function (form) {
-            var listener = function (ev) {
-                if (ev && ev.formData) {
-                    self.addLockedFields(form, ev.formData);
+            var onSubmit = function (ev) { self.unlockForSubmit(form, ev); };
+            // The browser fires `formdata` once it has read the controls. One
+            // fired while the submit event is still being dispatched is the
+            // app's own `new FormData(form)`; the browser's list comes later.
+            var onFormData = function () {
+                if (!self.submitEvent || !self.submitEvent.eventPhase) {
+                    self.relockAfterSubmit();
                 }
             };
-            form.addEventListener('formdata', listener);
-            self.formDataListeners.push({ form: form, listener: listener });
+            form.addEventListener('submit', onSubmit, true);
+            form.addEventListener('formdata', onFormData);
+            self.formListeners.push({ form: form, type: 'submit', listener: onSubmit, capture: true });
+            self.formListeners.push({ form: form, type: 'formdata', listener: onFormData, capture: false });
         });
     };
 
     /**
-     * Put the value of every control of `form` that a lock disabled into
-     * `formData`, where the browser would have had the control been enabled:
-     * every name with a locked control is taken out and its controls are
-     * appended again in document order (`line[]` stays A, B, C with A locked).
-     * The name itself moves behind the others. Where the data under a name is
-     * not what the enabled controls account for (the submit button shares the
-     * name, another listener added to it) nothing is taken out and the locked
-     * values go last.
+     * `form` is being submitted: enable the fields a lock disabled, for the
+     * browser to read. They are disabled again when it has (`formdata`), and
+     * in the next task whatever happened (a cancelled submit, an app that
+     * posts the form itself).
      */
-    CollabForm.prototype.addLockedFields = function (form, formData) {
-        if (completedFormData.has(formData)) {
-            return;
-        }
-        completedFormData.add(formData);
-        var controls = Array.prototype.slice.call(form.elements || []);
-        var names = [];
-        var c;
-        for (c = 0; c < controls.length; c++) {
-            if (isLockedControl(controls[c]) && names.indexOf(controls[c].name) === -1) {
-                names.push(controls[c].name);
+    CollabForm.prototype.unlockForSubmit = function (form, ev) {
+        var self = this;
+        this.submitted = true;
+        this.submitEvent = ev;
+        var fields = Array.isArray(this.m.fields) ? this.m.fields : [];
+        for (var i = 0; i < fields.length; i++) {
+            var name = String(fields[i]);
+            var input = this.inputOf(this.fieldEl(name));
+            if (input && this.lockedInputs[name] && input.disabled && input.form === form) {
+                input.disabled = false;
+                this.submitUnlocked.push({ name: name, input: input });
             }
         }
-        for (var n = 0; n < names.length; n++) {
-            var enabled = [];
-            var locked = [];
-            var all = [];
-            for (c = 0; c < controls.length; c++) {
-                var control = controls[c];
-                if (control.name !== names[n]) {
-                    continue;
-                }
-                var values = submittedValues(control);
-                if (isLockedControl(control)) {
-                    locked = locked.concat(values);
-                    all = all.concat(values);
-                } else if (!isDisabledControl(control)) {
-                    enabled = enabled.concat(values);
-                    all = all.concat(values);
-                }
+        setTimeout(function () {
+            self.relockAfterSubmit();
+            if (self.submitEvent === ev) {
+                self.submitEvent = null;
             }
-            var present = formData.getAll(names[n]);
-            var accounted = present.length === enabled.length;
-            for (var e = 0; accounted && e < enabled.length; e++) {
-                accounted = present[e] === enabled[e];
+            if (ev && ev.defaultPrevented) {
+                self.submitted = false; // nothing was posted, or the page stays
             }
-            if (accounted) {
-                formData.delete(names[n]);
-            }
-            var add = accounted ? all : locked;
-            for (var a = 0; a < add.length; a++) {
-                formData.append(names[n], add[a]);
+        }, 0);
+    };
+
+    CollabForm.prototype.relockAfterSubmit = function () {
+        var unlocked = this.submitUnlocked;
+        this.submitUnlocked = [];
+        for (var i = 0; i < unlocked.length; i++) {
+            if (this.lockedInputs[unlocked[i].name]) {
+                unlocked[i].input.disabled = true;
             }
         }
     };
@@ -1502,10 +1465,12 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             clearInterval(this.heartbeatTimer);
             this.heartbeatTimer = null;
         }
-        for (var i = 0; i < this.formDataListeners.length; i++) {
-            this.formDataListeners[i].form.removeEventListener('formdata', this.formDataListeners[i].listener);
+        this.relockAfterSubmit();
+        for (var i = 0; i < this.formListeners.length; i++) {
+            var l = this.formListeners[i];
+            l.form.removeEventListener(l.type, l.listener, l.capture);
         }
-        this.formDataListeners = [];
+        this.formListeners = [];
         if (this.pageHideListener) {
             window.removeEventListener('pagehide', this.pageHideListener);
             this.pageHideListener = null;
