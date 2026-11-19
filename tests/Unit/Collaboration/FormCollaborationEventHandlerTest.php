@@ -15,6 +15,7 @@ use Semitexa\PlatformUi\Application\Service\Collaboration\InMemoryFormCollabDraf
 use Semitexa\PlatformUi\Domain\Contract\FormCollabDraftStoreInterface;
 use Semitexa\PlatformUi\Domain\Contract\FormLockStoreInterface;
 use Semitexa\PlatformUi\Domain\Contract\FormPresenceStoreInterface;
+use Semitexa\PlatformUi\Domain\Exception\FormDraftVersionConflictException;
 use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventContext;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventResponseStatus;
@@ -270,6 +271,30 @@ final class FormCollaborationEventHandlerTest extends TestCase
         self::assertSame('form_draft_version_conflict', $resp->error?->code);
         self::assertSame(["title" => "Carol's new draft"], $store->load(self::SCOPE)?->values);
         self::assertSame(1, $store->load(self::SCOPE)->version, 'the same number the old save carried');
+    }
+
+    /** Review, platform-ui#92: the epoch of the later read beside the version of the earlier one sent Keep mine into a second conflict. */
+    #[Test]
+    public function a_conflict_names_the_epoch_and_the_version_of_one_read(): void
+    {
+        $store = new class extends InMemoryFormCollabDraftStore {
+            public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor, ?string $expectedEpoch = null): FormCollabDraftState
+            {
+                // The write met version 1 of another draft, which ends before the handler reads the base.
+                $this->discard($scopeKey);
+
+                throw new FormDraftVersionConflictException($scopeKey, $expectedVersion, 1);
+            }
+        };
+        $handler = (new FormCollaborationEventHandler())->withCollaborationDeps($store, $this->presence, $this->lock, $this->invalidator);
+
+        $resp = $handler->handle((object) [], $this->ctx('form.save', 'optimistic', ['values' => ['title' => 'Mine'], 'version' => 1, 'epoch' => 'e-old']));
+
+        self::assertSame('form_draft_version_conflict', $resp->error?->code);
+        self::assertSame(['currentEpoch' => '', 'currentVersion' => 0], [
+            'currentEpoch'   => $resp->error->details['currentEpoch'] ?? 'missing',
+            'currentVersion' => $resp->error->details['currentVersion'] ?? 'missing',
+        ]);
     }
 
     #[Test]

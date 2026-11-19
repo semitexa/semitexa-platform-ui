@@ -137,7 +137,10 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
                 default           => self::error('unknown_collab_event', 'Unsupported collaborative event.'),
             };
         } catch (FormDraftVersionConflictException $e) {
-            return self::error('form_draft_version_conflict', $e->getMessage(), $e->getErrorContext() + $this->currentBase($scope));
+            // The base a retry needs comes from one read: the later one replaces
+            // both fields, and the conflict's own stand when it fails (review,
+            // platform-ui#92: a union kept the earlier version beside the later epoch).
+            return self::error('form_draft_version_conflict', $e->getMessage(), array_replace($e->getErrorContext(), $this->currentBase($scope)));
         } catch (\Throwable $e) {
             // A genuine failure of a collaborative WRITE (draft apply/merge, lock,
             // presence) — NOT the typed optimistic conflict above. The client is
