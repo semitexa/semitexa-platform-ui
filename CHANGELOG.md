@@ -30,7 +30,10 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
   Known limits: a value sent as the page is hidden can still arrive before an
   older edit that was in flight, and a page restored from the back/forward
   cache can retry an older edit after the newer value went out with
-  `keepalive` (only a sequence number from the server would order them); a
+  `keepalive` (only a sequence number from the server would order them); an
+  edit one participant sent before another participant's save can still
+  arrive after that save and open a new draft holding the older value (only
+  a server check of the save that ended the draft would refuse it); a
   refused edit (4xx, for example an expired session) is not sent again, as
   before.
 - A field another participant holds (FormLock, FieldLock) is in the form the
