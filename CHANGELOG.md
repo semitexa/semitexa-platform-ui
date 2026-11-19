@@ -17,7 +17,9 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
   `getDisplayName()` / `getName()`, else the id.
 
 ### Changed
-- A custom `FormCollabDraftStoreInterface` needs `discard()`, and a custom
+- A custom `FormCollabDraftStoreInterface` needs `discard()` and the new last
+  parameter of `apply()`, `?string $expectedEpoch` (the write is refused when
+  the row it would change belongs to another draft), and a custom
   `FormPresenceStoreInterface` needs `lastSeenAt()`.
 - An Optimistic save (`form.save`) names the draft it was based on (`epoch`);
   one that does not, from a tab opened before the upgrade, is refused with
