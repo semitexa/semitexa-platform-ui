@@ -12,6 +12,24 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
   was present in for 30 minutes (`PLATFORM_UI_COLLAB_DRAFT_IDLE_MINUTES`,
   0 = never, at most a day) is dropped on the next read. Before, an unsaved edit
   from days ago was written into the next editor's inputs.
+- A collaborative form no longer keeps an older value of a field than the one
+  typed last. Each keystroke was its own request carrying the whole value, and
+  a request that arrived late overwrote a newer one in the shared draft. A
+  field now has one edit in flight and the latest value follows when it
+  settles. An edit with no answer in 10 s is aborted; a value that failed
+  (network, timeout, 5xx) is sent again at once, then on up to three presence
+  heartbeats, then dropped. A lock is released after the field's last edit
+  arrived. When the page is hidden the latest value and a waiting release go
+  out at once with `keepalive`.
+  Known limits: a value sent as the page is hidden can still arrive before an
+  older edit that was in flight (only a sequence number from the server would
+  order them), and a refused edit (4xx, for example an expired session) is not
+  sent again, as before.
+- A field another participant holds (FormLock, FieldLock) is in the data of the
+  form the app posts, in document order among the controls of the same name.
+  It is `disabled`, a browser leaves disabled controls out, and a save made
+  meanwhile stored the field empty. The field stays locked; an app that
+  enabled the inputs in its own submit listener can drop that.
 - Presence chips and "Locked by …" show a name instead of the user id: the
   app's optional `FormCollaboratorLabelResolverInterface`, else the user's
   `getDisplayName()` / `getName()`, else the id.

@@ -24,7 +24,30 @@
  * the field they are still typing into. Two guards prevent it: (1) never write
  * a field that is currently focused or locally dirty; (2) skip a snapshot whose
  * `origin` is this participant (`self`). Guard (1) is the robust one; (2) is the
- * documented fast-path.
+ * documented fast-path. A field whose own edit is still on its way to the
+ * server (in flight, or waiting behind one) counts as being edited too.
+ *
+ * EDIT ORDER: every `field.edit` carries the whole value and no sequence, and
+ * the server keeps whichever arrives last. So a field has at most ONE edit in
+ * flight; while it flies only the latest value is kept, and it goes out when
+ * the one before it settles. An edit with no answer in 10 s is aborted and
+ * counts as failed. A failed value is sent once more at once, then on up to
+ * three heartbeats, then dropped. A lock is released only after the field's
+ * last edit settled, so the edit is never refused for arriving behind the
+ * release.
+ *   Not covered, and only a sequence number from the server would: when the
+ * page is hidden the latest value (and a release waiting for it) is sent at
+ * once, beside an edit still in flight, and the two can arrive in either
+ * order; and an edit aborted after 10 s that the server still processes can
+ * land after the newer value sent behind it. A refusal (4xx: the session
+ * expired, the lock was lost) is an answer: the value it refused is not sent
+ * again.
+ *
+ * LOCKED FIELDS AND THE APP'S OWN POST: a field someone else holds is
+ * `disabled`, and a browser leaves disabled controls out of a form's data. A
+ * `formdata` listener on the field's form puts the value back, in document
+ * order among the controls of the same name, so a save made while a field is
+ * locked stores what the form shows, not an empty value.
  *
  * Manifest contract (emitted by the server `ui_collab_manifest()` helper as
  * `<script type="application/json" data-ui-collab-manifest>`):
@@ -51,6 +74,18 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
     var PRESENCE_SELECTOR = '[data-ui-collab-presence]';
     var STATUS_SELECTOR = '[data-ui-collab-status]';
     var DEFAULT_HEARTBEAT_MS = 15000;
+    // A field.edit with no answer after this long is aborted and counts as failed.
+    var EDIT_TIMEOUT_MS = 10000;
+    // Heartbeats a value whose send keeps failing is tried on before it is dropped.
+    var EDIT_HEARTBEAT_RETRIES = 3;
+    // The longest a lock release waits for edits in flight (two timeouts and a margin).
+    var RELEASE_WAIT_MS = 25000;
+
+    // Controls a collaboration lock disabled (any form instance on the page),
+    // as opposed to a control the page disabled for its own reasons; and the
+    // form data already completed, when two instances share one form.
+    var lockedControls = new WeakSet();
+    var completedFormData = new WeakSet();
 
     /** Booted instances, keyed by render instance id, so a re-scan is idempotent. */
     var booted = Object.create(null);
@@ -107,6 +142,54 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         b.textContent = label;
         b.addEventListener('click', onClick);
         return b;
+    }
+
+    /** A named control a collaboration lock disabled, and that still is. */
+    function isLockedControl(control) {
+        return lockedControls.has(control) && control.disabled === true
+            && typeof control.name === 'string' && control.name !== '';
+    }
+
+    /** Disabled itself, or by a disabled fieldset around it. */
+    function isDisabledControl(control) {
+        return control.disabled === true
+            || (typeof control.closest === 'function' && control.closest('fieldset[disabled]') !== null);
+    }
+
+    /**
+     * What a browser would submit for `input` were it enabled: nothing for an
+     * unchecked checkbox or radio and for buttons, every selected option of a
+     * select, the files of a file input, else the value.
+     */
+    function submittedValues(input) {
+        var tag = String(input.tagName || '').toLowerCase();
+        var type = String(input.type || '').toLowerCase();
+        if (tag !== 'input' && tag !== 'select' && tag !== 'textarea') {
+            return []; // a fieldset, an output, a button: listed, never submitted here
+        }
+        if (tag === 'select') {
+            var out = [];
+            var options = input.options || [];
+            for (var i = 0; i < options.length; i++) {
+                if (options[i].selected && !options[i].disabled) {
+                    out.push(options[i].value);
+                    if (!input.multiple) {
+                        break;
+                    }
+                }
+            }
+            return out;
+        }
+        if (type === 'checkbox' || type === 'radio') {
+            return input.checked ? [input.value] : [];
+        }
+        if (type === 'submit' || type === 'button' || type === 'reset' || type === 'image') {
+            return [];
+        }
+        if (type === 'file') {
+            return Array.prototype.slice.call(input.files || []);
+        }
+        return [input.value];
     }
 
     // ---- one collaborative form instance ----------------------------------
@@ -167,6 +250,18 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         // queued here (by field name) and flushed once the lock is held, so a
         // keystroke during the acquire round-trip is never silently dropped.
         this.pendingEdit = Object.create(null);
+        // field.edit order (see EDIT ORDER above), by field name:
+        // {inFlight, sent, waiting, value, retried, beats}. `waiting` with no
+        // edit in flight is a value whose send failed twice: the next edit,
+        // the presence heartbeat (EDIT_HEARTBEAT_RETRIES times), a lock
+        // release or the page being hidden sends it.
+        this.edits = Object.create(null);
+        this.editWaiters = [];
+        // Lock releases asked for while an edit was still in flight.
+        this.lockReleasing = false;
+        this.fieldReleasing = Object.create(null);
+        this.formDataListeners = [];
+        this.pageHideListener = null;
     }
 
     CollabForm.prototype.fieldEl = function (name) {
@@ -185,6 +280,8 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
 
     CollabForm.prototype.start = function () {
         this.wireLocalEdits();
+        this.wireLockedFieldsIntoFormData();
+        this.wirePageHide();
         this.subscribe();
         this.startHeartbeat();
         if (this.mode === 'optimistic') {
@@ -358,9 +455,9 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             return;
         }
         var next = value === null || value === undefined ? '' : String(value);
-        if (this.dirty[name] || input === document.activeElement) {
-            // Being typed in right now. What it holds went into the draft that
-            // just ended: send it again, so it is an edit everyone sees and
+        if (this.dirty[name] || input === document.activeElement || this.editBusy(name)) {
+            // Being typed in right now (or its edit is still on the way).
+            // What it holds went into the draft that just ended: send it again, so it is an edit everyone sees and
             // not text that only this tab still has.
             if (input.value !== next) {
                 this.relayEdit(name, input.value);
@@ -429,8 +526,18 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         for (var i = 0; i < fields.length; i++) {
             var input = this.inputOf(this.fieldEl(String(fields[i])));
             if (input) {
-                input.disabled = !!disabled;
+                this.setInputLocked(String(fields[i]), input, !!disabled);
             }
+        }
+    };
+
+    /** Disable (or free) one managed input, remembering that the lock did it. */
+    CollabForm.prototype.setInputLocked = function (name, input, locked) {
+        input.disabled = locked;
+        if (locked) {
+            lockedControls.add(input);
+        } else {
+            lockedControls.delete(input);
         }
     };
 
@@ -475,10 +582,33 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         });
     };
 
+    /**
+     * Release the whole-form lock, after every edit in flight settled: an
+     * edit that arrived behind the release would be refused, and the last
+     * thing typed before leaving the form would be lost. A value whose send
+     * failed gets one more try first. Focus coming back before then keeps the
+     * lock (see the focus listener).
+     */
     CollabForm.prototype.releaseLock = function () {
         if (!this.iHoldLock) {
             return;
         }
+        this.lockReleasing = true;
+        var self = this;
+        this.retryUnsentEdits(null, false);
+        this.afterEdits(null, function () {
+            if (self.lockReleasing) {
+                self.finishLockRelease();
+            }
+        });
+    };
+
+    CollabForm.prototype.finishLockRelease = function () {
+        this.lockReleasing = false;
+        if (!this.iHoldLock) {
+            return;
+        }
+        this.dropUnsentEdits(null);
         this.iHoldLock = false;
         this.stopLockHeartbeat();
         var ctx = this.m.events && this.m.events['lock.release'];
@@ -545,11 +675,11 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             var lock = holders[name];
             var holderId = lock ? String(lock.holderId || '') : '';
             if (holderId !== '' && holderId !== this.self) {
-                input.disabled = true;
+                this.setInputLocked(name, input, true);
                 input.setAttribute('data-ui-collab-field-lock', lock.holderLabel || 'someone');
                 delete this.myFieldLocks[name];
             } else {
-                input.disabled = false;
+                this.setInputLocked(name, input, false);
                 input.removeAttribute('data-ui-collab-field-lock');
                 if (holderId !== '' && holderId === this.self) {
                     this.myFieldLocks[name] = true;
@@ -575,16 +705,33 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
                 delete self.pendingEdit[name];
                 var input = self.inputOf(self.fieldEl(name));
                 if (input) {
-                    input.disabled = true;
+                    self.setInputLocked(name, input, true);
                 }
             }
         });
     };
 
+    /** Release one field, after its last edit settled (see releaseLock). */
     CollabForm.prototype.releaseFieldLock = function (name) {
         if (!this.myFieldLocks[name]) {
             return;
         }
+        this.fieldReleasing[name] = true;
+        var self = this;
+        this.retryUnsentEdits([name], false);
+        this.afterEdits([name], function () {
+            if (self.fieldReleasing[name]) {
+                self.finishFieldRelease(name);
+            }
+        });
+    };
+
+    CollabForm.prototype.finishFieldRelease = function (name) {
+        delete this.fieldReleasing[name];
+        if (!this.myFieldLocks[name]) {
+            return;
+        }
+        this.dropUnsentEdits([name]);
         delete this.myFieldLocks[name];
         var ctx = this.m.events && this.m.events['lock.release'];
         if (ctx) {
@@ -625,7 +772,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
                             delete self.myFieldLocks[field];
                             var input = self.inputOf(self.fieldEl(field));
                             if (input) {
-                                input.disabled = true;
+                                self.setInputLocked(field, input, true);
                             }
                         }
                     });
@@ -646,16 +793,18 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
 
     /** Release every field lock this participant holds (teardown). */
     CollabForm.prototype.releaseAllFieldLocks = function () {
+        var names = [];
         for (var name in this.myFieldLocks) {
             if (Object.prototype.hasOwnProperty.call(this.myFieldLocks, name)) {
-                var ctx = this.m.events && this.m.events['lock.release'];
-                if (ctx) {
-                    this.postEvent('lock.release', ctx, { field: name });
-                }
+                names.push(name);
             }
         }
-        this.myFieldLocks = Object.create(null);
-        this.stopFieldHeartbeat();
+        for (var i = 0; i < names.length; i++) {
+            this.releaseFieldLock(names[i]);
+        }
+        if (this.countMyFieldLocks() === 0) {
+            this.stopFieldHeartbeat();
+        }
     };
 
     CollabForm.prototype.applyField = function (name, value, mine) {
@@ -665,8 +814,10 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             return;
         }
         // Guard (1): never clobber a field the user is editing right now, and
-        // skip own echoes entirely.
-        if (this.dirty[name] || input === document.activeElement) {
+        // skip own echoes entirely. A field whose edit has not reached the
+        // server yet is still being edited: the frame holds an older value,
+        // and the echo of the edit itself will be skipped as `mine`.
+        if (this.dirty[name] || input === document.activeElement || this.editBusy(name)) {
             return;
         }
         if (mine) {
@@ -743,6 +894,10 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
                 }
                 input.addEventListener('focus', function () {
                     self.dirty[name] = true;
+                    // Back before a release waiting for its last edit went
+                    // out: the lock is kept.
+                    self.lockReleasing = false;
+                    delete self.fieldReleasing[name];
                     // FormLock: claim the whole-form lock the moment this
                     // participant starts editing (the "first editor wins" rule).
                     if (self.mode === 'form-lock' && !self.iHoldLock) {
@@ -833,12 +988,297 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         }
     };
 
+    /**
+     * Queue `value` as the latest edit of `field` and send it unless an edit
+     * of that field is in flight; then it goes out when that one settles.
+     */
     CollabForm.prototype.emitFieldEdit = function (field, value) {
-        var ctx = this.m.events && this.m.events['field.edit'];
-        if (!ctx) {
+        if (!(this.m.events && this.m.events['field.edit'])) {
             return;
         }
-        this.postEvent('field.edit', ctx, { field: field, value: value });
+        var q = this.edits[field];
+        if (!q) {
+            q = this.edits[field] = { inFlight: false, sent: null, waiting: false, value: null, retried: false, beats: 0 };
+        }
+        q.waiting = true;
+        q.value = value;
+        q.retried = false;
+        q.beats = 0;
+        this.sendNextEdit(field);
+    };
+
+    CollabForm.prototype.sendNextEdit = function (field) {
+        var q = this.edits[field];
+        var ctx = this.m.events && this.m.events['field.edit'];
+        if (!q || !ctx || q.inFlight || !q.waiting) {
+            return;
+        }
+        var self = this;
+        var value = q.value;
+        var timer = null;
+        var over = false;
+        q.waiting = false;
+        q.inFlight = true;
+        q.sent = value;
+        var settled = function (failed) {
+            if (over) {
+                return; // the timeout and the aborted request both report
+            }
+            over = true;
+            if (timer !== null) {
+                clearTimeout(timer);
+            }
+            q.inFlight = false;
+            if (failed && !q.waiting) {
+                // Nothing newer was typed, so this is still the latest value
+                // and the server does not have it: once more now, and after
+                // that it waits (see `edits`).
+                q.waiting = true;
+                q.value = value;
+                if (q.retried) {
+                    self.editsSettled();
+                    return;
+                }
+                q.retried = true;
+            } else {
+                q.retried = false;
+            }
+            if (q.waiting) {
+                self.sendNextEdit(field);
+            } else {
+                self.editsSettled();
+            }
+        };
+        // No keepalive: a browser refuses a keepalive body past its 64 KiB
+        // quota at once, every time. The page being hidden sends with it.
+        var abort = typeof AbortController === 'function' ? new AbortController() : null;
+        var request;
+        try {
+            request = hug(
+                envelope({ semanticEvent: 'field.edit', signedContext: ctx, payload: { field: field, value: value } }),
+                abort ? { signal: abort.signal } : {}
+            );
+        } catch (e) {
+            settled(true);
+            return;
+        }
+        // Failed = the server did not answer (network, EDIT_TIMEOUT_MS) or
+        // broke (5xx). A refusal (4xx: the field is locked, unknown, the
+        // session expired) is an answer.
+        request.then(
+            function (r) { settled(!!r && r.ok === false && r.status >= 500); },
+            function () { settled(true); }
+        );
+        // One stalled request would otherwise hold the field, its lock and
+        // everything typed after it for as long as the connection hangs.
+        timer = setTimeout(function () {
+            timer = null;
+            if (abort) {
+                try { abort.abort(); } catch (e) { /* noop */ }
+            }
+            settled(true);
+        }, EDIT_TIMEOUT_MS);
+    };
+
+    /** An edit of `name` is in flight or waiting to be sent. */
+    CollabForm.prototype.editBusy = function (name) {
+        var q = this.edits[name];
+        return !!q && (q.inFlight || q.waiting);
+    };
+
+    /**
+     * Run `fn` once no edit of `names` (null: any field) is in flight, and
+     * after RELEASE_WAIT_MS whatever is.
+     */
+    CollabForm.prototype.afterEdits = function (names, fn) {
+        if (!this.editsInFlight(names)) {
+            fn();
+            return;
+        }
+        var self = this;
+        var waiter = { names: names, fn: fn };
+        this.editWaiters.push(waiter);
+        setTimeout(function () {
+            var at = self.editWaiters.indexOf(waiter);
+            if (at !== -1) {
+                self.editWaiters.splice(at, 1);
+                fn();
+            }
+        }, RELEASE_WAIT_MS);
+    };
+
+    CollabForm.prototype.editsInFlight = function (names) {
+        for (var name in this.edits) {
+            if (this.edits[name].inFlight && (names === null || names.indexOf(name) !== -1)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    CollabForm.prototype.editsSettled = function () {
+        var waiters = this.editWaiters;
+        this.editWaiters = [];
+        for (var i = 0; i < waiters.length; i++) {
+            if (this.editsInFlight(waiters[i].names)) {
+                this.editWaiters.push(waiters[i]);
+            } else {
+                waiters[i].fn();
+            }
+        }
+    };
+
+    /** Forget values that never went out, for fields about to lose their lock. */
+    CollabForm.prototype.dropUnsentEdits = function (names) {
+        for (var name in this.edits) {
+            if (!this.edits[name].inFlight && (names === null || names.indexOf(name) !== -1)) {
+                this.edits[name].waiting = false;
+            }
+        }
+    };
+
+    /**
+     * Send again every value of `names` (null: any field) whose send failed.
+     * `beat`: the heartbeat's retry, which gives up after
+     * EDIT_HEARTBEAT_RETRIES; a server that never answers would otherwise be
+     * asked for ever and the field would stay "being edited", closed to what
+     * the others type.
+     */
+    CollabForm.prototype.retryUnsentEdits = function (names, beat) {
+        for (var name in this.edits) {
+            var q = this.edits[name];
+            if (!q.waiting || q.inFlight || (names !== null && names.indexOf(name) === -1)) {
+                continue;
+            }
+            var lockGone = (this.mode === 'form-lock' && !this.iHoldLock)
+                || (this.mode === 'field-lock' && !this.myFieldLocks[name]);
+            if (lockGone || (beat && q.beats >= EDIT_HEARTBEAT_RETRIES)) {
+                q.waiting = false; // refused for sure, or tried long enough
+                continue;
+            }
+            if (beat) {
+                q.beats++;
+            }
+            this.sendNextEdit(name);
+        }
+    };
+
+    /**
+     * The page is going away (a navigation, the app's own form post, a closed
+     * tab) and nothing will be here when an edit in flight settles. Sent now,
+     * with keepalive: the latest value of every field that has one waiting or
+     * in flight (a request without keepalive dies with the page), then the
+     * lock releases that were waiting for those edits.
+     */
+    CollabForm.prototype.wirePageHide = function () {
+        if (typeof window.addEventListener !== 'function') {
+            return;
+        }
+        var self = this;
+        this.pageHideListener = function () {
+            var ctx = self.m.events && self.m.events['field.edit'];
+            for (var name in self.edits) {
+                var q = self.edits[name];
+                if (ctx && (q.waiting || q.inFlight)) {
+                    // q.waiting stays set: a page restored from the back-forward
+                    // cache sends the latest value again when the edit in flight
+                    // settles, so a late failure of the older one cannot end on
+                    // it (review round 2: a, ab, then the failed a resent).
+                    self.postEvent('field.edit', ctx, { field: name, value: q.waiting ? q.value : q.sent });
+                }
+            }
+            var releasing = [];
+            for (var field in self.fieldReleasing) {
+                releasing.push(field);
+            }
+            for (var i = 0; i < releasing.length; i++) {
+                self.finishFieldRelease(releasing[i]);
+            }
+            if (self.lockReleasing) {
+                self.finishLockRelease();
+            }
+        };
+        window.addEventListener('pagehide', this.pageHideListener);
+    };
+
+    // -- locked fields in the app's own form post ----------------------------
+
+    CollabForm.prototype.wireLockedFieldsIntoFormData = function () {
+        var self = this;
+        var fields = Array.isArray(this.m.fields) ? this.m.fields : [];
+        var forms = [];
+        for (var i = 0; i < fields.length; i++) {
+            var input = this.inputOf(this.fieldEl(String(fields[i])));
+            var form = input ? input.form : null;
+            if (form && typeof form.addEventListener === 'function' && forms.indexOf(form) === -1) {
+                forms.push(form);
+            }
+        }
+        forms.forEach(function (form) {
+            var listener = function (ev) {
+                if (ev && ev.formData) {
+                    self.addLockedFields(form, ev.formData);
+                }
+            };
+            form.addEventListener('formdata', listener);
+            self.formDataListeners.push({ form: form, listener: listener });
+        });
+    };
+
+    /**
+     * Put the value of every control of `form` that a lock disabled into
+     * `formData`, where the browser would have had the control been enabled:
+     * every name with a locked control is taken out and its controls are
+     * appended again in document order (`line[]` stays A, B, C with A locked).
+     * The name itself moves behind the others. Where the data under a name is
+     * not what the enabled controls account for (the submit button shares the
+     * name, another listener added to it) nothing is taken out and the locked
+     * values go last.
+     */
+    CollabForm.prototype.addLockedFields = function (form, formData) {
+        if (completedFormData.has(formData)) {
+            return;
+        }
+        completedFormData.add(formData);
+        var controls = Array.prototype.slice.call(form.elements || []);
+        var names = [];
+        var c;
+        for (c = 0; c < controls.length; c++) {
+            if (isLockedControl(controls[c]) && names.indexOf(controls[c].name) === -1) {
+                names.push(controls[c].name);
+            }
+        }
+        for (var n = 0; n < names.length; n++) {
+            var enabled = [];
+            var locked = [];
+            var all = [];
+            for (c = 0; c < controls.length; c++) {
+                var control = controls[c];
+                if (control.name !== names[n]) {
+                    continue;
+                }
+                var values = submittedValues(control);
+                if (isLockedControl(control)) {
+                    locked = locked.concat(values);
+                    all = all.concat(values);
+                } else if (!isDisabledControl(control)) {
+                    enabled = enabled.concat(values);
+                    all = all.concat(values);
+                }
+            }
+            var present = formData.getAll(names[n]);
+            var accounted = present.length === enabled.length;
+            for (var e = 0; accounted && e < enabled.length; e++) {
+                accounted = present[e] === enabled[e];
+            }
+            if (accounted) {
+                formData.delete(names[n]);
+            }
+            var add = accounted ? all : locked;
+            for (var a = 0; a < add.length; a++) {
+                formData.append(names[n], add[a]);
+            }
+        }
     };
 
     CollabForm.prototype.emitPresencePing = function () {
@@ -850,10 +1290,14 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
     };
 
     // Events go to HUG through the one client (core.envelope + core.hug).
+    // Fire and forget, with keepalive so it outlives the page: for events a
+    // later one of the same kind makes good (the next presence ping, the
+    // lock's expiry) and for what is sent as the page is hidden. A field edit
+    // otherwise goes through sendNextEdit, which sends a failed value again.
     CollabForm.prototype.postEvent = function (semanticEvent, ctx, payload) {
         try {
             hug(envelope({ semanticEvent: semanticEvent, signedContext: ctx, payload: payload }), { keepalive: true })
-                .catch(function () { /* best-effort; the next edit/heartbeat retries state */ });
+                .catch(function () { /* best-effort, see above */ });
         } catch (e) { /* noop */ }
     };
 
@@ -1034,6 +1478,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         this.emitPresencePing();
         this.heartbeatTimer = setInterval(function () {
             self.emitPresencePing();
+            self.retryUnsentEdits(null, true);
         }, this.heartbeatMs);
     };
 
@@ -1056,6 +1501,14 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         if (this.heartbeatTimer !== null) {
             clearInterval(this.heartbeatTimer);
             this.heartbeatTimer = null;
+        }
+        for (var i = 0; i < this.formDataListeners.length; i++) {
+            this.formDataListeners[i].form.removeEventListener('formdata', this.formDataListeners[i].listener);
+        }
+        this.formDataListeners = [];
+        if (this.pageHideListener) {
+            window.removeEventListener('pagehide', this.pageHideListener);
+            this.pageHideListener = null;
         }
     };
 

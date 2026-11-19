@@ -445,13 +445,17 @@
         return (meta && meta.getAttribute('content')) || null;
     }
 
-    /** POST one body to HUG. opts.keepalive for fire-and-forget on unload. */
+    /**
+     * POST one body to HUG. opts.keepalive for fire-and-forget on unload;
+     * opts.signal (an AbortSignal) for a caller that gives up on the answer.
+     */
     function hug(body, opts) {
         opts = opts || {};
         return fetch(HUG_PATH, {
             method: 'POST',
             credentials: 'same-origin',
             keepalive: opts.keepalive === true,
+            signal: opts.signal || undefined,
             headers: withCsrf('POST', { 'Content-Type': 'application/json', 'Accept': 'application/json' }),
             body: typeof body === 'string' ? body : JSON.stringify(body)
         }).then(function (resp) {
