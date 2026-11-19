@@ -218,9 +218,11 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         this.lockedInputs = Object.create(null);
         this.submitUnlocked = [];
         this.submitEvent = null;
-        // The app's form was submitted and no edit was typed since: the post
-        // carries the values, and the app ends the draft.
-        this.submitted = false;
+        // The fields the app's submitted form carried, with no edit typed
+        // into them since: the post carries their values, and the app ends
+        // the draft. A field of another form, or one typed into after the
+        // submit, is not in that post.
+        this.postedFields = Object.create(null);
         this.formListeners = [];
         this.pageHideListener = null;
     }
@@ -969,7 +971,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         q.value = value;
         q.retried = false;
         q.beats = 0;
-        this.submitted = false; // typed after the submit: not in that post
+        delete this.postedFields[field]; // typed after the submit: not in that post
         this.sendNextEdit(field);
     };
 
@@ -1142,9 +1144,11 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
      * latest value of every field that has one waiting or in flight (a
      * request without keepalive dies with the page), then the lock releases
      * that were waiting for those edits.
-     *   After the app's own form post the values are NOT sent: the post
-     * carries them and the app ends the draft, and an edit arriving behind
-     * that would start a new draft holding a value the save already replaced.
+     *   After the app's own form post the values of the fields that post
+     * carried are NOT sent: the post carries them and the app ends the
+     * draft, and an edit arriving behind that would start a new draft
+     * holding a value the save already replaced. A field the post did not
+     * carry (another form's, or one typed into since) is sent as usual.
      */
     CollabForm.prototype.wirePageHide = function () {
         if (typeof window.addEventListener !== 'function') {
@@ -1155,7 +1159,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             var ctx = self.m.events && self.m.events['field.edit'];
             for (var name in self.edits) {
                 var q = self.edits[name];
-                if (ctx && !self.submitted && (q.waiting || q.inFlight)) {
+                if (ctx && !self.postedFields[name] && (q.waiting || q.inFlight)) {
                     self.postEvent('field.edit', ctx, { field: name, value: q.waiting ? q.value : q.sent });
                 }
                 q.waiting = false;
@@ -1212,12 +1216,16 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
      */
     CollabForm.prototype.unlockForSubmit = function (form, ev) {
         var self = this;
-        this.submitted = true;
+        var posted = Object.create(null);
+        this.postedFields = posted;
         this.submitEvent = ev;
         var fields = Array.isArray(this.m.fields) ? this.m.fields : [];
         for (var i = 0; i < fields.length; i++) {
             var name = String(fields[i]);
             var input = this.inputOf(this.fieldEl(name));
+            if (input && input.form === form) {
+                posted[name] = true;
+            }
             if (input && this.lockedInputs[name] && input.disabled && input.form === form) {
                 input.disabled = false;
                 this.submitUnlocked.push({ name: name, input: input });
@@ -1228,8 +1236,8 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             if (self.submitEvent === ev) {
                 self.submitEvent = null;
             }
-            if (ev && ev.defaultPrevented) {
-                self.submitted = false; // nothing was posted, or the page stays
+            if (ev && ev.defaultPrevented && self.postedFields === posted) {
+                self.postedFields = Object.create(null); // nothing was posted, or the page stays
             }
         }, 0);
     };

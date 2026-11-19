@@ -1108,6 +1108,37 @@ final class FormCollabRuntimeTest extends TestCase
     }
 
     #[Test]
+    public function the_post_of_one_form_does_not_keep_another_forms_edit_from_the_page_hide(): void
+    {
+        // One runtime, two forms: `title` is in the form the app posts,
+        // `notes` in another. That post carries `title` only, so the page
+        // hide behind it must still send the last value of `notes`, and only
+        // that: `title` is in the post. Typing into `title` after the submit
+        // takes it out of the post again.
+        $typed = [
+            ['focus' => 'title'], ['type' => 'title', 'value' => 'a'], ['type' => 'title', 'value' => 'ab'], ['blur' => 'title'],
+            ['focus' => 'notes'], ['type' => 'notes', 'value' => 'n'], ['type' => 'notes', 'value' => 'no'], ['blur' => 'notes'],
+        ];
+        $scenario = [
+            'manifest' => self::manifest('field-lock', 'bob', ['title', 'notes']),
+            'inputs' => ['title' => '', 'notes' => ''],
+            'form' => true,
+            'controls' => ['notes' => ['form' => 'other']],
+            'hold' => ['field.edit'],
+        ];
+
+        $posted = $this->editorSees($scenario + ['steps' => [...$typed, ['submit' => true], ['pagehide' => true]]]);
+        self::assertSame([['field' => 'notes', 'value' => 'no']], self::edits($posted['keepalive']), 'the other form\'s field, and not the posted one');
+
+        $retyped = $this->editorSees($scenario + ['steps' => [...$typed, ['submit' => true], ['focus' => 'title'], ['type' => 'title', 'value' => 'abc'], ['pagehide' => true]]]);
+        self::assertSame(
+            [['field' => 'title', 'value' => 'abc'], ['field' => 'notes', 'value' => 'no']],
+            self::edits($retyped['keepalive']),
+            'a field typed into after the submit is not in that post',
+        );
+    }
+
+    #[Test]
     public function a_release_that_focus_cancelled_does_not_act_for_a_later_one(): void
     {
         // Blur at 0 s with `a` in flight, back at 5 s. `a` times out at 10 s

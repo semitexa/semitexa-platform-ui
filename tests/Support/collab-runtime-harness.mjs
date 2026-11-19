@@ -7,14 +7,16 @@
 // hold lists the events whose requests stay in flight until a step answers them.
 // form puts the inputs in a <form>; controls gives an input another shape:
 // {tag, type, name, checked, multiple, options: [{value, selected}]} (name null = no name),
-// disabled (the page rendered it disabled), fieldset (inside a disabled <fieldset>).
+// disabled (the page rendered it disabled), fieldset (inside a disabled <fieldset>),
+// form: '<key>' (in a second <form> of that key, not the first).
 // A step is {snapshot}, {focus}, {blur}, {type, value}, {save}, {click: '<attribute>'},
 // {answer: 'oldest' | 'newest-first'} (the server gets and answers one held request, or
 // all of them and what they cause, newest first), {fail: 'oldest'} (it never arrives),
 // {tick} (every interval fires once), {elapse: ms} (the clock moves; timeouts due fire),
 // {pagehide}, {unmount} (the form leaves the page), {enable} (the page enables an input
 // itself), {formData} (what `new FormData(form)` holds, built outside any submit) or
-// {submit: true | {prevent, appFormData}} (the form is submitted: the app's own submit
+// {submit: true | {prevent, appFormData, form}} (the form, or the second form of that key,
+// is submitted: the app's own submit
 // listener may build a FormData and may cancel; unless cancelled the browser then builds
 // the data it posts).
 // stdout: what a person would see (input values, presence chips, lock texts, prompts),
@@ -119,9 +121,11 @@ conflictHost.setAttribute('hidden', '');
 const saveButton = scenario.save ? host('data-ui-collab-save') : null;
 const inputs = {};
 const formEl = scenario.form ? root.appendChild(new El('form')) : null;
+const otherForms = {};
 for (const [name, value] of Object.entries(scenario.inputs)) {
     const shape = (scenario.controls || {})[name] || {};
     let holder = formEl || root;
+    if (shape.form) { holder = otherForms[shape.form] || (otherForms[shape.form] = root.appendChild(new El('form'))); }
     if (shape.fieldset) { holder = holder.appendChild(new El('fieldset')); holder.disabled = true; }
     const input = holder.appendChild(new El(shape.tag || 'input'));
     input.disabled = !!shape.disabled;
@@ -280,24 +284,25 @@ for (const step of scenario.steps) {
         inputs[step.enable].disabled = false;
     } else if (step.submit) {
         const how = step.submit === true ? {} : step.submit;
+        const target = how.form ? otherForms[how.form] : formEl;
         const ev = new FakeEvent('submit', { bubbles: true });
         // The app's own listener, added after the runtime's.
         const app = () => {
             if (how.appFormData) {
                 const fd = new FakeEvent('formdata');
-                fd.formData = new FakeFormData(formEl);
-                formEl.dispatchEvent(fd);
+                fd.formData = new FakeFormData(target);
+                target.dispatchEvent(fd);
                 appFormData = fd.formData.entries;
             }
             if (how.prevent) { ev.preventDefault(); }
         };
-        formEl.addEventListener('submit', app);
-        formEl.dispatchEvent(ev);
-        formEl.removeEventListener('submit', app);
+        target.addEventListener('submit', app);
+        target.dispatchEvent(ev);
+        target.removeEventListener('submit', app);
         if (!ev.defaultPrevented) {
             const fd = new FakeEvent('formdata');
-            fd.formData = new FakeFormData(formEl);
-            formEl.dispatchEvent(fd);
+            fd.formData = new FakeFormData(target);
+            target.dispatchEvent(fd);
             formData = fd.formData.entries;
         }
         disabledAfterSubmit = disabledNow();

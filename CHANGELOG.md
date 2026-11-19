@@ -23,13 +23,16 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
   value once more first. This is best effort: when that try fails too, or the
   wait runs out, the lock is released and the value is not in the draft.
   When the page is hidden the latest value and a waiting release go out at
-  once with `keepalive`, except after the app's own form post: the post
-  carries the values, and an edit arriving behind the save would start a new
-  draft.
+  once with `keepalive`, except for the fields the app's own form post
+  carried: the post carries their values, and an edit arriving behind the
+  save would start a new draft. A field of another form, or one typed into
+  after the submit, is sent as usual.
   Known limits: a value sent as the page is hidden can still arrive before an
-  older edit that was in flight (only a sequence number from the server would
-  order them), and a refused edit (4xx, for example an expired session) is not
-  sent again, as before.
+  older edit that was in flight, and a page restored from the back/forward
+  cache can retry an older edit after the newer value went out with
+  `keepalive` (only a sequence number from the server would order them); a
+  refused edit (4xx, for example an expired session) is not sent again, as
+  before.
 - A field another participant holds (FormLock, FieldLock) is in the form the
   app posts. It is `disabled`, a browser leaves disabled controls out, and a
   save made meanwhile stored the field empty. On the form's `submit` the
