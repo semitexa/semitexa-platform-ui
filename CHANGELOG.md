@@ -1,9 +1,29 @@
 # Changelog
 
 Changes to `semitexa/platform-ui` that a consuming application can notice. Sections are
-`## <version> — <date>` (newest first); `## Unreleased` collects changes until the
-next release tag. This file is machine-read by `update:changelog` and the OS
-"What's new" surface — keep entries short and operator-facing.
+`## <version> — <date>` (newest first); `## Unreleased
+
+### Fixed
+- A collaborative form's shared draft now ends. After the record's save commits,
+  call `FormCollaborationDrafts::discardForRecord($formKey, $recordId, $values)`
+  with the stored value of every managed field: open editors are re-based on
+  them (without values they keep their inputs and the page gets the
+  `semitexa:collab:reset` event). A draft nobody wrote to or
+  was present in for 30 minutes (`PLATFORM_UI_COLLAB_DRAFT_IDLE_MINUTES`,
+  0 = never, at most a day) is dropped on the next read. Before, an unsaved edit
+  from days ago was written into the next editor's inputs.
+- Presence chips and "Locked by …" show a name instead of the user id: the
+  app's optional `FormCollaboratorLabelResolverInterface`, else the user's
+  `getDisplayName()` / `getName()`, else the id.
+
+### Changed
+- A custom `FormCollabDraftStoreInterface` needs `discard()`, and a custom
+  `FormPresenceStoreInterface` needs `lastSeenAt()`.
+- An Optimistic save (`form.save`) names the draft it was based on (`epoch`);
+  one that does not, from a tab opened before the upgrade, is refused with
+  `collab_client_outdated` ("This page is out of date. Reload to continue.").
+- A handler's `UiEventError::$details` are sent to the browser with the error
+  (`details` in the response body).
 
 ## 2026.10.08.0620 — 2026-10-08
 

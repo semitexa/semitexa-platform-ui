@@ -38,6 +38,13 @@ final readonly class FormDocumentSnapshot
      * @param list<FormLock> $locks the live locks on the document (whole-form when
      *        {@see FormLock::$field} is null, per-field otherwise); empty for the
      *        lock-free modes. Drives the client's read-only / "locked by X" UX.
+     * @param string $epoch which draft this is ({@see FormCollabDraftState::$epoch});
+     *        '' when there is none. A client holding unsaved edits compares it:
+     *        another epoch means the draft they were based on is gone.
+     * @param array{id: string, at: int, values: array<string, scalar|null>|null}|null $saved
+     *        the latest "the record was saved" notice
+     *        ({@see \Semitexa\PlatformUi\Application\Service\Collaboration\FormCollabSaveNotices});
+     *        null when there is none or the cache does not say.
      */
     public function __construct(
         public string $scopeKey,
@@ -48,6 +55,8 @@ final readonly class FormDocumentSnapshot
         public array $presence,
         public FormCollaborationMode $mode,
         public array $locks = [],
+        public string $epoch = '',
+        public ?array $saved = null,
     ) {}
 
     /**
@@ -86,11 +95,13 @@ final readonly class FormDocumentSnapshot
                 'version'   => $this->version,
                 'origin'    => $this->origin,
                 'updatedAt' => $this->updatedAt,
+                'epoch'     => $this->epoch,
             ],
             'meta' => [
                 'mode'     => $this->mode->value,
                 'presence' => $presence,
                 'locks'    => $locks,
+                'saved'    => $this->saved,
             ],
         ];
     }

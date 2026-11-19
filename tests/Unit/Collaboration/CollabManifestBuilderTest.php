@@ -123,4 +123,22 @@ final class CollabManifestBuilderTest extends TestCase
         $claims = SignedContext::verify($m['feedCtx']);
         self::assertSame($m['mode'], $claims['cfg']['mode']);
     }
+
+    #[Test]
+    public function the_manifest_names_the_save_notice_current_at_render_and_nothing_when_it_cannot_tell(): void
+    {
+        $cache = new \Semitexa\PlatformUi\Tests\Support\ArrayCacheManager();
+        $notices = (new \Semitexa\PlatformUi\Application\Service\Collaboration\FormCollabSaveNotices())->withCacheManager($cache);
+        $build = static fn (?\Semitexa\PlatformUi\Application\Service\Collaboration\FormCollabSaveNotices $n): array
+            => (new CollabManifestBuilder())->build('platform.collab-form', 'inst-1', 'article', '42', 'shared', ['title'], null, $n);
+
+        self::assertSame('', $build($notices)['saved'], 'never saved');
+        $notice = $notices->publish('formdoc:article:42', ['title' => 'T']);
+        self::assertSame($notice['id'], $build($notices)['saved']);
+        self::assertSame('', $build(null)['saved'], 'no notice store');
+        self::assertArrayNotHasKey('t', $build($notices), 'no clock to compare');
+
+        $cache->unreachable = true;
+        self::assertSame('', $build((new \Semitexa\PlatformUi\Application\Service\Collaboration\FormCollabSaveNotices())->withCacheManager($cache))['saved'], 'cache down');
+    }
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Server;
 
 use Semitexa\Core\Attribute\AsServerLifecycleListener;
+use Semitexa\PlatformUi\Application\Service\Collaboration\FormCollabSaveNotices;
 use Semitexa\PlatformUi\Attribute\AsFormSubmitAction;
 use Semitexa\PlatformUi\Attribute\AsGridAction;
 use Semitexa\PlatformUi\Attribute\AsDashboardWidget;
@@ -112,8 +113,15 @@ final class BootPlatformUiRegistryListener implements ServerLifecycleListenerInt
     #[InjectAsReadonly]
     protected ContainerInterface $container;
 
+    #[InjectAsReadonly]
+    protected FormCollabSaveNotices $collabSaveNotices;
+
     public function handle(ServerLifecycleContext $context): void
     {
+        // The collab manifest (a Twig helper, no injection) reads the current
+        // save notice of the document it renders.
+        FormCollabSaveNotices::setActive($this->collabSaveNotices);
+
         UiPrimitiveRegistry::setCatalog($this->primitiveCatalog);
         UiPrimitiveRegistry::initialize();
 

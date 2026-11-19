@@ -110,6 +110,7 @@ final class FormCollaborationEventHandlerTest extends TestCase
         $resp = $this->handler->handle((object) [], $this->ctx('form.save', 'optimistic', [
             'values' => ['title' => 'One', 'secret' => 'leak'],
             'version' => 0,
+            'epoch' => '',
         ]));
 
         self::assertSame(UiEventResponseStatus::Ok, $resp->status);
@@ -162,7 +163,7 @@ final class FormCollaborationEventHandlerTest extends TestCase
     #[Test]
     public function form_save_applies_under_the_version_guard_and_conflicts_on_stale_version(): void
     {
-        $first = $this->handler->handle((object) [], $this->ctx('form.save', 'optimistic', ['values' => ['title' => 'One'], 'version' => 0]));
+        $first = $this->handler->handle((object) [], $this->ctx('form.save', 'optimistic', ['values' => ['title' => 'One'], 'version' => 0, 'epoch' => '']));
         self::assertSame(UiEventResponseStatus::Ok, $first->status);
         self::assertSame(1, $this->draft->load(self::SCOPE)?->version);
         // The draft origin must be the STABLE actor id (the echo-suppression
@@ -172,9 +173,77 @@ final class FormCollaborationEventHandlerTest extends TestCase
         self::assertSame('actor-A', $this->draft->load(self::SCOPE)?->updatedBy);
 
         // Re-saving with the now-stale version 0 conflicts.
-        $stale = $this->handler->handle((object) [], $this->ctx('form.save', 'optimistic', ['values' => ['title' => 'Two'], 'version' => 0]));
+        $stale = $this->handler->handle((object) [], $this->ctx('form.save', 'optimistic', ['values' => ['title' => 'Two'], 'version' => 0, 'epoch' => '']));
         self::assertSame('form_draft_version_conflict', $stale->error?->code);
         self::assertSame(1, $stale->error?->details['currentVersion']);
+    }
+
+    #[Test]
+    public function a_save_that_names_no_draft_is_told_the_page_is_out_of_date(): void
+    {
+        // What a runtime from before the epoch sends (a tab left open across a
+        // deploy): the right version number, and nothing saying which draft.
+        // Not a silent pass, and not the "document changed" conflict either:
+        // that prompt offers a retry this runtime can never win.
+        $this->draft->apply(self::SCOPE, ['title' => 'Theirs'], 0, 'someone');
+
+        $resp = $this->handler->handle((object) [], $this->ctx('form.save', 'optimistic', ['values' => ['title' => 'Mine'], 'version' => 1]));
+
+        self::assertSame(FormCollaborationEventHandler::OUTDATED_CLIENT, $resp->error?->code);
+        self::assertSame('This page is out of date. Reload to continue.', $resp->error->message);
+        self::assertSame(['title' => 'Theirs'], $this->draft->load(self::SCOPE)?->values);
+    }
+
+    #[Test]
+    public function the_ack_of_a_save_says_what_the_next_save_is_based_on(): void
+    {
+        $resp = $this->handler->handle((object) [], $this->ctx('form.save', 'optimistic', ['values' => ['title' => 'One'], 'version' => 0, 'epoch' => '']));
+
+        $stored = $this->draft->load(self::SCOPE);
+        self::assertNotNull($stored);
+        self::assertNotSame('', $stored->epoch);
+        self::assertSame(['collab' => ['epoch' => $stored->epoch, 'version' => 1]], $resp->frontend);
+    }
+
+    #[Test]
+    public function a_conflict_says_what_a_retry_must_be_based_on(): void
+    {
+        $current = $this->draft->apply(self::SCOPE, ['title' => 'Theirs'], 0, 'someone');
+
+        $resp = $this->handler->handle((object) [], $this->ctx('form.save', 'optimistic', ['values' => ['title' => 'Mine'], 'version' => 0, 'epoch' => '']));
+
+        self::assertSame('form_draft_version_conflict', $resp->error?->code);
+        self::assertSame(['epoch' => $current->epoch, 'version' => 1], ['epoch' => $resp->error->details['currentEpoch'], 'version' => $resp->error->details['currentVersion']]);
+    }
+
+    #[Test]
+    public function a_save_based_on_a_draft_that_was_replaced_conflicts_at_the_same_version_number(): void
+    {
+        $old = $this->draft->apply(self::SCOPE, ['title' => 'Old draft'], 0, 'someone');
+        $this->draft->discard(self::SCOPE);
+        $new = $this->draft->apply(self::SCOPE, ['title' => 'New draft'], 0, 'someone');
+        self::assertSame($old->version, $new->version);
+
+        $stale = $this->handler->handle((object) [], $this->ctx('form.save', 'optimistic', ['values' => ['title' => 'Mine'], 'version' => 1, 'epoch' => $old->epoch]));
+        self::assertSame('form_draft_version_conflict', $stale->error?->code);
+        self::assertSame(['title' => 'New draft'], $this->draft->load(self::SCOPE)?->values);
+
+        $current = $this->handler->handle((object) [], $this->ctx('form.save', 'optimistic', ['values' => ['title' => 'Mine'], 'version' => 1, 'epoch' => $new->epoch]));
+        self::assertSame(UiEventResponseStatus::Ok, $current->status);
+        self::assertSame(['title' => 'Mine'], $this->draft->load(self::SCOPE)?->values);
+    }
+
+    #[Test]
+    public function a_save_based_on_a_draft_that_ended_conflicts_with_current_version_zero(): void
+    {
+        $old = $this->draft->apply(self::SCOPE, ['title' => 'Old draft'], 0, 'someone');
+        $this->draft->discard(self::SCOPE);
+
+        $resp = $this->handler->handle((object) [], $this->ctx('form.save', 'optimistic', ['values' => ['title' => 'Mine'], 'version' => 1, 'epoch' => $old->epoch]));
+
+        self::assertSame('form_draft_version_conflict', $resp->error?->code);
+        self::assertSame(0, $resp->error->details['currentVersion']);
+        self::assertNull($this->draft->load(self::SCOPE));
     }
 
     #[Test]
@@ -223,6 +292,7 @@ final class FormCollaborationEventHandlerTest extends TestCase
             $resp = $handler->handle((object) [], $this->ctx('form.save', 'optimistic', [
                 'values' => ['title' => 'One'],
                 'version' => 0,
+                'epoch' => '',
             ]));
 
             // The client is told generically — internals never leak.
@@ -262,6 +332,11 @@ final class ThrowingDraftStore implements FormCollabDraftStoreInterface
     }
 
     public function mergeFields(string $scopeKey, array $partialValues, ?string $actor): FormCollabDraftState
+    {
+        throw new \RuntimeException('draft store offline');
+    }
+
+    public function discard(string $scopeKey): void
     {
         throw new \RuntimeException('draft store offline');
     }

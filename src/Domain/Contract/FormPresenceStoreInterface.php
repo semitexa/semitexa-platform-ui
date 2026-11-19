@@ -41,4 +41,23 @@ interface FormPresenceStoreInterface
      * @return list<FormPresenceParticipant>
      */
     public function roster(string $scopeKey): array;
+
+    /**
+     * How long an implementation must remember a document's last heartbeat.
+     * A draft older than this with no remembered heartbeat is abandoned for
+     * certain; a younger one is not known to be.
+     */
+    public const LAST_SEEN_MEMORY_SECONDS = 86400;
+
+    /**
+     * When anyone last heartbeat in this document (unix time), or null when
+     * the store DOES NOT KNOW: the mark aged out after
+     * {@see LAST_SEEN_MEMORY_SECONDS}, the cache was flushed, or the read
+     * failed (a shared cache answers an outage with a miss). Null never means
+     * "nobody was here", and a caller must not act as if it did
+     * ({@see \Semitexa\PlatformUi\Application\Service\Collaboration\FormCollabDraftRetention}).
+     * Unlike the roster it outlives the presence TTL: it is what tells an
+     * editor who closed a laptop lid for ten minutes from one who left.
+     */
+    public function lastSeenAt(string $scopeKey): ?int;
 }

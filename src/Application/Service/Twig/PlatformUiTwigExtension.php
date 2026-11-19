@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Twig;
 
 use Semitexa\PlatformUi\Application\Service\Collaboration\CollabManifestBuilder;
+use Semitexa\PlatformUi\Application\Service\Collaboration\FormCollabSaveNotices;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
 use Semitexa\PlatformUi\Application\Service\Icon\IconRegistry;
 use Semitexa\PlatformUi\Application\Service\Component\UiPartPropResolver;
@@ -391,6 +392,7 @@ final class PlatformUiTwigExtension
                     mode: $mode,
                     fields: array_values($fields),
                     ttlSeconds: $ttlSeconds,
+                    notices: FormCollabSaveNotices::active(),
                 );
 
                 $json = json_encode(

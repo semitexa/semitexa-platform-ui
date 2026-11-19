@@ -19,6 +19,10 @@ final readonly class FormCollabDraftState
     /**
      * @param array<string, scalar|null> $values field name → current value
      * @param int $updatedAt unix timestamp of the last write
+     * @param string $epoch opaque, and different for every draft a scope ever
+     *        had: `version` restarts at 1 after a discard or an expiry, so the
+     *        same number can name two different drafts and only this tells
+     *        them apart. '' from a store that does not provide one.
      */
     public function __construct(
         public string $scopeKey,
@@ -26,5 +30,6 @@ final readonly class FormCollabDraftState
         public int $version,
         public ?string $updatedBy,
         public int $updatedAt,
+        public string $epoch = '',
     ) {}
 }

@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Collaboration;
 
+use Psr\Container\ContainerInterface;
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\PlatformUi\Application\Component\Builtin\CollaborativeFormComponent;
 use Semitexa\PlatformUi\Attribute\HandlesUiEvent;
 use Semitexa\PlatformUi\Domain\Contract\FormCollabDraftStoreInterface;
+use Semitexa\PlatformUi\Domain\Contract\FormCollaboratorLabelResolverInterface;
 use Semitexa\PlatformUi\Domain\Contract\FormLockStoreInterface;
 use Semitexa\PlatformUi\Domain\Contract\FormPresenceStoreInterface;
 use Semitexa\PlatformUi\Domain\Contract\UiEventHandlerInterface;
@@ -63,6 +65,34 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
     #[InjectAsReadonly]
     protected ScopeInvalidatorInterface $scopeInvalidator;
 
+    /** Asked for the app's optional {@see FormCollaboratorLabelResolverInterface}. */
+    #[InjectAsReadonly]
+    protected ContainerInterface $container;
+
+    /** The reason a save from a runtime that predates the draft epoch gets. */
+    public const OUTDATED_CLIENT = 'collab_client_outdated';
+
+    /** A label is shown in a chip: one line, no control or bidi characters, this long at most. */
+    public const LABEL_MAX_LENGTH = 64;
+
+    /** @var (\Closure(): ?object)|null where the signed-in user is read from; null = the auth context */
+    private ?\Closure $identitySource = null;
+
+    private ?FormCollaboratorLabelResolverInterface $labelResolver = null;
+
+    /**
+     * Test seam: the signed-in user (in place of the auth context) and the
+     * app's label resolver (in place of the container lookup).
+     *
+     * @param (\Closure(): ?object)|null $identitySource
+     */
+    public function withIdentity(?\Closure $identitySource, ?FormCollaboratorLabelResolverInterface $labelResolver = null): self
+    {
+        $this->identitySource = $identitySource;
+        $this->labelResolver = $labelResolver;
+        return $this;
+    }
+
     /** Test seam — production path uses property injection. */
     public function withCollaborationDeps(
         FormCollabDraftStoreInterface $draftStore,
@@ -93,7 +123,7 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
         // inject arbitrary field names into the shared draft.
         $allowedFields = self::allowedFields($cfg);
 
-        [$actorId, $actorLabel] = self::resolveActor($context);
+        [$actorId, $actorLabel] = $this->resolveActor($context);
         $request = is_array($context->request) ? $context->request : [];
 
         try {
@@ -107,7 +137,7 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
                 default           => self::error('unknown_collab_event', 'Unsupported collaborative event.'),
             };
         } catch (FormDraftVersionConflictException $e) {
-            return self::error('form_draft_version_conflict', $e->getMessage(), $e->getErrorContext());
+            return self::error('form_draft_version_conflict', $e->getMessage(), $e->getErrorContext() + $this->currentBase($scope));
         } catch (\Throwable $e) {
             // A genuine failure of a collaborative WRITE (draft apply/merge, lock,
             // presence) — NOT the typed optimistic conflict above. The client is
@@ -123,6 +153,23 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
 
             return self::error('collab_error', 'The collaborative action could not be completed.');
         }
+    }
+
+    /**
+     * What a save would have to be based on now: sent with a conflict so
+     * "Keep mine" can retry without waiting for a frame.
+     *
+     * @return array{currentEpoch?: string, currentVersion?: int}
+     */
+    private function currentBase(string $scope): array
+    {
+        try {
+            $current = $this->draftStore->load($scope);
+        } catch (\Throwable) {
+            return [];
+        }
+
+        return ['currentEpoch' => $current->epoch ?? '', 'currentVersion' => $current->version ?? 0];
     }
 
     /**
@@ -181,16 +228,35 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
         $values = array_intersect_key($values, array_flip($allowedFields));
         $expectedVersion = (int) ($request['version'] ?? 0);
 
+        // A save names the draft it was based on (see below). One that names
+        // none comes from a runtime older than that (a tab left open across a
+        // deploy): its version number proves nothing, and it cannot show a
+        // conflict it could resolve. It is told to reload.
+        $basedOn = $request['epoch'] ?? null;
+        if (!is_string($basedOn)) {
+            return self::error(self::OUTDATED_CLIENT, 'This page is out of date. Reload to continue.');
+        }
+
+        // The version restarts at 1 with every new draft (a discard, an
+        // expiry), so a number alone can match a draft the client never saw.
+        $current = $this->draftStore->load($scope);
+        if ($basedOn !== ($current->epoch ?? '')) {
+            throw new FormDraftVersionConflictException($scope, $expectedVersion, $current->version ?? 0);
+        }
+
         // Stamp the STABLE per-participant id (not the display label) as the
         // draft origin, identical to onFieldEdit: it is the echo-suppression
         // coordinate the client compares against its own `self`. Passing the
         // label here made anonymous savers ("Guest") never match their own
         // `self` (the instance id), so the re-projected snapshot failed to
         // suppress the author's optimistic echo.
-        $this->draftStore->apply($scope, $values, $expectedVersion, $actorId);
+        $saved = $this->draftStore->apply($scope, $values, $expectedVersion, $actorId);
         $this->scopeInvalidator->touch($scope);
 
-        return self::ack();
+        // The ack says what the next save is based on. The feed says it too,
+        // but a client whose stream is down would otherwise conflict with its
+        // own first save for ever.
+        return new UiEventResponse(frontend: ['collab' => ['epoch' => $saved->epoch, 'version' => $saved->version]]);
     }
 
     /**
@@ -251,6 +317,11 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
     private function onPresencePing(string $scope, array $request, string $actorId, string $actorLabel): UiEventResponse
     {
         $role = (string) ($request['role'] ?? 'editor');
+        // Read the draft BEFORE this heartbeat counts as presence. A page sends
+        // its first ping and opens its feed at once; when the ping won, the
+        // draft somebody abandoned days ago looked attended again and the feed
+        // wrote it into the newcomer's inputs. The read is where it expires.
+        $this->draftStore->load($scope);
         $this->presenceStore->ping($scope, $actorId, $actorLabel, $role);
         $this->scopeInvalidator->touch($scope);
 
@@ -263,19 +334,19 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
      * for anonymous editors so distinct tabs still get distinct presence/lock
      * identities. Read defensively so a missing auth surface degrades.
      *
+     * The label is what the other editors read in the chip and in "Locked by":
+     * the app's {@see FormCollaboratorLabelResolverInterface} when it binds one,
+     * else the user object's own `getDisplayName()` / `getName()`, else the id.
+     *
      * @return array{0: string, 1: string}
      */
-    private static function resolveActor(UiEventContext $context): array
+    private function resolveActor(UiEventContext $context): array
     {
-        $store = '\Semitexa\Auth\Context\AuthContextStore';
-        if (class_exists($store) && method_exists($store, 'getUser')) {
-            /** @var object|null $user */
-            $user = $store::getUser();
-            if (is_object($user) && method_exists($user, 'getId')) {
-                $id = (string) $user->getId();
-                if ($id !== '') {
-                    return [$id, $id];
-                }
+        $user = $this->currentUser();
+        if ($user !== null && method_exists($user, 'getId')) {
+            $id = self::stringOrEmpty($user->getId());
+            if ($id !== '') {
+                return [$id, $this->labelOf($user, $id)];
             }
         }
 
@@ -283,6 +354,90 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
         $id = $instance !== '' ? $instance : 'anonymous';
 
         return [$id, 'Guest'];
+    }
+
+    private function currentUser(): ?object
+    {
+        if ($this->identitySource !== null) {
+            return ($this->identitySource)();
+        }
+
+        // semitexa/auth is not a dependency of this package: without it every
+        // editor is a guest.
+        $store = '\Semitexa\Auth\Context\AuthContextStore';
+        if (!class_exists($store)) {
+            return null;
+        }
+        $user = $store::getUser();
+
+        return is_object($user) ? $user : null;
+    }
+
+    private function labelOf(object $user, string $id): string
+    {
+        // A resolver or a user model that throws must not take presence and
+        // locking down with it: the next source is asked instead.
+        $sources = [
+            fn (): mixed => $this->labelResolver()?->labelFor($id),
+            static fn (): mixed => method_exists($user, 'getDisplayName') ? $user->getDisplayName() : null,
+            static fn (): mixed => method_exists($user, 'getName') ? $user->getName() : null,
+        ];
+        foreach ($sources as $source) {
+            try {
+                $label = self::cleanLabel(self::stringOrEmpty($source()));
+            } catch (\Throwable $e) {
+                StaticLoggerBridge::error('platform-ui', 'Collaborative form label source failed', [
+                    'exception' => $e::class,
+                    'message'   => $e->getMessage(),
+                ]);
+                continue;
+            }
+            if ($label !== '') {
+                return $label;
+            }
+        }
+
+        return $id;
+    }
+
+    private function labelResolver(): ?FormCollaboratorLabelResolverInterface
+    {
+        if ($this->labelResolver !== null) {
+            return $this->labelResolver;
+        }
+        if (!isset($this->container) || !$this->container->has(FormCollaboratorLabelResolverInterface::class)) {
+            return null;
+        }
+        $resolver = $this->container->get(FormCollaboratorLabelResolverInterface::class);
+
+        return $resolver instanceof FormCollaboratorLabelResolverInterface ? $resolver : null;
+    }
+
+    /**
+     * A name as one line of plain text. Control and format characters go (a
+     * line break, or a right-to-left override that would let a name read as
+     * someone else's), whitespace collapses, and the rest is cut to
+     * {@see LABEL_MAX_LENGTH}. The two joiners stay: U+200D builds emoji
+     * sequences and U+200C is spelling in Persian and several Indic scripts.
+     * A label of nothing but joiners is no label. Markup is NOT stripped or
+     * encoded here: a label is data, and the runtime writes it with
+     * textContent / setAttribute, where `<b>` is three characters. Encoding it
+     * here too would show `&lt;b&gt;`.
+     */
+    private static function cleanLabel(string $label): string
+    {
+        $label = preg_replace('/(?:(?![\x{200C}\x{200D}])[\p{C}\s])+/u', ' ', $label);
+        if ($label === null) {
+            return ''; // not valid UTF-8
+        }
+        $label = trim(mb_substr(trim($label), 0, self::LABEL_MAX_LENGTH));
+
+        return trim($label, "\u{200C}\u{200D} ") === '' ? '' : $label;
+    }
+
+    private static function stringOrEmpty(mixed $value): string
+    {
+        return is_scalar($value) || $value instanceof \Stringable ? (string) $value : '';
     }
 
     private static function optionalField(array $request): ?string

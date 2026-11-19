@@ -62,6 +62,23 @@ final class FormPresenceLockStoreTest extends TestCase
     // ---- lock --------------------------------------------------------------
 
     #[Test]
+    public function the_last_heartbeat_of_a_document_outlives_its_roster(): void
+    {
+        $store = (new CacheBackedFormPresenceStore())->withCacheManager(new ArrayCacheManager());
+        self::assertNull($store->lastSeenAt('formdoc:a:1'), 'nobody was ever here');
+
+        $before = time();
+        $store->ping('formdoc:a:1', 'u1', 'Alice', 'editor');
+        // Alice goes (here by leaving; a closed tab goes with the 30 s TTL).
+        // The mark is a key of its own and stays.
+        $store->leave('formdoc:a:1', 'u1');
+
+        self::assertSame([], $store->roster('formdoc:a:1'));
+        self::assertGreaterThanOrEqual($before, $store->lastSeenAt('formdoc:a:1'));
+        self::assertNull($store->lastSeenAt('formdoc:a:2'), 'per document');
+    }
+
+    #[Test]
     public function first_acquire_wins_and_a_second_holder_is_denied(): void
     {
         $store = (new CacheBackedFormLockStore())->withCacheManager(new ArrayCacheManager());

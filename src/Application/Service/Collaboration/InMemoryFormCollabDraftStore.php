@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Application\Service\Collaboration;
 
+use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Tenant\TenantContextAccess;
 use Semitexa\Core\Tenant\TenantContextInterface;
 use Semitexa\PlatformUi\Domain\Contract\FormCollabDraftStoreInterface;
@@ -40,6 +41,15 @@ class InMemoryFormCollabDraftStore implements FormCollabDraftStoreInterface
      */
     protected ?TenantContextInterface $tenantContext = null;
 
+    /**
+     * When a draft is abandoned ({@see FormCollabDraftRetention}): injected
+     * when an app binds this store through the container, as it is into the
+     * ORM store, so the two expire alike. Constructed by hand (a unit test)
+     * it is unset and a draft ends only by discard().
+     */
+    #[InjectAsReadonly]
+    protected FormCollabDraftRetention $retention;
+
     /** Test seam — production path uses property injection. */
     public function withTenantContext(?TenantContextInterface $tenantContext): self
     {
@@ -47,49 +57,75 @@ class InMemoryFormCollabDraftStore implements FormCollabDraftStoreInterface
         return $this;
     }
 
+    /** Test seam — production path uses property injection. */
+    public function withRetention(FormCollabDraftRetention $retention): self
+    {
+        $this->retention = $retention;
+        return $this;
+    }
+
     public function load(string $scopeKey): ?FormCollabDraftState
     {
-        return $this->drafts[$this->tenantKey()][$scopeKey] ?? null;
+        return $this->live($scopeKey);
+    }
+
+    public function discard(string $scopeKey): void
+    {
+        unset($this->drafts[$this->tenantKey()][$scopeKey]);
+    }
+
+    /** The draft, unless it was abandoned: then it is dropped and absent. */
+    private function live(string $scopeKey): ?FormCollabDraftState
+    {
+        $draft = $this->drafts[$this->tenantKey()][$scopeKey] ?? null;
+        if ($draft !== null && isset($this->retention) && $this->retention->isAbandoned($scopeKey, $draft->updatedAt)) {
+            $this->discard($scopeKey);
+
+            return null;
+        }
+
+        return $draft;
     }
 
     public function open(string $scopeKey, array $seedValues, ?string $actor): FormCollabDraftState
     {
-        return $this->drafts[$this->tenantKey()][$scopeKey] ??= new FormCollabDraftState(
+        return $this->live($scopeKey) ?? $this->drafts[$this->tenantKey()][$scopeKey] = new FormCollabDraftState(
             scopeKey:  $scopeKey,
             values:    self::sanitize($seedValues),
             version:   1,
             updatedBy: $actor,
             updatedAt: time(),
+            epoch:     self::mintEpoch(),
         );
     }
 
     public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor): FormCollabDraftState
     {
-        $current = $this->drafts[$this->tenantKey()][$scopeKey] ?? null;
+        $current = $this->live($scopeKey);
         $currentVersion = $current?->version ?? 0;
 
         if ($currentVersion !== $expectedVersion) {
             throw new FormDraftVersionConflictException($scopeKey, $expectedVersion, $currentVersion);
         }
 
-        return $this->store($scopeKey, self::sanitize($values), $currentVersion + 1, $actor);
+        return $this->store($scopeKey, self::sanitize($values), $currentVersion + 1, $actor, $current?->epoch);
     }
 
     public function mergeFields(string $scopeKey, array $partialValues, ?string $actor): FormCollabDraftState
     {
-        $current = $this->drafts[$this->tenantKey()][$scopeKey] ?? null;
+        $current = $this->live($scopeKey);
         $merged = $current?->values ?? [];
         foreach (self::sanitize($partialValues) as $field => $value) {
             $merged[$field] = $value;
         }
 
-        return $this->store($scopeKey, $merged, ($current?->version ?? 0) + 1, $actor);
+        return $this->store($scopeKey, $merged, ($current->version ?? 0) + 1, $actor, $current?->epoch);
     }
 
     /**
      * @param array<string, scalar|null> $values
      */
-    private function store(string $scopeKey, array $values, int $version, ?string $actor): FormCollabDraftState
+    private function store(string $scopeKey, array $values, int $version, ?string $actor, ?string $epoch): FormCollabDraftState
     {
         return $this->drafts[$this->tenantKey()][$scopeKey] = new FormCollabDraftState(
             scopeKey:  $scopeKey,
@@ -97,7 +133,14 @@ class InMemoryFormCollabDraftStore implements FormCollabDraftStoreInterface
             version:   $version,
             updatedBy: $actor,
             updatedAt: time(),
+            epoch:     $epoch ?? self::mintEpoch(),
         );
+    }
+
+    /** One per draft, as the ORM store's row id is. */
+    private static function mintEpoch(): string
+    {
+        return 'fcd_' . bin2hex(random_bytes(8));
     }
 
     /** The map partition for the current tenant ('default' for the default context). */

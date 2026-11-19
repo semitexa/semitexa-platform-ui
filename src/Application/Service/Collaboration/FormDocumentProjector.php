@@ -43,16 +43,23 @@ final class FormDocumentProjector
     #[InjectAsReadonly]
     protected FormLockStoreInterface $lockStore;
 
+    #[InjectAsReadonly]
+    protected FormCollabSaveNotices $notices;
+
     /** Test seam — production path uses property injection. */
     public function withStores(
         FormCollabDraftStoreInterface $draftStore,
         FormPresenceStoreInterface $presenceStore,
         ?FormLockStoreInterface $lockStore = null,
+        ?FormCollabSaveNotices $notices = null,
     ): self {
         $this->draftStore = $draftStore;
         $this->presenceStore = $presenceStore;
         if ($lockStore !== null) {
             $this->lockStore = $lockStore;
+        }
+        if ($notices !== null) {
+            $this->notices = $notices;
         }
         return $this;
     }
@@ -80,6 +87,8 @@ final class FormDocumentProjector
             presence:  $this->presenceStore->roster($scope),
             mode:      $mode,
             locks:     $this->resolveLocks($scope, $mode, $fields),
+            epoch:     $draft->epoch ?? '',
+            saved:     isset($this->notices) ? $this->notices->current($scope) : null,
         );
     }
 

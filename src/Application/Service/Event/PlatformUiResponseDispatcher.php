@@ -16,6 +16,7 @@ use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\PlatformUi\Application\Service\Validation\UiFieldRuleRegistryInterface;
 use Semitexa\PlatformUi\Domain\Contract\UiEventHandlerInterface;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionException;
+use Semitexa\PlatformUi\Domain\Exception\UiInteractionUnprocessableException;
 use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionResult;
 use Semitexa\Ssr\Application\Service\UiEvent\CanonicalUiMessagePublisherInterface;
 use Semitexa\Ssr\Application\Service\UiEvent\UiComponentStateMessage;
@@ -525,7 +526,8 @@ final class PlatformUiResponseDispatcher implements UiResponseDispatcherInterfac
             phase:      'dispatch',
             reason:     $e->reason,
             message:    $e->getMessage(),
-            body:       ['dispatchId' => $dispatchId],
+            body:       ['dispatchId' => $dispatchId]
+                + ($e instanceof UiInteractionUnprocessableException && $e->details !== [] ? ['details' => $e->details] : []),
         );
     }
 

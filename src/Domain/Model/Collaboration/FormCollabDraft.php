@@ -77,6 +77,9 @@ final readonly class FormCollabDraft
             version: $this->version,
             updatedBy: $this->updatedBy,
             updatedAt: ($this->updatedAt ?? new \DateTimeImmutable())->getTimestamp(),
+            // The row id is minted per insert, so a draft that replaced a
+            // discarded one never shares it.
+            epoch: $this->id,
         );
     }
 }

@@ -21,13 +21,27 @@ final class ArrayCacheManager implements CacheManagerInterface
     public array $store = [];
     private string $ns = '';
 
+    /**
+     * True: every read is a miss and every write is lost, which is how the
+     * Redis store answers an outage (it swallows the error) and how a flushed
+     * cache looks. Set it before handing the manager to a store.
+     */
+    public bool $unreachable = false;
+
     public function get(string $key, mixed $default = null): mixed
     {
+        if ($this->unreachable) {
+            return $default;
+        }
+
         return $this->store[$this->ns][$key] ?? $default;
     }
 
     public function put(string $key, mixed $value, ?int $ttlSeconds = null, array $tags = []): void
     {
+        if ($this->unreachable) {
+            return;
+        }
         $this->store[$this->ns][$key] = $value;
     }
 

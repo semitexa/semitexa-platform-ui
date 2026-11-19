@@ -34,6 +34,7 @@
  *     feed, feedCtx,              the read feed's route name + its signed cfg token
  *     events,                     { "field.edit": ctx, "presence.ping": ctx } — posted to HUG
  *     fields, heartbeatMs         managed field names + presence cadence
+ *     saved                       id of the save notice current at render ('' = none/unknown)
  *   }
  */
 // ES module: the live-feed transport + CSRF plumbing arrive through the
@@ -70,6 +71,44 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         return data;
     }
 
+    /**
+     * The inside of a prompt whose host is the alert primitive: the body the
+     * alert CSS lays out, a title, the message, and a row for the buttons.
+     */
+    function promptBody(host, title, message, messageAttr) {
+        var body = document.createElement('div');
+        body.setAttribute('data-alert-body', '');
+        var heading = document.createElement('div');
+        heading.setAttribute('data-alert-title', '');
+        heading.textContent = title;
+        body.appendChild(heading);
+        var text = document.createElement('div');
+        text.setAttribute(messageAttr, '');
+        text.textContent = message;
+        body.appendChild(text);
+        var actions = document.createElement('div');
+        actions.setAttribute('sx-layout', 'cluster');
+        actions.setAttribute('sx-gap', '2');
+        actions.style.marginTop = '0.5rem';
+        body.appendChild(actions);
+        host.appendChild(body);
+        return { actions: actions };
+    }
+
+    /** A button of the package's button primitive, small and outlined. */
+    function promptButton(attr, label, onClick) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.setAttribute(attr, '');
+        b.setAttribute('ui', 'button');
+        b.setAttribute('ui-size', 'sm');
+        b.setAttribute('ui-variant', 'outline');
+        b.setAttribute('ui-tone', 'neutral');
+        b.textContent = label;
+        b.addEventListener('click', onClick);
+        return b;
+    }
+
     // ---- one collaborative form instance ----------------------------------
 
     function CollabForm(rootEl, manifest) {
@@ -92,8 +131,22 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         // uncommitted local edits.
         this.version = 0;
         this.latestServerVersion = 0;
-        this.serverValues = Object.create(null);
-        this.dirtyDoc = false;
+        // Which draft the versions above count (see applySnapshot), and the
+        // one the unsaved optimistic edits are based on: frozen with `version`,
+        // sent with the save, checked by the server.
+        this.epoch = '';
+        this.baseEpoch = '';
+        // What the server said a retry must be based on, with a conflict.
+        this.conflictBase = null;
+        // "The record was saved" notices (meta.saved). The page was rendered
+        // with the record as of the notice the manifest names, so that one is
+        // never news; without a name in the manifest (none yet, or the cache
+        // could not say) the first frame's notice is taken as the starting
+        // point too, since nothing shows it is newer than the page.
+        this.savedId = typeof manifest.saved === 'string' ? manifest.saved : '';
+        this.savedKnown = this.savedId !== '';
+        this.savedValues = Object.create(null);
+        this.swallowEpochChange = false;
         // Lock-mode state (FormLock / FieldLock): whether this participant holds
         // the whole-form lock, the current holder (from the projected snapshot),
         // and the lock-renewal timer.
@@ -173,24 +226,64 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
 
         var values = data.values || {};
 
-        // Optimistic-mode version tracking. The base version follows the server
-        // until the user has unsaved edits, then freezes so a stale save still
-        // conflicts; the latest server version + values are always recorded for
-        // conflict resolution ("keep mine" re-saves at the current version,
-        // "take theirs" adopts these values).
-        if (typeof data.version === 'number') {
+        // A draft ENDS when the record is saved (the app discards it and
+        // leaves a notice, meta.saved) or when it is abandoned (expiry); the
+        // next one starts at version 1 again. Three signs, one reaction:
+        //   - a notice this page has not seen, newer than the page itself;
+        //   - another epoch (the epoch names the draft) after a draft was seen;
+        //   - a version going DOWN, for a store that sends no epoch.
+        var hasVersion = typeof data.version === 'number';
+        var epoch = typeof data.epoch === 'string' ? data.epoch : '';
+        var draftEnded = hasVersion
+            && ((this.epoch !== '' && epoch !== this.epoch) || data.version < this.latestServerVersion);
+        var saved = meta.saved && typeof meta.saved.id === 'string' && meta.saved.id !== '' ? meta.saved : null;
+        var savedNow = false;
+        if (saved && saved.id !== this.savedId) {
+            this.savedId = saved.id;
+            savedNow = this.savedKnown;
+        }
+        this.savedKnown = true;
+        // The notice is published before the draft is deleted, so a frame can
+        // carry the notice and the dying draft together: its values are not
+        // applied, and the epoch change in the NEXT frame is the same event.
+        // Only the next: the flag is taken here whatever this frame holds, so
+        // a discard that failed after its notice cannot swallow the real end
+        // of that draft later.
+        var dyingDraft = savedNow && !draftEnded && this.epoch !== '';
+        var swallow = this.swallowEpochChange;
+        this.swallowEpochChange = false;
+        try {
+            if (savedNow) {
+                this.onRecordSaved(saved.values && typeof saved.values === 'object' ? saved.values : null);
+            } else if (draftEnded && !swallow) {
+                this.onRecordSaved(null);
+            }
+        } finally {
+            this.swallowEpochChange = dyingDraft;
+        }
+
+        // Optimistic-mode version tracking. The base (version + epoch) follows
+        // the server until the user has unsaved edits, then freezes so a stale
+        // save still conflicts; the latest server version + values are always
+        // recorded for conflict resolution ("keep mine" re-saves on the
+        // current base, "take theirs" adopts these values).
+        if (hasVersion) {
+            this.epoch = epoch;
             this.latestServerVersion = data.version;
             if (!this.dirtyDoc) {
                 this.version = data.version;
+                this.baseEpoch = epoch;
             }
         }
         this.serverValues = values;
 
-        for (var name in values) {
-            if (!Object.prototype.hasOwnProperty.call(values, name)) {
-                continue;
+        if (!dyingDraft) {
+            for (var name in values) {
+                if (!Object.prototype.hasOwnProperty.call(values, name)) {
+                    continue;
+                }
+                this.applyField(name, values[name], mine);
             }
-            this.applyField(name, values[name], mine);
         }
 
         this.renderPresence(meta.presence || []);
@@ -199,6 +292,61 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             this.applyFormLock(meta.locks || []);
         } else if (this.mode === 'field-lock') {
             this.applyFieldLocks(meta.locks || []);
+        }
+    };
+
+    // -- the record was saved elsewhere --------------------------------------
+
+    /**
+     * The draft ended. With the stored values (`values`, from the app's
+     * discard) each field named in them is set to what was stored. Without,
+     * nothing here can say what the record now holds: the inputs stay as they
+     * are, as in any form whose record changed under it, and the page is told
+     * (`semitexa:collab:reset`, `detail.rebased`) so it can do more.
+     *
+     * Unsaved Optimistic edits are left alone either way: they were based on
+     * a draft that is gone, the save names that draft (baseEpoch), and the
+     * server answers it with the conflict prompt.
+     */
+    CollabForm.prototype.onRecordSaved = function (values) {
+        if (values) {
+            this.savedValues = values;
+            for (var name in values) {
+                if (Object.prototype.hasOwnProperty.call(values, name)) {
+                    this.rebaseField(name, values[name]);
+                }
+            }
+        }
+        this.root.dispatchEvent(new CustomEvent('semitexa:collab:reset', {
+            bubbles: true,
+            detail: { rebased: !!values }
+        }));
+    };
+
+    CollabForm.prototype.rebaseField = function (name, value) {
+        var input = this.inputOf(this.fieldEl(name));
+        if (!input || (this.mode === 'optimistic' && this.dirtyDoc)) {
+            return;
+        }
+        var next = value === null || value === undefined ? '' : String(value);
+        if (this.dirty[name] || input === document.activeElement) {
+            // Being typed in right now. What it holds went into the draft that
+            // just ended: send it again, so it is an edit everyone sees and
+            // not text that only this tab still has.
+            if (input.value !== next) {
+                this.relayEdit(name, input.value);
+            }
+            return;
+        }
+        if (input.value === next) {
+            return;
+        }
+        input.value = next;
+        this.__applying = true;
+        try {
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        } finally {
+            this.__applying = false;
         }
     };
 
@@ -606,23 +754,28 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
                         self.setSaveStatus('unsaved');
                         return;
                     }
-                    // Lock modes: focus kicked off an async lock.acquire. Until the
-                    // ack lands (iHoldLock / myFieldLocks), the server would reject a
-                    // field.edit and postEvent() swallows the error — losing the
-                    // keystroke. Queue it instead; the acquire ack flushes the
-                    // current value.
-                    if (self.mode === 'form-lock' && !self.iHoldLock) {
-                        self.pendingEdit[name] = input.value;
-                        return;
-                    }
-                    if (self.mode === 'field-lock' && !self.myFieldLocks[name]) {
-                        self.pendingEdit[name] = input.value;
-                        return;
-                    }
-                    self.emitFieldEdit(name, input.value);
+                    self.relayEdit(name, input.value);
                 });
             })(String(fields[i]));
         }
+    };
+
+    /**
+     * Send a live edit of `name`, or queue it. Lock modes: focus kicked off an
+     * async lock.acquire, and until the ack lands (iHoldLock / myFieldLocks)
+     * the server would reject a field.edit and postEvent() swallows the error,
+     * losing the keystroke. The acquire ack flushes the current value.
+     */
+    CollabForm.prototype.relayEdit = function (name, value) {
+        if (this.mode === 'form-lock' && !this.iHoldLock) {
+            this.pendingEdit[name] = value;
+            return;
+        }
+        if (this.mode === 'field-lock' && !this.myFieldLocks[name]) {
+            this.pendingEdit[name] = value;
+            return;
+        }
+        this.emitFieldEdit(name, value);
     };
 
     // Flush a queued lock-mode edit for `name`, sending the CURRENT input value
@@ -723,17 +876,28 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         this.setSaveStatus('saving');
         this.postEventAwait('form.save', ctx, {
             values: this.collectValues(),
-            version: this.version | 0
+            version: this.version | 0,
+            epoch: this.baseEpoch
         }).then(function (res) {
             if (res && (res.status === 'accepted' || res.kind === 'ack')) {
-                // A successful save bumps the document by exactly one. Advance the
-                // base version locally so a follow-up save is not falsely stale,
-                // then mark the local copy committed; the re-projected snapshot
-                // will confirm the authoritative version.
+                // The ack names the draft and version the next save is based
+                // on (the first save of a document creates its draft). The
+                // re-projected snapshot says the same, when the stream is up.
                 self.dirtyDoc = false;
-                self.version = (self.version | 0) + 1;
+                var base = res.debug && res.debug.frontend ? res.debug.frontend.collab : null;
+                if (base && typeof base.epoch === 'string' && typeof base.version === 'number') {
+                    self.version = base.version;
+                    self.baseEpoch = base.epoch;
+                } else {
+                    self.version = (self.version | 0) + 1;
+                }
+                self.conflictBase = null;
                 self.setSaveStatus('saved');
             } else if (res && res.reason === 'form_draft_version_conflict') {
+                var current = res.details || {};
+                self.conflictBase = typeof current.currentEpoch === 'string' && typeof current.currentVersion === 'number'
+                    ? { epoch: current.currentEpoch, version: current.currentVersion }
+                    : null;
                 self.renderConflict(res.message || 'The document changed since you opened it.');
             } else {
                 self.setSaveStatus('error');
@@ -776,35 +940,31 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         host.removeAttribute('hidden');
         host.setAttribute('data-state', 'conflict');
 
-        var msg = document.createElement('p');
-        msg.setAttribute('data-ui-collab-conflict-message', '');
-        msg.style.margin = '0 0 0.5rem';
-        msg.textContent = message;
-        host.appendChild(msg);
+        var body = promptBody(host, 'Save conflict', message, 'data-ui-collab-conflict-message');
 
-        var keepMine = document.createElement('button');
-        keepMine.type = 'button';
-        keepMine.setAttribute('data-ui-collab-keep-mine', '');
-        keepMine.textContent = 'Keep mine';
-        keepMine.addEventListener('click', function () {
-            // Overwrite the newer document with the local values: re-save at the
-            // server's current version so the guard passes.
-            if (typeof self.latestServerVersion === 'number') {
-                self.version = self.latestServerVersion;
+        var keepMine = promptButton('data-ui-collab-keep-mine', 'Keep mine', function () {
+            // Overwrite the newer document with the local values: re-save on
+            // the base the server named with the conflict (a client whose
+            // stream is down has no frame to learn it from), else on the
+            // latest frame's.
+            if (self.conflictBase) {
+                self.version = self.conflictBase.version;
+                self.baseEpoch = self.conflictBase.epoch;
+            } else {
+                if (typeof self.latestServerVersion === 'number') {
+                    self.version = self.latestServerVersion;
+                }
+                self.baseEpoch = self.epoch;
             }
             self.save();
         });
 
-        var takeTheirs = document.createElement('button');
-        takeTheirs.type = 'button';
-        takeTheirs.setAttribute('data-ui-collab-take-theirs', '');
-        takeTheirs.textContent = 'Take theirs';
-        takeTheirs.addEventListener('click', function () {
+        var takeTheirs = promptButton('data-ui-collab-take-theirs', 'Take theirs', function () {
             self.discardLocalToServer();
         });
 
-        host.appendChild(keepMine);
-        host.appendChild(takeTheirs);
+        body.actions.appendChild(keepMine);
+        body.actions.appendChild(takeTheirs);
         this.setSaveStatus('error');
     };
 
@@ -814,14 +974,24 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         if (typeof this.latestServerVersion === 'number') {
             this.version = this.latestServerVersion;
         }
-        var values = this.serverValues || {};
+        this.baseEpoch = this.epoch;
+        // Theirs is the draft; with no draft (the record was saved and the
+        // draft ended) it is what the save stored, when the app said.
+        var draft = this.serverValues || {};
+        var hasDraft = this.epoch !== '';
         var fields = Array.isArray(this.m.fields) ? this.m.fields : [];
         for (var i = 0; i < fields.length; i++) {
             var name = String(fields[i]);
             var input = this.inputOf(this.fieldEl(name));
-            if (input) {
-                var v = values[name];
+            if (!input) {
+                continue;
+            }
+            if (hasDraft || !Object.prototype.hasOwnProperty.call(this.savedValues, name)) {
+                var v = draft[name];
                 input.value = (v === null || v === undefined) ? '' : String(v);
+            } else {
+                var stored = this.savedValues[name];
+                input.value = (stored === null || stored === undefined) ? '' : String(stored);
             }
         }
         this.clearConflict();
