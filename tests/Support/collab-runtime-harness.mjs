@@ -9,7 +9,9 @@
 // {tag, type, name, checked, multiple, options: [{value, selected}]} (name null = no name),
 // disabled (the page rendered it disabled), fieldset (inside a disabled <fieldset>),
 // form: '<key>' (in a second <form> of that key, not the first).
-// A step is {snapshot}, {focus}, {blur}, {type, value}, {save}, {click: '<attribute>'},
+// A step is {snapshot}, {focus}, {blur}, {type, value} (the value is set and `input` fired:
+// after a {focus} a person typing, with none a page script filling the field), {save},
+// {click: '<attribute>'},
 // {answer: 'oldest' | 'newest-first'} (the server gets and answers one held request, or
 // all of them and what they cause, newest first), {fail: 'oldest'} (it never arrives),
 // {tick} (every interval fires once), {elapse: ms} (the clock moves; timeouts due fire),

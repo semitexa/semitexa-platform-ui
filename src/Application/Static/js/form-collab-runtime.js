@@ -200,6 +200,9 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         // queued here (by field name) and flushed once the lock is held, so a
         // keystroke during the acquire round-trip is never silently dropped.
         this.pendingEdit = Object.create(null);
+        // FieldLock: the fields whose lock.acquire has no answer yet, so a
+        // second change of the field does not ask again.
+        this.fieldAcquiring = Object.create(null);
         // field.edit order (see EDIT ORDER above), by field name:
         // {inFlight, sent, waiting, value, retried, beats}. `waiting` with no
         // edit in flight is a value whose send failed twice: the next edit,
@@ -658,24 +661,87 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
 
     CollabForm.prototype.acquireFieldLock = function (name) {
         var ctx = this.m.events && this.m.events['lock.acquire'];
-        if (!ctx || this.myFieldLocks[name]) {
+        if (!ctx || this.myFieldLocks[name] || this.fieldAcquiring[name]) {
             return;
         }
         var self = this;
+        this.fieldAcquiring[name] = true;
         this.postEventAwait('lock.acquire', ctx, { field: name }).then(function (res) {
+            delete self.fieldAcquiring[name];
             if (res && (res.status === 'accepted' || res.kind === 'ack')) {
                 self.myFieldLocks[name] = true;
                 self.ensureFieldHeartbeat();
                 // Field lock now held — flush any keystrokes typed during acquire.
                 self.flushPendingEdit(name);
+                // Nobody is in the field: the lock was taken for a change made
+                // without focus (see relayEdit), or focus left before this
+                // answer. Released as blur releases it, after the edit settled.
+                if (!self.hasFocus(name)) {
+                    self.releaseFieldLock(name);
+                }
             } else if (res && res.reason === 'lock_unavailable') {
-                delete self.pendingEdit[name];
                 var input = self.inputOf(self.fieldEl(name));
                 if (input) {
                     self.setInputLocked(name, input, true);
                 }
+                if (self.hasFocus(name)) {
+                    delete self.pendingEdit[name]; // typed text stays, as before
+                } else {
+                    self.refuseEdit(name);
+                }
+            } else {
+                // No answer (network): a change made without focus has no
+                // later focus to send it. A focused field keeps what it queued.
+                if (!self.hasFocus(name)) {
+                    delete self.pendingEdit[name];
+                }
             }
         });
+    };
+
+    /** A person is in the field: focus took, or is taking, its lock. */
+    CollabForm.prototype.hasFocus = function (name) {
+        var input = this.inputOf(this.fieldEl(name));
+        return !!this.dirty[name] || (!!input && input === document.activeElement);
+    };
+
+    /** Another participant holds `name` (FieldLock) or the form (FormLock). */
+    CollabForm.prototype.heldByOther = function (name) {
+        if (this.lockedInputs[name]) {
+            return true;
+        }
+        if (this.mode === 'form-lock') {
+            return this.lockHolderId !== null && this.lockHolderId !== this.self;
+        }
+        var lock = this.fieldLockHolders[name];
+        var holderId = lock ? String(lock.holderId || '') : '';
+        return holderId !== '' && holderId !== this.self;
+    };
+
+    /**
+     * A change of a field another participant holds is not sent, now or
+     * later, and is not shown: the input goes back to the draft's value when
+     * the draft has one. Left in the input it would be in the app's form post
+     * (see LOCKED FIELDS) and replace what the holder typed.
+     */
+    CollabForm.prototype.refuseEdit = function (name) {
+        delete this.pendingEdit[name];
+        var input = this.inputOf(this.fieldEl(name));
+        if (!input || !Object.prototype.hasOwnProperty.call(this.serverValues, name)) {
+            return;
+        }
+        var value = this.serverValues[name];
+        var next = value === null || value === undefined ? '' : String(value);
+        if (input.value === next) {
+            return;
+        }
+        input.value = next;
+        this.__applying = true;
+        try {
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        } finally {
+            this.__applying = false;
+        }
     };
 
     /** Release one field, after its last edit settled (see releaseLock). */
@@ -916,17 +982,36 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
      * async lock.acquire, and until the ack lands (iHoldLock / myFieldLocks)
      * the server would reject a field.edit and postEvent() swallows the error,
      * losing the keystroke. The acquire ack flushes the current value.
+     *
+     * A CHANGE WITHOUT FOCUS (a page script that fills the field and
+     * dispatches `input`, a select chosen by a script) has no focus to take
+     * the lock for it:
+     *  - a field another participant holds (either lock mode): refused, see
+     *    refuseEdit;
+     *  - FieldLock, a free field: the change takes the field's lock itself,
+     *    and the acquire ack sends it and releases the lock once the edit
+     *    settled (see acquireFieldLock);
+     *  - FormLock, a free form: queued, as before. It goes out when this
+     *    participant next takes the form's lock. A script does not take the
+     *    whole form: that would make every co-editor's form read-only and
+     *    refuse the one who had just focused a field.
      */
     CollabForm.prototype.relayEdit = function (name, value) {
-        if (this.mode === 'form-lock' && !this.iHoldLock) {
-            this.pendingEdit[name] = value;
+        var locked = (this.mode === 'form-lock' && !this.iHoldLock)
+            || (this.mode === 'field-lock' && !this.myFieldLocks[name]);
+        if (!locked) {
+            this.emitFieldEdit(name, value);
             return;
         }
-        if (this.mode === 'field-lock' && !this.myFieldLocks[name]) {
-            this.pendingEdit[name] = value;
+        var focused = this.hasFocus(name);
+        if (!focused && this.heldByOther(name)) {
+            this.refuseEdit(name);
             return;
         }
-        this.emitFieldEdit(name, value);
+        this.pendingEdit[name] = value;
+        if (this.mode === 'field-lock' && !focused) {
+            this.acquireFieldLock(name);
+        }
     };
 
     // Flush a queued lock-mode edit for `name`, sending the CURRENT input value
