@@ -857,6 +857,78 @@ final class FormCollabRuntimeTest extends TestCase
     }
 
     #[Test]
+    public function a_change_waiting_for_its_lock_is_not_replaced_by_an_older_snapshot(): void
+    {
+        // The script wrote UA and the lock is on its way; a frame still
+        // holding PL arrives first. The grant sends what the input holds.
+        $this->draft->mergeFields(self::SCOPE, ['country' => 'PL'], 'alice');
+        $older = $this->frame($this->feedOf('field-lock', ['country']));
+        $scenario = ['manifest' => self::manifest('field-lock', 'bob', ['country']), 'inputs' => ['country' => 'PL']];
+
+        $seen = $this->editorSees($scenario + ['hold' => ['lock.acquire'], 'steps' => [
+            ['type' => 'country', 'value' => 'UA'],
+            ['snapshot' => $older],
+            ['answer' => 'oldest'],
+        ]]);
+        self::assertSame([['field' => 'country', 'value' => 'UA']], self::edits($seen['posts']));
+        self::assertSame('UA', $seen['values']['country']);
+
+        // FormLock keeps such a change until the person's next focus, and a
+        // frame in between does not replace it either.
+        $formLock = $this->editorSees(['manifest' => self::manifest('form-lock', 'bob', ['country']), 'inputs' => ['country' => 'PL'], 'steps' => [
+            ['type' => 'country', 'value' => 'UA'],
+            ['snapshot' => $this->frame($this->feedOf('form-lock', ['country']))],
+            ['focus' => 'country'],
+        ]]);
+        self::assertSame([['field' => 'country', 'value' => 'UA']], self::edits($formLock['posts']));
+
+        // Not for ever: when the lock never answers, the change is dropped
+        // and the next frame shows the draft again.
+        $dropped = $this->editorSees($scenario + ['hold' => ['lock.acquire'], 'steps' => [
+            ['type' => 'country', 'value' => 'UA'],
+            ['elapse' => 10000],
+            ['snapshot' => $older],
+        ]]);
+        self::assertSame([], self::edits($dropped['posts']));
+        self::assertSame('PL', $dropped['values']['country']);
+    }
+
+    #[Test]
+    public function a_lock_request_that_never_answers_does_not_keep_the_field_from_asking_again(): void
+    {
+        $scenario = ['manifest' => self::manifest('field-lock', 'bob', ['title']), 'inputs' => ['title' => ''], 'hold' => ['lock.acquire']];
+        $acquires = static fn (array $seen): int => count(array_filter($seen['posts'], static fn (array $p): bool => $p['event'] === 'lock.acquire'));
+
+        // Within the deadline a second focus still asks nothing.
+        $early = $this->editorSees($scenario + ['steps' => [['focus' => 'title'], ['blur' => 'title'], ['elapse' => 9000], ['focus' => 'title']]]);
+        self::assertSame([1, 0], [$acquires($early), $early['aborted']]);
+
+        // Past it the request is aborted, and the next focus asks again; that
+        // request's grant is the one the field holds its lock by.
+        $seen = $this->editorSees($scenario + ['steps' => [
+            ['focus' => 'title'],
+            ['blur' => 'title'],
+            ['elapse' => 10000],
+            ['focus' => 'title'],
+            ['answer' => 'oldest'],
+            ['type' => 'title', 'value' => 'a'],
+        ]]);
+        self::assertSame([2, 1], [$acquires($seen), $seen['aborted']]);
+        self::assertSame([['field' => 'title', 'value' => 'a']], self::edits($seen['posts']));
+        self::assertSame([], self::releases($seen['posts']));
+
+        // A script's change after the stall asks again too.
+        $script = $this->editorSees($scenario + ['steps' => [
+            ['type' => 'title', 'value' => 'a'],
+            ['elapse' => 10000],
+            ['type' => 'title', 'value' => 'ab'],
+            ['answer' => 'oldest'],
+        ]]);
+        self::assertSame([['field' => 'title', 'value' => 'ab']], self::edits($script['posts']));
+        self::assertSame([['field' => 'title']], self::releases($script['posts']));
+    }
+
+    #[Test]
     public function a_field_another_participant_holds_changed_without_focus_sends_and_shows_nothing(): void
     {
         $mallory = new class {

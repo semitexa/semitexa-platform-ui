@@ -84,6 +84,9 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
     var EDIT_HEARTBEAT_RETRIES = 3;
     // The longest a lock release waits for edits in flight (two timeouts and a margin).
     var RELEASE_WAIT_MS = 25000;
+    // A field's lock.acquire with no answer after this long is aborted: the
+    // next focus or change of the field asks again.
+    var ACQUIRE_TIMEOUT_MS = 10000;
 
     /** Booted instances, keyed by render instance id, so a re-scan is idempotent. */
     var booted = Object.create(null);
@@ -201,7 +204,9 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         // keystroke during the acquire round-trip is never silently dropped.
         this.pendingEdit = Object.create(null);
         // FieldLock: the fields whose lock.acquire has no answer yet, so a
-        // second change of the field does not ask again.
+        // second change of the field does not ask again. Each is the token of
+        // that one attempt: an answer arriving after the attempt ended (its
+        // deadline passed) acts for nothing, least of all for a newer attempt.
         this.fieldAcquiring = Object.create(null);
         // field.edit order (see EDIT ORDER above), by field name:
         // {inFlight, sent, waiting, value, retried, beats}. `waiting` with no
@@ -421,7 +426,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             return;
         }
         var next = value === null || value === undefined ? '' : String(value);
-        if (this.dirty[name] || input === document.activeElement || this.editBusy(name)) {
+        if (this.dirty[name] || input === document.activeElement || this.editBusy(name) || this.editQueued(name)) {
             // Being typed in right now (or its edit is still on the way).
             // What it holds went into the draft that just ended: send it again, so it is an edit everyone sees and
             // not text that only this tab still has.
@@ -478,6 +483,18 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             this.stopLockHeartbeat();
             this.setFieldsDisabled(true);
             this.renderLockBanner(this.lockHolderLabel || 'another participant');
+            // A change made without focus that was waiting for this
+            // participant's lock (see relayEdit) cannot be sent any more, and
+            // would keep the holder's text out of the input (see editQueued).
+            var queued = [];
+            for (var q in this.pendingEdit) {
+                if (Object.prototype.hasOwnProperty.call(this.pendingEdit, q) && !this.hasFocus(q)) {
+                    queued.push(q);
+                }
+            }
+            for (var j = 0; j < queued.length; j++) {
+                this.refuseEdit(queued[j]);
+            }
         } else {
             // Free: editable; the next focus claims it.
             this.iHoldLock = false;
@@ -665,9 +682,20 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             return;
         }
         var self = this;
-        this.fieldAcquiring[name] = true;
-        this.postEventAwait('lock.acquire', ctx, { field: name }).then(function (res) {
+        var token = this.fieldAcquiring[name] = {};
+        var timer = null;
+        // One stalled answer would otherwise keep the marker, and with it
+        // every later focus and change of the field, until the page reloads.
+        var abort = typeof AbortController === 'function' ? new AbortController() : null;
+        var answered = function (res) {
+            if (self.fieldAcquiring[name] !== token) {
+                return; // this attempt ended; the field's state is not its to set
+            }
             delete self.fieldAcquiring[name];
+            if (timer !== null) {
+                clearTimeout(timer);
+                timer = null;
+            }
             if (res && (res.status === 'accepted' || res.kind === 'ack')) {
                 self.myFieldLocks[name] = true;
                 self.ensureFieldHeartbeat();
@@ -696,7 +724,37 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
                     delete self.pendingEdit[name];
                 }
             }
-        });
+        };
+        timer = setTimeout(function () {
+            timer = null;
+            if (abort) {
+                try { abort.abort(); } catch (e) { /* noop */ }
+            }
+            answered(null);
+        }, ACQUIRE_TIMEOUT_MS);
+        var request;
+        try {
+            request = hug(
+                envelope({ semanticEvent: 'lock.acquire', signedContext: ctx, payload: { field: name } }),
+                abort ? { signal: abort.signal } : {}
+            );
+        } catch (e) {
+            answered(null);
+            return;
+        }
+        request.then(
+            function (r) { answered(r ? r.data : null); },
+            function () { answered(null); }
+        );
+    };
+
+    /**
+     * A change of `name` is waiting for a lock: queued (pendingEdit), or its
+     * lock.acquire is on the way. The input holds that change and no snapshot
+     * may replace it, focused or not.
+     */
+    CollabForm.prototype.editQueued = function (name) {
+        return !!this.fieldAcquiring[name] || Object.prototype.hasOwnProperty.call(this.pendingEdit, name);
     };
 
     /** A person is in the field: focus took, or is taking, its lock. */
@@ -850,7 +908,9 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         // skip own echoes entirely. A field whose edit has not reached the
         // server yet is still being edited: the frame holds an older value,
         // and the echo of the edit itself will be skipped as `mine`.
-        if (this.dirty[name] || input === document.activeElement || this.editBusy(name)) {
+        // So is a change waiting for its lock (see editQueued): the grant
+        // sends what the input holds, and that must be the change.
+        if (this.dirty[name] || input === document.activeElement || this.editBusy(name) || this.editQueued(name)) {
             return;
         }
         if (mine) {
