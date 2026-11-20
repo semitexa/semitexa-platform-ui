@@ -735,6 +735,258 @@ final class FormCollabRuntimeTest extends TestCase
     }
 
     #[Test]
+    public function a_free_field_changed_without_focus_is_sent_and_its_lock_released_after_the_edit(): void
+    {
+        // A page script fills the field and dispatches `input` (an
+        // autocomplete setting a <select>), or a script chooses an option:
+        // nothing focused the field, and only focus used to take its lock.
+        $scenario = [
+            'manifest' => self::manifest('field-lock', 'bob', ['city', 'country']),
+            'inputs' => ['city' => '', 'country' => ''],
+            'controls' => ['country' => ['tag' => 'select']],
+        ];
+        $locksAndEdits = static fn (array $requests): array => array_values(array_filter(
+            $requests,
+            static fn (array $p): bool => in_array($p['event'], ['lock.acquire', 'field.edit', 'lock.release'], true),
+        ));
+        $country = [
+            ['event' => 'lock.acquire', 'payload' => ['field' => 'country']],
+            ['event' => 'field.edit', 'payload' => ['field' => 'country', 'value' => 'UA']],
+            ['event' => 'lock.release', 'payload' => ['field' => 'country']],
+        ];
+
+        $seen = $this->editorSees($scenario + ['steps' => [['type' => 'country', 'value' => 'UA']]]);
+        self::assertSame($country, $locksAndEdits($seen['served']));
+
+        // The release waits for the edit, as the one blur asks for does.
+        $inFlight = $this->editorSees($scenario + ['hold' => ['field.edit'], 'steps' => [['type' => 'country', 'value' => 'UA']]]);
+        self::assertSame([], self::releases($inFlight['posts']), 'not while the edit is on its way');
+        $landed = $this->editorSees($scenario + ['hold' => ['field.edit'], 'steps' => [['type' => 'country', 'value' => 'UA'], ['answer' => 'oldest']]]);
+        self::assertSame($country, $locksAndEdits($landed['served']));
+
+        // The real case: the person is in `city` and holds it; the script
+        // fills `country`. The city's lock is not touched.
+        $beside = $this->editorSees($scenario + ['steps' => [
+            ['focus' => 'city'],
+            ['type' => 'city', 'value' => 'Kyiv'],
+            ['type' => 'country', 'value' => 'UA'],
+        ]]);
+        self::assertSame(
+            [
+                ['event' => 'lock.acquire', 'payload' => ['field' => 'city']],
+                ['event' => 'field.edit', 'payload' => ['field' => 'city', 'value' => 'Kyiv']],
+                ...$country,
+            ],
+            $locksAndEdits($beside['served']),
+        );
+
+        // Changed twice before the lock answered: the latest value is the
+        // one sent, once. Each change asked for the lock.
+        $twice = $this->editorSees($scenario + ['hold' => ['lock.acquire'], 'steps' => [
+            ['type' => 'country', 'value' => 'PL'],
+            ['type' => 'country', 'value' => 'UA'],
+            ['answer' => 'oldest'],
+        ]]);
+        self::assertSame($country, $locksAndEdits($twice['served']));
+        self::assertSame([$country[0], ...$country], $locksAndEdits($twice['posts']));
+
+        // Focused while that lock was on its way: the person is in the field
+        // now, and the lock stays.
+        $focused = $this->editorSees($scenario + ['hold' => ['lock.acquire'], 'steps' => [
+            ['type' => 'country', 'value' => 'UA'],
+            ['focus' => 'country'],
+            ['answer' => 'oldest'],
+        ]]);
+        self::assertSame([$country[0], $country[0], $country[1]], $locksAndEdits($focused['posts']));
+    }
+
+    #[Test]
+    public function a_field_left_before_its_lock_was_granted_is_released_when_the_grant_arrives(): void
+    {
+        // Blur found no lock to release, the grant arrived after it, and the
+        // heartbeat then kept the field from everyone until the page closed.
+        $scenario = [
+            'manifest' => self::manifest('field-lock', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['lock.acquire'],
+        ];
+        $steps = [['focus' => 'title'], ['blur' => 'title'], ['answer' => 'oldest']];
+
+        $seen = $this->editorSees($scenario + ['steps' => [...$steps, ['tick' => true]]]);
+
+        self::assertSame(
+            [
+                ['event' => 'lock.acquire', 'payload' => ['field' => 'title']],
+                ['event' => 'lock.release', 'payload' => ['field' => 'title']],
+            ],
+            self::withoutPings($seen['posts']),
+            'released, and no heartbeat renews it afterwards',
+        );
+
+        // Nothing is held: the next focus has to ask for the lock again.
+        $again = $this->editorSees($scenario + ['steps' => [...$steps, ['focus' => 'title']]]);
+        self::assertSame(['lock.acquire', 'lock.release', 'lock.acquire'], array_column(self::withoutPings($again['posts']), 'event'));
+    }
+
+    #[Test]
+    public function a_lock_request_with_no_answer_does_not_keep_a_later_focus_from_asking(): void
+    {
+        // No request is remembered as being on the way: one that stalls
+        // cannot close the field to the next focus or change.
+        // verify:accept-test-change platform-ui#94 review decision CUT: the in-flight guard is gone, so a_field_focused_again_while_its_lock_is_on_the_way_asks_for_it_once() pinned removed behaviour; this test pins two requests instead
+        // verify:accept-test-change platform-ui#94 review decision CUT: the acquire deadline is gone, so a_lock_request_that_never_answers_does_not_keep_the_field_from_asking_again() pinned removed behaviour; this test pins that a stalled request blocks nothing
+        $scenario = ['manifest' => self::manifest('field-lock', 'bob', ['title']), 'inputs' => ['title' => ''], 'hold' => ['lock.acquire']];
+        $acquire = ['event' => 'lock.acquire', 'payload' => ['field' => 'title']];
+
+        $seen = $this->editorSees($scenario + ['steps' => [
+            ['focus' => 'title'],
+            ['blur' => 'title'],
+            ['elapse' => 60000],
+            ['focus' => 'title'],
+            ['type' => 'title', 'value' => 'a'],
+            ['answer' => 'oldest'],
+            ['tick' => true],
+        ]]);
+
+        // Two requests; the grant of one is kept, the person being in the field.
+        self::assertSame(
+            [
+                $acquire,
+                $acquire,
+                ['event' => 'field.edit', 'payload' => ['field' => 'title', 'value' => 'a']],
+                ['event' => 'lock.heartbeat', 'payload' => ['field' => 'title']],
+            ],
+            self::withoutPings($seen['posts']),
+        );
+        self::assertSame(0, $seen['aborted'], 'no deadline: the stalled request is left alone');
+
+        // A script's change behind a stalled one asks again too. Both grants
+        // arriving, the value goes out once and nothing stays held.
+        $script = $this->editorSees($scenario + ['steps' => [
+            ['type' => 'title', 'value' => 'a'],
+            ['elapse' => 60000],
+            ['type' => 'title', 'value' => 'ab'],
+            ['answer' => 'newest-first'],
+            ['tick' => true],
+        ]]);
+        $posts = self::withoutPings($script['posts']);
+        self::assertSame([$acquire, $acquire], array_slice($posts, 0, 2));
+        self::assertSame([['field' => 'title', 'value' => 'ab']], self::edits($posts));
+        self::assertSame('lock.release', $posts[count($posts) - 1]['event'], 'released last, and no heartbeat renews it');
+    }
+
+    #[Test]
+    public function a_change_waiting_for_its_lock_is_not_replaced_by_an_older_snapshot(): void
+    {
+        // The script wrote UA and the lock is on its way; a frame still
+        // holding PL arrives first. The grant sends what the input holds.
+        $this->draft->mergeFields(self::SCOPE, ['country' => 'PL'], 'alice');
+        $older = $this->frame($this->feedOf('field-lock', ['country']));
+        $scenario = ['manifest' => self::manifest('field-lock', 'bob', ['country']), 'inputs' => ['country' => 'PL']];
+
+        $seen = $this->editorSees($scenario + ['hold' => ['lock.acquire'], 'steps' => [
+            ['type' => 'country', 'value' => 'UA'],
+            ['snapshot' => $older],
+            ['answer' => 'oldest'],
+        ]]);
+        self::assertSame([['field' => 'country', 'value' => 'UA']], self::edits($seen['posts']));
+        self::assertSame('UA', $seen['values']['country']);
+
+        // FormLock keeps such a change until the person's next focus, and a
+        // frame in between does not replace it either.
+        $formLock = $this->editorSees(['manifest' => self::manifest('form-lock', 'bob', ['country']), 'inputs' => ['country' => 'PL'], 'steps' => [
+            ['type' => 'country', 'value' => 'UA'],
+            ['snapshot' => $this->frame($this->feedOf('form-lock', ['country']))],
+            ['focus' => 'country'],
+        ]]);
+        self::assertSame([['field' => 'country', 'value' => 'UA']], self::edits($formLock['posts']));
+        // verify:accept-test-change platform-ui#94 review decision CUT: the two assertions removed here pinned the drop of a queued change at the acquire deadline, which no longer exists
+    }
+
+    #[Test]
+    public function a_field_another_participant_holds_changed_without_focus_sends_and_shows_nothing(): void
+    {
+        $mallory = new class {
+            public function getId(): string
+            {
+                return 'mallory';
+            }
+        };
+        $handler = (new FormCollaborationEventHandler())
+            ->withCollaborationDeps($this->draft, $this->presence, $this->locks, $this->scopes)
+            ->withIdentity(static fn (): object => $mallory);
+        $handler->handle((object) [], $this->event('lock.acquire', 'field-lock', ['field' => 'title']));
+        $this->draft->mergeFields(self::SCOPE, ['title' => 'hers'], 'mallory');
+
+        $scenario = ['manifest' => self::manifest('field-lock', 'bob', ['title']), 'inputs' => ['title' => '']];
+        $seen = $this->editorSees($scenario + ['steps' => [
+            ['snapshot' => $this->frame($this->feedOf('field-lock', ['title']))],
+            ['type' => 'title', 'value' => 'a script wrote this'],
+            ['focus' => 'title'],
+        ]]);
+
+        self::assertTrue($seen['disabled']['title']);
+        self::assertSame(['lock.acquire'], array_values(array_diff(array_column($seen['posts'], 'event'), ['presence.ping'])), 'the later focus asks for the lock; the script asked for nothing');
+        self::assertSame([], self::edits($seen['posts']));
+        self::assertSame('hers', $seen['values']['title'], 'the holder\'s text, not the script\'s: the form post would carry it');
+
+        // The page has not heard of the holder yet: the server refuses the
+        // lock, and nothing is sent, then or on a later focus.
+        $unseen = $this->editorSees($scenario + [
+            'replies' => ['lock.acquire' => [['status' => 'rejected', 'reason' => 'lock_unavailable']]],
+            'steps' => [['type' => 'title', 'value' => 'a script wrote this'], ['focus' => 'title']],
+        ]);
+        self::assertSame([], self::edits($unseen['posts']));
+        self::assertSame([], self::releases($unseen['posts']));
+        self::assertTrue($unseen['disabled']['title']);
+    }
+
+    #[Test]
+    public function a_form_lock_is_not_taken_by_a_change_without_focus(): void
+    {
+        // Taking the whole form for a script would make every co-editor's
+        // form read-only. The change waits for this participant's own lock.
+        $scenario = ['manifest' => self::manifest('form-lock', 'bob', ['city', 'country']), 'inputs' => ['city' => '', 'country' => '']];
+
+        $free = $this->editorSees($scenario + ['steps' => [['type' => 'country', 'value' => 'UA']]]);
+        self::assertSame(['presence.ping'], array_values(array_unique(array_column($free['posts'], 'event'))));
+
+        $later = $this->editorSees($scenario + ['steps' => [['type' => 'country', 'value' => 'UA'], ['focus' => 'city']]]);
+        self::assertSame([['field' => 'country', 'value' => 'UA']], self::edits($later['posts']), 'sent with the lock the person took');
+
+        // The person holds the form: the script's change goes out at once.
+        $held = $this->editorSees($scenario + ['steps' => [['focus' => 'city'], ['type' => 'country', 'value' => 'UA']]]);
+        self::assertSame([['field' => 'country', 'value' => 'UA']], self::edits($held['posts']));
+
+        // Another participant holds the form: not sent, and not kept for the
+        // day this participant gets the lock.
+        $mallory = new class {
+            public function getId(): string
+            {
+                return 'mallory';
+            }
+        };
+        $handler = (new FormCollaborationEventHandler())
+            ->withCollaborationDeps($this->draft, $this->presence, $this->locks, $this->scopes)
+            ->withIdentity(static fn (): object => $mallory);
+        $handler->handle((object) [], $this->event('lock.acquire', 'form-lock', [], ['city', 'country']));
+        $this->draft->mergeFields(self::SCOPE, ['country' => 'PL'], 'mallory');
+        $payload = $this->feedOf('form-lock', ['city', 'country']);
+        $locked = $this->frame($payload);
+        $this->locks->release(self::SCOPE, null, 'mallory');
+        $freed = $this->frame($payload);
+
+        $refused = $this->editorSees($scenario + ['steps' => [
+            ['snapshot' => $locked],
+            ['type' => 'country', 'value' => 'UA'],
+            ['snapshot' => $freed],
+            ['focus' => 'city'],
+        ]]);
+        self::assertSame([], self::edits($refused['posts']));
+        self::assertSame('PL', $refused['values']['country']);
+    }
+
+    #[Test]
     public function a_form_lock_is_released_after_the_last_edit_arrived(): void
     {
         $seen = $this->editorSees([

@@ -45,6 +45,34 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
   left alone, also when a lock is released (it used to be enabled).
   Not covered: `form.submit()` and a `new FormData(form)` built outside a
   submit listener, neither of which fires `submit`.
+- A FieldLock field changed without focus is sent live. Only focus took a
+  field's lock, so a field a page script filled (an autocomplete setting a
+  `<select>` and dispatching `input`) or a script chose an option in was
+  queued until someone focused it, and the co-editors saw it only after the
+  save. Such a change on a free field now takes the field's lock itself, sends
+  the edit and releases the lock once the edit settled, as blur does. A focused
+  field already holds its lock: typing is unchanged. The lock is also released
+  when focus left the field before the server granted it; it used to stay held
+  until the page was closed. A change waiting for its lock is not replaced by
+  a snapshot that arrives first.
+  Known limits: a second focus or change without focus while a `lock.acquire`
+  is on the way posts another `lock.acquire`, as before. A `lock.acquire`
+  that never answers leaves the change queued, and its input closed to
+  snapshots, until the field asks again (another change, or a focus unless a
+  snapshot already shows the lock as this participant's). A `lock.acquire`
+  answered with a failure drops a change made without focus: the input keeps
+  the value, and it is not sent. When the answer is lost while a snapshot
+  shows this participant holding the field, the lock is renewed and the change
+  is not sent (tk-collab-lost-acquire-answer-keeps-a-lock-renewed).
+  A change without focus of a field another participant holds (FieldLock), or
+  of any field while another participant holds the form (FormLock), is not
+  sent, and no longer goes out later when the lock becomes free; the input
+  goes back to the draft's value, since the app's form post would carry what
+  the script wrote over what the holder typed.
+  FormLock is otherwise unchanged, on purpose: a change without focus does not
+  take the whole-form lock (that would make every co-editor's form read-only
+  for a script). It is sent at once when this participant holds the form, and
+  otherwise with the lock their next focus takes.
 - Presence chips and "Locked by …" show a name instead of the user id: the
   app's optional `FormCollaboratorLabelResolverInterface`, else the user's
   `getDisplayName()` / `getName()`, else the id.
