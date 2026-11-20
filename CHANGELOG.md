@@ -54,7 +54,8 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
   snapshot; it is held again only once the page asked for it. And an edit the
   server answers with `field_locked` now asks for the field's lock once and
   is sent again; refused a second time, or the lock refused, it ends as a
-  change of a field another participant holds does.
+  change of a field another participant holds does. A change the form's own
+  post carried is not sent again after a late `field_locked`: the post has it.
 - A FieldLock field changed without focus is sent live. Only focus took a
   field's lock, so a field a page script filled (an autocomplete setting a
   `<select>` and dispatching `input`) or a script chose an option in was

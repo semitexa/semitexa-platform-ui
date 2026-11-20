@@ -704,6 +704,9 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
                     self.releaseFieldLock(name);
                 }
             } else if (res && res.reason === 'lock_unavailable') {
+                // Not ours for certain, like a lock this client released: a
+                // frame from while it was held must not bring it back.
+                self.fieldReleased[name] = true;
                 var input = self.inputOf(self.fieldEl(name));
                 if (input) {
                     self.setInputLocked(name, input, true);
@@ -1203,8 +1206,20 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             q.waiting = false;
         }
         delete this.myFieldLocks[name];
+        // Lost for certain, like a lock this client released: a frame from
+        // while it was held must not bring it back. Asking again clears this.
+        this.fieldReleased[name] = true;
         if (this.countMyFieldLocks() === 0) {
             this.stopFieldHeartbeat();
+        }
+        if (this.postedFields[name]) {
+            // The app's form post carries this value (see wirePageHide) and
+            // the app ends the draft: sent again, the edit could arrive
+            // behind the save and open a new draft. An edit typed after the
+            // submit took the field out of `postedFields` and is recovered.
+            delete this.fieldRelocked[name];
+            delete this.pendingEdit[name];
+            return;
         }
         if (relocked) {
             delete this.fieldRelocked[name];
