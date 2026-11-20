@@ -61,9 +61,8 @@ final class PlainContentDefaultsTest extends TestCase
         self::assertCount(8, $rules, 'table, caption, cells, th, thead th, pre, hr, blockquote');
         foreach ($rules as $selector) {
             self::assertStringStartsWith(':where(', $selector, "zero specificity: {$selector}");
-            foreach (self::GUARD as $exclusion) {
-                self::assertStringContainsString($exclusion, $selector, "{$selector} keeps out of what {$exclusion} marks");
-            }
+            // The whole guard, in order: a root term is a substring of its descendant term, so terms one by one prove nothing.
+            self::assertStringContainsString(':not(' . implode(', ', self::GUARD) . ')', $selector, "{$selector} keeps out of components and their roots");
         }
     }
 
