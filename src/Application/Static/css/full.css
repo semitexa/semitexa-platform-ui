@@ -283,6 +283,59 @@
 
     /* Figures line up in tables and stats. */
     :where(table, [ui-component="stat"], [ui-component="table"]) { font-variant-numeric: tabular-nums; }
+
+    /*
+     * Plain content on a page reads as part of it, not as the browser's default
+     * (bench-agent-skips-default-theme): a table, a code block, a rule or a quote
+     * written by hand inside <main>. Only what no component owns: no class, no ui
+     * hook, nothing inside a component, so a table in a card stays the card's to
+     * style. A cell, a caption and a header carry the same guard themselves: a
+     * component's table nested in a plain one keeps its own cells. In the reset
+     * layer, whatever a component sets wins by layer. Buttons and fields stay
+     * with the components (ui="button", platform.field): the
+     * command palette and the workbench rely on the bare button and select.
+     */
+    :where(main table:not([class], [ui], [role], [ui-table], [ui-component], [data-ui-component], [data-ui-primitive], [ui-table] *, [ui-component] *, [data-ui-component] *, [data-ui-primitive] *)) {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: var(--ui-text-sm);
+        line-height: var(--ui-text-sm-leading);
+    }
+    :where(main table:not([class], [ui], [role], [ui-table], [ui-component], [data-ui-component], [data-ui-primitive], [ui-table] *, [ui-component] *, [data-ui-component] *, [data-ui-primitive] *) > caption:not([class], [ui], [role], [ui-table], [ui-component], [data-ui-component], [data-ui-primitive], [ui-table] *, [ui-component] *, [data-ui-component] *, [data-ui-primitive] *)) {
+        padding-block-end: var(--ui-space-2);
+        color: var(--ui-text-muted);
+        text-align: start;
+    }
+    :where(main table:not([class], [ui], [role], [ui-table], [ui-component], [data-ui-component], [data-ui-primitive], [ui-table] *, [ui-component] *, [data-ui-component] *, [data-ui-primitive] *) :is(th, td):not([class], [ui], [role], [ui-table], [ui-component], [data-ui-component], [data-ui-primitive], [ui-table] *, [ui-component] *, [data-ui-component] *, [data-ui-primitive] *)) {
+        padding: var(--ui-space-2) var(--ui-space-3);
+        border-block-end: 1px solid var(--ui-border-subtle);
+        text-align: start;
+        vertical-align: top;
+    }
+    :where(main table:not([class], [ui], [role], [ui-table], [ui-component], [data-ui-component], [data-ui-primitive], [ui-table] *, [ui-component] *, [data-ui-component] *, [data-ui-primitive] *) th:not([class], [ui], [role], [ui-table], [ui-component], [data-ui-component], [data-ui-primitive], [ui-table] *, [ui-component] *, [data-ui-component] *, [data-ui-primitive] *)) {
+        font-weight: var(--ui-font-weight-semibold);
+    }
+    :where(main table:not([class], [ui], [role], [ui-table], [ui-component], [data-ui-component], [data-ui-primitive], [ui-table] *, [ui-component] *, [data-ui-component] *, [data-ui-primitive] *) thead th:not([class], [ui], [role], [ui-table], [ui-component], [data-ui-component], [data-ui-primitive], [ui-table] *, [ui-component] *, [data-ui-component] *, [data-ui-primitive] *)) {
+        color: var(--ui-text-muted);
+        background: var(--ui-surface-sunken);
+        border-block-end-color: var(--ui-border-strong);
+    }
+    :where(main pre:not([class], [ui], [role], [ui-table], [ui-component], [data-ui-component], [data-ui-primitive], [ui-table] *, [ui-component] *, [data-ui-component] *, [data-ui-primitive] *)) {
+        overflow-x: auto;
+        padding: var(--ui-space-3) var(--ui-space-4);
+        border: 1px solid var(--ui-border-subtle);
+        border-radius: var(--ui-radius-md);
+        background: var(--ui-surface-sunken);
+    }
+    :where(main hr:not([class], [ui], [role], [ui-table], [ui-component], [data-ui-component], [data-ui-primitive], [ui-table] *, [ui-component] *, [data-ui-component] *, [data-ui-primitive] *)) {
+        border: 0;
+        border-block-start: 1px solid var(--ui-border-subtle);
+    }
+    :where(main blockquote:not([class], [ui], [role], [ui-table], [ui-component], [data-ui-component], [data-ui-primitive], [ui-table] *, [ui-component] *, [data-ui-component] *, [data-ui-primitive] *)) {
+        padding-inline-start: var(--ui-space-4);
+        border-inline-start: 3px solid var(--ui-border-strong);
+        color: var(--ui-text-muted);
+    }
 }
 
 
