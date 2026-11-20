@@ -56,9 +56,14 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
   until the page was closed. A change waiting for its lock is not replaced by
   a snapshot that arrives first.
   Known limits: a second focus or change without focus while a `lock.acquire`
-  is on the way posts another `lock.acquire`, as before; and a `lock.acquire`
+  is on the way posts another `lock.acquire`, as before. A `lock.acquire`
   that never answers leaves the change queued, and its input closed to
-  snapshots, until the field asks again (a focus, or another change).
+  snapshots, until the field asks again (another change, or a focus unless a
+  snapshot already shows the lock as this participant's). A `lock.acquire`
+  answered with a failure drops a change made without focus: the input keeps
+  the value, and it is not sent. When the answer is lost while a snapshot
+  shows this participant holding the field, the lock is renewed and the change
+  is not sent (tk-collab-lost-acquire-answer-keeps-a-lock-renewed).
   A change without focus of a field another participant holds (FieldLock), or
   of any field while another participant holds the form (FormLock), is not
   sent, and no longer goes out later when the lock becomes free; the input
