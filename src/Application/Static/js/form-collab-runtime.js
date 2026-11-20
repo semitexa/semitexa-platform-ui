@@ -84,9 +84,6 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
     var EDIT_HEARTBEAT_RETRIES = 3;
     // The longest a lock release waits for edits in flight (two timeouts and a margin).
     var RELEASE_WAIT_MS = 25000;
-    // A field's lock.acquire with no answer after this long is aborted: the
-    // next focus or change of the field asks again.
-    var ACQUIRE_TIMEOUT_MS = 10000;
 
     /** Booted instances, keyed by render instance id, so a re-scan is idempotent. */
     var booted = Object.create(null);
@@ -203,11 +200,6 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         // queued here (by field name) and flushed once the lock is held, so a
         // keystroke during the acquire round-trip is never silently dropped.
         this.pendingEdit = Object.create(null);
-        // FieldLock: the fields whose lock.acquire has no answer yet, so a
-        // second change of the field does not ask again. Each is the token of
-        // that one attempt: an answer arriving after the attempt ended (its
-        // deadline passed) acts for nothing, least of all for a newer attempt.
-        this.fieldAcquiring = Object.create(null);
         // field.edit order (see EDIT ORDER above), by field name:
         // {inFlight, sent, waiting, value, retried, beats}. `waiting` with no
         // edit in flight is a value whose send failed twice: the next edit,
@@ -678,24 +670,13 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
 
     CollabForm.prototype.acquireFieldLock = function (name) {
         var ctx = this.m.events && this.m.events['lock.acquire'];
-        if (!ctx || this.myFieldLocks[name] || this.fieldAcquiring[name]) {
+        if (!ctx || this.myFieldLocks[name]) {
             return;
         }
         var self = this;
-        var token = this.fieldAcquiring[name] = {};
-        var timer = null;
-        // One stalled answer would otherwise keep the marker, and with it
-        // every later focus and change of the field, until the page reloads.
-        var abort = typeof AbortController === 'function' ? new AbortController() : null;
-        var answered = function (res) {
-            if (self.fieldAcquiring[name] !== token) {
-                return; // this attempt ended; the field's state is not its to set
-            }
-            delete self.fieldAcquiring[name];
-            if (timer !== null) {
-                clearTimeout(timer);
-                timer = null;
-            }
+        // Every focus and every change without focus asks on its own: a
+        // request on the way is not remembered, and none has a deadline.
+        this.postEventAwait('lock.acquire', ctx, { field: name }).then(function (res) {
             if (res && (res.status === 'accepted' || res.kind === 'ack')) {
                 self.myFieldLocks[name] = true;
                 self.ensureFieldHeartbeat();
@@ -724,37 +705,17 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
                     delete self.pendingEdit[name];
                 }
             }
-        };
-        timer = setTimeout(function () {
-            timer = null;
-            if (abort) {
-                try { abort.abort(); } catch (e) { /* noop */ }
-            }
-            answered(null);
-        }, ACQUIRE_TIMEOUT_MS);
-        var request;
-        try {
-            request = hug(
-                envelope({ semanticEvent: 'lock.acquire', signedContext: ctx, payload: { field: name } }),
-                abort ? { signal: abort.signal } : {}
-            );
-        } catch (e) {
-            answered(null);
-            return;
-        }
-        request.then(
-            function (r) { answered(r ? r.data : null); },
-            function () { answered(null); }
-        );
+        });
     };
 
     /**
-     * A change of `name` is waiting for a lock: queued (pendingEdit), or its
-     * lock.acquire is on the way. The input holds that change and no snapshot
-     * may replace it, focused or not.
+     * A change of `name` is queued (pendingEdit), waiting for a lock. The
+     * input holds that change and no snapshot may replace it, focused or not.
+     * A lock request that never answers leaves it queued, and the input
+     * closed to snapshots, until the field asks again.
      */
     CollabForm.prototype.editQueued = function (name) {
-        return !!this.fieldAcquiring[name] || Object.prototype.hasOwnProperty.call(this.pendingEdit, name);
+        return Object.prototype.hasOwnProperty.call(this.pendingEdit, name);
     };
 
     /** A person is in the field: focus took, or is taking, its lock. */

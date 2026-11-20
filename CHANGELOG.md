@@ -54,8 +54,11 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
   field already holds its lock: typing is unchanged. The lock is also released
   when focus left the field before the server granted it; it used to stay held
   until the page was closed. A change waiting for its lock is not replaced by
-  a snapshot that arrives first, and a lock request with no answer in 10 s is
-  aborted, so the next focus or change of the field asks again.
+  a snapshot that arrives first.
+  Known limits: a second focus or change without focus while a `lock.acquire`
+  is on the way posts another `lock.acquire`, as before; and a `lock.acquire`
+  that never answers leaves the change queued, and its input closed to
+  snapshots, until the field asks again (a focus, or another change).
   A change without focus of a field another participant holds (FieldLock), or
   of any field while another participant holds the form (FormLock), is not
   sent, and no longer goes out later when the lock becomes free; the input
