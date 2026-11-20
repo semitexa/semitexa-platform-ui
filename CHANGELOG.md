@@ -45,6 +45,16 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
   left alone, also when a lock is released (it used to be enabled).
   Not covered: `form.submit()` and a `new FormData(form)` built outside a
   submit listener, neither of which fires `submit`.
+- A FieldLock field changed twice without focus (a script choosing an option,
+  then another) sends both changes. The second one was sometimes lost, about
+  one time in three: a snapshot published while the first change held the
+  field's lock arrived after its release, the page took the lock as still
+  held, sent the second change with no lock (422 `field_locked`) and never
+  asked again. A lock this page released is no longer brought back by a
+  snapshot; it is held again only once the page asked for it. And an edit the
+  server answers with `field_locked` now asks for the field's lock once and
+  is sent again; refused a second time, or the lock refused, it ends as a
+  change of a field another participant holds does.
 - A FieldLock field changed without focus is sent live. Only focus took a
   field's lock, so a field a page script filled (an autocomplete setting a
   `<select>` and dispatching `input`) or a script chose an option in was

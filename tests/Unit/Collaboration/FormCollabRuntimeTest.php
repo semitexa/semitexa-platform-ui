@@ -904,6 +904,81 @@ final class FormCollabRuntimeTest extends TestCase
     }
 
     #[Test]
+    public function a_frame_older_than_the_release_does_not_bring_the_field_lock_back(): void
+    {
+        // A change without focus holds its lock for a few milliseconds. A
+        // frame published meanwhile names this participant as the holder and
+        // arrives after the release: taken at its word, the next change went
+        // out with no lock (422 field_locked) and a heartbeat renewed nothing.
+        $this->locks->acquire(self::SCOPE, 'country', 'bob', 'Bob');
+        $stale = $this->frame($this->feedOf('field-lock', ['country']));
+        $this->locks->release(self::SCOPE, 'country', 'bob');
+        self::assertSame('bob', $stale['meta']['locks'][0]['holderId'] ?? null, 'the frame names bob as the holder');
+        $scenario = ['manifest' => self::manifest('field-lock', 'bob', ['country']), 'inputs' => ['country' => ''], 'controls' => ['country' => ['tag' => 'select']]];
+        $round = static fn (string $value): array => [
+            ['event' => 'lock.acquire', 'payload' => ['field' => 'country']],
+            ['event' => 'field.edit', 'payload' => ['field' => 'country', 'value' => $value]],
+            ['event' => 'lock.release', 'payload' => ['field' => 'country']],
+        ];
+
+        $seen = $this->editorSees($scenario + ['steps' => [
+            ['type' => 'country', 'value' => 'GE'],
+            ['snapshot' => $stale],
+            ['type' => 'country', 'value' => 'UA'],
+            ['tick' => true],
+        ]]);
+        self::assertSame([...$round('GE'), ...$round('UA')], self::withoutPings($seen['posts']), 'a new lock.acquire before the edit, and no heartbeat for a released field');
+
+        // A page that released nothing takes the server at its word.
+        $fresh = $this->editorSees($scenario + ['steps' => [['snapshot' => $stale], ['type' => 'country', 'value' => 'UA'], ['tick' => true]]]);
+        self::assertSame(
+            [
+                ['event' => 'field.edit', 'payload' => ['field' => 'country', 'value' => 'UA']],
+                ['event' => 'lock.heartbeat', 'payload' => ['field' => 'country']],
+            ],
+            self::withoutPings($fresh['posts']),
+        );
+    }
+
+    #[Test]
+    public function an_edit_refused_as_field_locked_asks_for_the_lock_once_and_is_sent_again(): void
+    {
+        $refusal = ['http' => 422, 'data' => ['status' => 'rejected', 'reason' => 'field_locked']];
+        $scenario = ['manifest' => self::manifest('field-lock', 'bob', ['title']), 'inputs' => ['title' => '']];
+        $acquire = ['event' => 'lock.acquire', 'payload' => ['field' => 'title']];
+        $edit = ['event' => 'field.edit', 'payload' => ['field' => 'title', 'value' => 'a']];
+
+        // The client thought it held the field and the server says it does not.
+        $seen = $this->editorSees($scenario + ['replies' => ['field.edit' => [$refusal]], 'steps' => [
+            ['focus' => 'title'],
+            ['type' => 'title', 'value' => 'a'],
+            ['tick' => true],
+        ]]);
+        self::assertSame(
+            [$acquire, $edit, $acquire, $edit, ['event' => 'lock.heartbeat', 'payload' => ['field' => 'title']]],
+            self::withoutPings($seen['posts']),
+        );
+
+        // Refused again behind the new grant: no third request, and no
+        // heartbeat for a lock this client does not hold.
+        $twice = $this->editorSees($scenario + ['replies' => ['field.edit' => [$refusal, $refusal]], 'steps' => [
+            ['focus' => 'title'],
+            ['type' => 'title', 'value' => 'a'],
+            ['tick' => true],
+        ]]);
+        self::assertSame([$acquire, $edit, $acquire, $edit], self::withoutPings($twice['posts']));
+
+        // A real holder: the lock is refused, and the change ends as any
+        // refused one does.
+        $held = $this->editorSees($scenario + [
+            'replies' => ['field.edit' => [$refusal], 'lock.acquire' => [['status' => 'accepted'], ['status' => 'rejected', 'reason' => 'lock_unavailable']]],
+            'steps' => [['focus' => 'title'], ['type' => 'title', 'value' => 'a'], ['tick' => true]],
+        ]);
+        self::assertSame([$acquire, $edit, $acquire], self::withoutPings($held['posts']));
+        self::assertTrue($held['disabled']['title']);
+    }
+
+    #[Test]
     public function a_field_another_participant_holds_changed_without_focus_sends_and_shows_nothing(): void
     {
         $mallory = new class {

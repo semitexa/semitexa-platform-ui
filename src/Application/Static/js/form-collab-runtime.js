@@ -212,6 +212,14 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         // so a release that focus cancelled never acts for a later one.
         this.lockReleasing = null;
         this.fieldReleasing = Object.create(null);
+        // FieldLock: the fields whose lock THIS client released and has not
+        // asked for since. A snapshot published while the lock was held can
+        // arrive after the release and still name this participant as the
+        // holder; it must not bring the lock back (see applyFieldLocks).
+        this.fieldReleased = Object.create(null);
+        // FieldLock: the fields whose lock was asked for again because the
+        // server answered an edit with `field_locked` (see onEditFieldLocked).
+        this.fieldRelocked = Object.create(null);
         // The fields THIS runtime disabled for a lock, as opposed to a control
         // the page disabled for its own reasons; the ones enabled for the
         // form submit under way; and that submit.
@@ -660,7 +668,10 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             } else {
                 this.setInputLocked(name, input, false);
                 input.removeAttribute('data-ui-collab-field-lock');
-                if (holderId !== '' && holderId === this.self) {
+                // A lock the server says is ours is taken as held (a page
+                // loaded while its participant holds one), unless this client
+                // released it: then the frame is older than the release.
+                if (holderId !== '' && holderId === this.self && !this.fieldReleased[name]) {
                     this.myFieldLocks[name] = true;
                     this.ensureFieldHeartbeat();
                 }
@@ -674,9 +685,13 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             return;
         }
         var self = this;
+        delete this.fieldReleased[name]; // asked for again: what the server says counts
         // Every focus and every change without focus asks on its own: a
         // request on the way is not remembered, and none has a deadline.
         this.postEventAwait('lock.acquire', ctx, { field: name }).then(function (res) {
+            if (!(res && (res.status === 'accepted' || res.kind === 'ack'))) {
+                delete self.fieldRelocked[name];
+            }
             if (res && (res.status === 'accepted' || res.kind === 'ack')) {
                 self.myFieldLocks[name] = true;
                 self.ensureFieldHeartbeat();
@@ -785,6 +800,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         }
         this.dropUnsentEdits([name]);
         delete this.myFieldLocks[name];
+        this.fieldReleased[name] = true;
         var ctx = this.m.events && this.m.events['lock.release'];
         if (ctx) {
             this.postEvent('lock.release', ctx, { field: name });
@@ -1094,6 +1110,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         q.waiting = false;
         q.inFlight = true;
         q.sent = value;
+        var relocked = !!this.fieldRelocked[field];
         var settled = function (failed) {
             if (over) {
                 return; // the timeout and the aborted request both report
@@ -1146,7 +1163,14 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         // broke (5xx). A refusal (4xx: the field is locked, unknown, the
         // session expired) is an answer.
         request.then(
-            function (r) { settled(!!r && r.ok === false && r.status >= 500); },
+            function (r) {
+                settled(!!r && r.ok === false && r.status >= 500);
+                if (r && r.ok === false && r.data && r.data.reason === 'field_locked') {
+                    self.onEditFieldLocked(field, relocked);
+                } else if (relocked && r && r.ok !== false) {
+                    delete self.fieldRelocked[field];
+                }
+            },
             function () { settled(true); }
         );
         // One stalled request would otherwise hold the field, its lock and
@@ -1158,6 +1182,48 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             }
             settled(true);
         }, EDIT_TIMEOUT_MS);
+    };
+
+    /**
+     * FieldLock: the server refused an edit of `name` because this
+     * participant does not hold the field, though this client thought it
+     * did. The lock is dropped here (its heartbeat with it), the input's
+     * value is queued and the lock asked for again, once: the grant sends
+     * the value, a refusal of the lock ends as any refused acquire does.
+     * `relocked`: the edit was sent after such a re-acquire. Refused again,
+     * the field is someone else's whatever the grant said, and the change
+     * ends as a refused one.
+     */
+    CollabForm.prototype.onEditFieldLocked = function (name, relocked) {
+        if (this.mode !== 'field-lock' || this.closed) {
+            return;
+        }
+        var q = this.edits[name];
+        if (q && !q.inFlight) {
+            q.waiting = false;
+        }
+        delete this.myFieldLocks[name];
+        if (this.countMyFieldLocks() === 0) {
+            this.stopFieldHeartbeat();
+        }
+        if (relocked) {
+            delete this.fieldRelocked[name];
+            if (this.hasFocus(name)) {
+                delete this.pendingEdit[name]; // typed text stays, as on a refused acquire
+            } else {
+                this.refuseEdit(name);
+            }
+            return;
+        }
+        var input = this.inputOf(this.fieldEl(name));
+        if (!input) {
+            return;
+        }
+        this.pendingEdit[name] = input.value;
+        if (!this.fieldRelocked[name]) {
+            this.fieldRelocked[name] = true;
+            this.acquireFieldLock(name);
+        }
     };
 
     /** An edit of `name` is in flight or waiting to be sent. */
