@@ -21,12 +21,12 @@ final class PlainContentDefaultsTest extends TestCase
 
     private const PLAIN = ['table', 'pre', 'hr', 'blockquote'];
 
-    private const GUARD = ['[class]', '[ui]', '[role]', '[ui-table]', '[ui-component] *', '[data-ui-component] *', '[data-ui-primitive] *'];
+    private const GUARD = ['[class]', '[ui]', '[role]', '[ui-table]', '[ui-component]', '[data-ui-component]', '[data-ui-primitive]', '[ui-table] *', '[ui-component] *', '[data-ui-component] *', '[data-ui-primitive] *'];
 
     #[Test]
     public function every_plain_element_has_its_defaults_in_the_reset_layer(): void
     {
-        $reset = implode("\n", self::layerBlocks((string) file_get_contents(self::BUILT), 'platform-ui.reset'));
+        $reset = implode("\n", self::layerBlocks(self::css(), 'platform-ui.reset'));
 
         self::assertNotSame('', $reset, 'the built baseline has a platform-ui.reset layer');
         foreach (self::PLAIN as $element) {
@@ -38,7 +38,7 @@ final class PlainContentDefaultsTest extends TestCase
     #[Test]
     public function no_plain_content_rule_sits_outside_a_layer(): void
     {
-        $css = (string) file_get_contents(self::BUILT);
+        $css = self::css();
         $blocks = self::layerBlocks($css, null);
         $outside = $css;
         foreach ($blocks as $block) {
@@ -56,7 +56,7 @@ final class PlainContentDefaultsTest extends TestCase
     #[Test]
     public function every_rule_is_zero_specificity_and_keeps_out_of_components(): void
     {
-        $rules = self::plainRules((string) file_get_contents(self::BUILT));
+        $rules = self::plainRules(self::css());
 
         self::assertCount(8, $rules, 'table, caption, cells, th, thead th, pre, hr, blockquote');
         foreach ($rules as $selector) {
@@ -70,13 +70,51 @@ final class PlainContentDefaultsTest extends TestCase
     #[Test]
     public function buttons_and_fields_are_left_to_the_components(): void
     {
-        $rules = self::plainRules((string) file_get_contents(self::BUILT));
+        $rules = self::plainRules(self::css());
 
         self::assertCount(8, $rules);
         foreach ($rules as $selector) {
             self::assertStringStartsWith(':where(main ', $selector);
             self::assertDoesNotMatchRegularExpression('/\b(button|input|select|textarea)\b/', $selector, 'the command palette and the workbench rely on the bare control');
         }
+    }
+
+    #[Test]
+    public function a_cell_a_caption_and_a_header_carry_the_guard_themselves(): void
+    {
+        $inner = array_values(array_filter(self::plainRules(self::css()), static fn (string $s): bool => preg_match('/\b(th|td|caption)\b/', $s) === 1));
+
+        self::assertCount(4, $inner, 'caption, cells, th, thead th');
+        foreach ($inner as $selector) {
+            // Once on the plain table, once on the cell: a component's table nested in a plain one keeps its own cells.
+            self::assertSame(2, substr_count($selector, '[ui-component] *'), $selector);
+            self::assertSame(2, substr_count($selector, '[data-ui-component],'), $selector);
+        }
+    }
+
+    #[Test]
+    public function a_rule_left_in_a_comment_is_not_a_rule(): void
+    {
+        $commented = '@layer platform-ui.reset { /* :where(main table:not([class])) { border: 0; } */ }';
+
+        self::assertSame([], self::plainRules(self::stripComments($commented)));
+        self::assertSame('@layer platform-ui.reset {  }', self::stripComments($commented));
+    }
+
+    /** The built baseline, read, with its comments out: a rule left in a comment is no rule. */
+    private static function css(): string
+    {
+        $css = @file_get_contents(self::BUILT);
+        self::assertIsString($css, 'cannot read ' . self::BUILT);
+        $css = self::stripComments($css);
+        self::assertNotSame('', trim($css));
+
+        return $css;
+    }
+
+    private static function stripComments(string $css): string
+    {
+        return (string) preg_replace('~/\*.*?\*/~s', '', $css);
     }
 
     /**
