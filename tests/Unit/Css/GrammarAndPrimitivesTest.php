@@ -102,11 +102,13 @@ final class GrammarAndPrimitivesTest extends TestCase
         $attributes = implode('|', array_map(static fn (string $a): string => preg_quote($a, '/'), $catalog->attributes()));
         $scripts = glob(__DIR__ . '/../../../src/Application/Static/js/*.js');
         self::assertIsArray($scripts);
+        self::assertNotSame([], $scripts, 'no shipped script found: the scan below would read nothing');
 
         $written = [];
         foreach ($scripts as $script) {
             $js = file_get_contents($script);
             self::assertIsString($js, 'unreadable: ' . $script);
+            self::assertNotSame('', trim($js), 'empty: ' . $script . ' (a truncated script would pass the scan unread)');
             // 'sx-padding': '5' in an attribute map, setAttribute('sx-gap', '2').
             preg_match_all('/[\'"](' . $attributes . ')[\'"]\s*[:,]\s*[\'"]([^\'"]*)[\'"]/', $js, $m, PREG_SET_ORDER);
             foreach ($m as [, $attribute, $value]) {
