@@ -558,11 +558,29 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
                 self.renderLockBanner(null);
                 // Lock now held — flush any keystrokes typed during the acquire.
                 self.flushAllPendingEdits();
+                // Focus left the form before this answer, or the form left
+                // the page: blur (or destroy) found no lock to release, so it
+                // is released here, as blur releases it, after the edits
+                // settled. Focus coming back asks again.
+                if (self.closed || !self.root.contains(document.activeElement)) {
+                    self.releaseLock();
+                }
             } else if (res && res.reason === 'lock_unavailable') {
                 // Lost the race — go read-only immediately (the snapshot will
-                // fill in the holder's label). Drop queued edits we can't write.
+                // fill in the holder's label). Drop queued edits we can't write:
+                // of a field the person is in, the typed text stays; of one
+                // they left before this answer, it goes (see refuseEdit).
                 self.iHoldLock = false;
+                var queued = [];
+                for (var q in self.pendingEdit) {
+                    if (Object.prototype.hasOwnProperty.call(self.pendingEdit, q) && !self.hasFocus(q)) {
+                        queued.push(q);
+                    }
+                }
                 self.pendingEdit = Object.create(null);
+                for (var j = 0; j < queued.length; j++) {
+                    self.refuseEdit(queued[j]);
+                }
                 self.setFieldsDisabled(true);
                 self.renderLockBanner(self.lockHolderLabel || 'another participant');
             }
@@ -699,8 +717,9 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
                 self.flushPendingEdit(name);
                 // Nobody is in the field: the lock was taken for a change made
                 // without focus (see relayEdit), or focus left before this
-                // answer. Released as blur releases it, after the edit settled.
-                if (!self.hasFocus(name)) {
+                // answer, or the form left the page before it. Released as
+                // blur releases it, after the edit settled.
+                if (self.closed || !self.hasFocus(name)) {
                     self.releaseFieldLock(name);
                 }
             } else if (res && res.reason === 'lock_unavailable') {

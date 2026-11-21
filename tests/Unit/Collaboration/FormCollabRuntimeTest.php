@@ -1160,6 +1160,126 @@ final class FormCollabRuntimeTest extends TestCase
     }
 
     #[Test]
+    public function a_form_left_before_its_lock_was_granted_is_released_when_the_grant_arrives(): void
+    {
+        // Blur found no lock to release, the grant arrived after it, and the
+        // heartbeat then kept the whole form read-only for every co-editor
+        // until this participant focused a field and left it again.
+        $scenario = [
+            'manifest' => self::manifest('form-lock', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['lock.acquire'],
+        ];
+        $steps = [['focus' => 'title'], ['blur' => 'title'], ['answer' => 'oldest']];
+
+        $seen = $this->editorSees($scenario + ['steps' => [...$steps, ['tick' => true]]]);
+        self::assertSame(
+            ['lock.acquire', 'lock.release'],
+            array_column(self::withoutPings($seen['posts']), 'event'),
+            'released at once, and no heartbeat renews it afterwards',
+        );
+
+        // Nothing is held: the next focus has to ask for the lock again.
+        $again = $this->editorSees($scenario + ['steps' => [...$steps, ['focus' => 'title']]]);
+        self::assertSame(['lock.acquire', 'lock.release', 'lock.acquire'], array_column(self::withoutPings($again['posts']), 'event'));
+
+        // What was typed before leaving goes out under the grant, and the
+        // release follows it.
+        $typed = $this->editorSees($scenario + ['steps' => [
+            ['focus' => 'title'],
+            ['type' => 'title', 'value' => 'a'],
+            ['blur' => 'title'],
+            ['answer' => 'oldest'],
+            ['tick' => true],
+        ]]);
+        self::assertSame(['lock.acquire', 'field.edit', 'lock.release'], array_column(self::withoutPings($typed['served']), 'event'));
+    }
+
+    #[Test]
+    public function a_lock_granted_after_the_form_left_the_page_is_released(): void
+    {
+        // The editor was removed with the request on its way: destroy found
+        // no lock to release, and the grant then started a heartbeat for a
+        // form nobody can see.
+        foreach (['form-lock' => [], 'field-lock' => ['field' => 'title']] as $mode => $payload) {
+            $seen = $this->editorSees([
+                'manifest' => self::manifest($mode, 'bob', ['title']),
+                'inputs' => ['title' => ''],
+                'hold' => ['lock.acquire'],
+                'steps' => [['focus' => 'title'], ['unmount' => true], ['answer' => 'oldest'], ['tick' => true]],
+            ]);
+
+            self::assertSame(
+                [['event' => 'lock.acquire', 'payload' => $payload], ['event' => 'lock.release', 'payload' => $payload]],
+                self::withoutPings($seen['posts']),
+                $mode . ': released, and no heartbeat renews it',
+            );
+        }
+    }
+
+    #[Test]
+    public function a_form_lock_granted_twice_is_not_kept_by_the_grant_that_arrives_after_the_form_was_left(): void
+    {
+        // Focused, left and focused again before the first answer: two
+        // requests. The first grant finds the person in the form and is kept;
+        // blur releases it; the second grant then arrives with nobody there.
+        $scenario = [
+            'manifest' => self::manifest('form-lock', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['lock.acquire'],
+        ];
+        $twice = [['focus' => 'title'], ['blur' => 'title'], ['focus' => 'title']];
+
+        $seen = $this->editorSees($scenario + ['steps' => [
+            ...$twice,
+            ['answer' => 'oldest'],
+            ['blur' => 'title'],
+            ['elapse' => 150],
+            ['answer' => 'oldest'],
+            ['tick' => true],
+        ]]);
+        self::assertSame(
+            ['lock.acquire', 'lock.acquire', 'lock.release', 'lock.release'],
+            array_column(self::withoutPings($seen['posts']), 'event'),
+            'the late grant is released too, and no heartbeat renews it',
+        );
+
+        // Both grants arriving while the person is in the form: kept, and renewed.
+        $inside = $this->editorSees($scenario + ['steps' => [...$twice, ['answer' => 'newest-first'], ['tick' => true]]]);
+        self::assertSame(['lock.acquire', 'lock.acquire', 'lock.heartbeat'], array_column(self::withoutPings($inside['posts']), 'event'));
+    }
+
+    #[Test]
+    public function a_form_lock_refused_after_the_form_was_left_does_not_leave_the_refused_text_in_the_input(): void
+    {
+        // Typed and left before the answer; the answer is a refusal. Nobody is
+        // in the field, so the text goes the way of any refused change (see
+        // refuseEdit): left in the now read-only input it would be in the
+        // app's form post and replace what the holder typed.
+        $this->draft->mergeFields(self::SCOPE, ['title' => 'Flat'], 'mallory');
+        $scenario = [
+            'manifest' => self::manifest('form-lock', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['lock.acquire'],
+            'replies' => ['lock.acquire' => [['status' => 'rejected', 'reason' => 'lock_unavailable']]],
+        ];
+        $steps = [
+            ['snapshot' => $this->frame($this->feedOf('form-lock', ['title']))],
+            ['focus' => 'title'],
+            ['type' => 'title', 'value' => 'mine'],
+        ];
+
+        $left = $this->editorSees($scenario + ['steps' => [...$steps, ['blur' => 'title'], ['answer' => 'oldest'], ['tick' => true]]]);
+        self::assertSame('Flat', $left['values']['title']);
+        self::assertTrue($left['disabled']['title']);
+        self::assertSame(['lock.acquire'], array_column(self::withoutPings($left['posts']), 'event'), 'nothing was granted: no edit, no release, no heartbeat');
+
+        // Still in the field: the person keeps what they typed, as before.
+        $inside = $this->editorSees($scenario + ['steps' => [...$steps, ['answer' => 'oldest']]]);
+        self::assertSame('mine', $inside['values']['title']);
+    }
+
+    #[Test]
     public function a_value_waiting_behind_an_edit_in_flight_is_sent_when_the_page_is_hidden(): void
     {
         // The app's own form post navigates away; nothing will be there when
