@@ -365,6 +365,7 @@
 [sx-padding="2"] { padding: var(--ui-space-2); }
 [sx-padding="3"] { padding: var(--ui-space-3); }
 [sx-padding="4"] { padding: var(--ui-space-4); }
+[sx-padding="5"] { padding: var(--ui-space-5); }
 [sx-padding="6"] { padding: var(--ui-space-6); }
 [sx-padding="8"] { padding: var(--ui-space-8); }
 [sx-radius="lg"] { border-radius: var(--ui-radius-lg, 0.75rem); }

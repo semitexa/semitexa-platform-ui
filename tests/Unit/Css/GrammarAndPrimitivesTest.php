@@ -87,6 +87,40 @@ final class GrammarAndPrimitivesTest extends TestCase
         }
     }
 
+    /**
+     * idea-grid-empty-state-padding-step-5: grid-runtime-v2.js built the grid's
+     * empty state with sx-padding="5" while the scale stopped at 4, 6, 8, so no
+     * rule matched and "No rows." sat on the panel border. Markup a script
+     * builds passes no extractor or validator; this is where it is read.
+     */
+    #[Test]
+    public function every_grammar_value_a_shipped_script_writes_is_on_its_scale_and_in_the_bundle(): void
+    {
+        $catalog = SliceCatalog::withDefaults();
+        $validator = new ValueValidator($catalog);
+        $bundle = self::css(__DIR__ . '/../../../src/Application/Static/css/full.css');
+        $attributes = implode('|', array_map(static fn (string $a): string => preg_quote($a, '/'), $catalog->attributes()));
+        $scripts = glob(__DIR__ . '/../../../src/Application/Static/js/*.js');
+        self::assertIsArray($scripts);
+        self::assertNotSame([], $scripts, 'no shipped script found: the scan below would read nothing');
+
+        $written = [];
+        foreach ($scripts as $script) {
+            $js = file_get_contents($script);
+            self::assertIsString($js, 'unreadable: ' . $script);
+            self::assertNotSame('', trim($js), 'empty: ' . $script . ' (a truncated script would pass the scan unread)');
+            // 'sx-padding': '5' in an attribute map, setAttribute('sx-gap', '2').
+            preg_match_all('/[\'"](' . $attributes . ')[\'"]\s*[:,]\s*[\'"]([^\'"]*)[\'"]/', $js, $m, PREG_SET_ORDER);
+            foreach ($m as [, $attribute, $value]) {
+                $written[$attribute . '="' . $value . '"'] = basename($script);
+                self::assertTrue($validator->isValid($attribute, $value), basename($script) . ' writes ' . $attribute . '="' . $value . '", a value off its scale: no rule styles it');
+                self::assertStringContainsString('[' . $attribute . '="' . $value . '"]', $bundle, basename($script) . ' writes ' . $attribute . '="' . $value . '", which full.css has no rule for');
+            }
+        }
+
+        self::assertArrayHasKey('sx-padding="5"', $written, 'the grid empty state no longer writes sx-padding="5": this test reads nothing it was written for');
+    }
+
     #[Test]
     public function every_primitive_ships_its_rule_in_the_primitives_layer_and_a_template(): void
     {
