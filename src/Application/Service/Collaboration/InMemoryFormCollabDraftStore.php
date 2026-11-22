@@ -7,12 +7,13 @@ namespace Semitexa\PlatformUi\Application\Service\Collaboration;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Tenant\TenantContextAccess;
 use Semitexa\Core\Tenant\TenantContextInterface;
-use Semitexa\PlatformUi\Domain\Contract\FormCollabDraftStoreInterface;
+use Semitexa\PlatformUi\Domain\Contract\FormCollabOrderedDraftStoreInterface;
 use Semitexa\PlatformUi\Domain\Exception\FormDraftVersionConflictException;
 use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
+use Semitexa\PlatformUi\Domain\Model\Collaboration\FormFieldEditOrder;
 
 /**
- * Worker-local fallback for {@see FormCollabDraftStoreInterface} — the same
+ * Worker-local fallback for {@see FormCollabOrderedDraftStoreInterface} — the same
  * role {@see \Semitexa\PlatformUi\Application\Service\Submit\InMemoryUiFormDatabaseDemoSubmissionRepository}
  * plays for demo submissions: a default for unit tests and single-worker dev
  * runs. NOT safe across multiple Swoole workers (the map is per-process);
@@ -26,10 +27,18 @@ use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
  * NOT `final` so tests can extend it to assert call discipline, matching the
  * demo in-memory repository convention.
  */
-class InMemoryFormCollabDraftStore implements FormCollabDraftStoreInterface
+class InMemoryFormCollabDraftStore implements FormCollabOrderedDraftStoreInterface
 {
     /** @var array<string, array<string, FormCollabDraftState>> tenant key → scope key → draft */
     private array $drafts = [];
+
+    /**
+     * The edit marks of each draft, with the epoch of the draft they belong
+     * to: a draft that replaced a discarded or expired one starts with none.
+     *
+     * @var array<string, array<string, array{epoch: string, marks: array<string, array<string, int>>}>>
+     */
+    private array $editMarks = [];
 
     /**
      * Optional tenant partition, mirroring the DB store so both implementations
@@ -71,7 +80,7 @@ class InMemoryFormCollabDraftStore implements FormCollabDraftStoreInterface
 
     public function discard(string $scopeKey): void
     {
-        unset($this->drafts[$this->tenantKey()][$scopeKey]);
+        unset($this->drafts[$this->tenantKey()][$scopeKey], $this->editMarks[$this->tenantKey()][$scopeKey]);
     }
 
     /** The draft, unless it was abandoned: then it is dropped and absent. */
@@ -120,6 +129,28 @@ class InMemoryFormCollabDraftStore implements FormCollabDraftStoreInterface
         }
 
         return $this->store($scopeKey, $merged, ($current->version ?? 0) + 1, $actor, $current?->epoch);
+    }
+
+    public function mergeFieldInOrder(
+        string $scopeKey,
+        string $field,
+        int|float|string|bool|null $value,
+        ?string $actor,
+        string $source,
+        int $sequence,
+    ): FormFieldEditOrder {
+        $tenant = $this->tenantKey();
+        $current = $this->live($scopeKey);
+        $kept = $this->editMarks[$tenant][$scopeKey] ?? null;
+        $marks = $current !== null && $kept !== null && $kept['epoch'] === $current->epoch ? $kept['marks'] : [];
+
+        [$order, $marks] = FormFieldEditMarks::place($marks, $field, $source, $sequence);
+        if ($order === FormFieldEditOrder::Applied) {
+            $stored = $this->mergeFields($scopeKey, [$field => $value], $actor);
+            $this->editMarks[$tenant][$scopeKey] = ['epoch' => $stored->epoch, 'marks' => $marks];
+        }
+
+        return $order;
     }
 
     /**

@@ -45,7 +45,7 @@ final class FormCollabDraftFirstWriteRaceTest extends TestCase
             'CREATE TABLE draft_base (
                 id TEXT PRIMARY KEY, tenant_id TEXT, scope_key TEXT NOT NULL,
                 values_json TEXT NOT NULL, version INTEGER NOT NULL,
-                updated_by TEXT, updated_at TEXT NOT NULL
+                updated_by TEXT, updated_at TEXT NOT NULL, edit_marks_json TEXT
             )',
         );
         $db->execute('CREATE UNIQUE INDEX uniq_draft_tenant_scope ON draft_base (tenant_id, scope_key)');
@@ -62,8 +62,8 @@ final class FormCollabDraftFirstWriteRaceTest extends TestCase
         $db->execute(
             'CREATE TRIGGER draft_insert INSTEAD OF INSERT ON form_collab_draft
              BEGIN
-                INSERT INTO draft_base (id, tenant_id, scope_key, values_json, version, updated_by, updated_at)
-                VALUES (NEW.id, NEW.tenant_id, NEW.scope_key, NEW.values_json, NEW.version, NEW.updated_by, NEW.updated_at);
+                INSERT INTO draft_base (id, tenant_id, scope_key, values_json, version, updated_by, updated_at, edit_marks_json)
+                VALUES (NEW.id, NEW.tenant_id, NEW.scope_key, NEW.values_json, NEW.version, NEW.updated_by, NEW.updated_at, NEW.edit_marks_json);
              END',
         );
         $db->execute(
@@ -71,13 +71,14 @@ final class FormCollabDraftFirstWriteRaceTest extends TestCase
              BEGIN
                 UPDATE draft_base SET tenant_id = NEW.tenant_id, scope_key = NEW.scope_key,
                     values_json = NEW.values_json, version = NEW.version,
-                    updated_by = NEW.updated_by, updated_at = NEW.updated_at
+                    updated_by = NEW.updated_by, updated_at = NEW.updated_at,
+                    edit_marks_json = NEW.edit_marks_json
                 WHERE id = OLD.id;
              END',
         );
         // The other writer's draft, already committed when ours is attempted.
         $db->execute(
-            "INSERT INTO draft_base VALUES ('rival1', 'default', 'formdoc:demo:1', '{\"title\":\"theirs\"}', 1, 'bob', '2026-10-15 19:59:21')",
+            "INSERT INTO draft_base VALUES ('rival1', 'default', 'formdoc:demo:1', '{\"title\":\"theirs\"}', 1, 'bob', '2026-10-15 19:59:21', NULL)",
         );
 
         $this->store = (new FormCollabDraftDbRepository())->withOrmManager($this->orm);

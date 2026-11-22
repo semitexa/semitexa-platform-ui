@@ -1723,6 +1723,157 @@ final class FormCollabRuntimeTest extends TestCase
         self::assertSame(['presence.ping'], array_column($seen['posts'], 'event'), 'the one sent on boot');
     }
 
+    #[Test]
+    public function the_two_sends_of_a_hidden_page_leave_the_newer_value_whichever_arrives_first(): void
+    {
+        // 'a' is in flight when the page is hidden; 'ab' goes out beside it,
+        // with keepalive. Nothing orders the two on the wire.
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('shared', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['field.edit'],
+            'steps' => [['type' => 'title', 'value' => 'a'], ['type' => 'title', 'value' => 'ab'], ['pagehide' => true]],
+        ]);
+        $sent = self::sentEdits($seen);
+        self::assertSame(['a', 'ab'], array_column($sent, 'value'));
+
+        // The server gets the newer one first.
+        $answers = $this->serverReceives([$sent[1], $sent[0]]);
+
+        self::assertSame('ab', $this->draft->load(self::SCOPE)?->values['title'] ?? null, 'the value typed last, not the one that arrived last');
+        self::assertSame(['accepted', FormCollaborationEventHandler::EDIT_SUPERSEDED], $answers);
+    }
+
+    #[Test]
+    public function an_edit_given_up_after_ten_seconds_that_the_server_still_processes_does_not_replace_the_newer_value(): void
+    {
+        // 'a' gets no answer and is aborted; it is sent again and answered,
+        // then 'ab'. The request the page gave up on was only slow: the
+        // server processes it after both.
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('shared', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['field.edit'],
+            'steps' => [
+                ['type' => 'title', 'value' => 'a'],
+                ['elapse' => 10000],
+                ['type' => 'title', 'value' => 'ab'],
+                ['answer' => 'oldest'],
+                ['answer' => 'oldest'],
+            ],
+        ]);
+        self::assertSame(1, $seen['aborted']);
+        $sent = self::sentEdits($seen);
+        self::assertSame(['a', 'a', 'ab'], array_column($sent, 'value'), 'the aborted one, its retry, the newer value');
+
+        $answers = $this->serverReceives([$sent[1], $sent[2], $sent[0]]);
+
+        self::assertSame('ab', $this->draft->load(self::SCOPE)?->values['title'] ?? null, 'the late request does not put the older value back');
+        self::assertSame(['accepted', 'accepted', FormCollaborationEventHandler::EDIT_SUPERSEDED], $answers);
+    }
+
+    #[Test]
+    public function every_value_gets_the_next_sequence_and_a_value_sent_again_keeps_its_own(): void
+    {
+        $scenario = [
+            'manifest' => self::manifest('shared', 'bob', ['title', 'price']),
+            'inputs' => ['title' => '', 'price' => ''],
+            'hold' => ['field.edit'],
+            'steps' => [
+                ['type' => 'title', 'value' => 'a'],
+                ['fail' => 'oldest'],               // 'a' again
+                ['type' => 'price', 'value' => '1'],
+                ['type' => 'title', 'value' => 'ab'], // waits behind the retry
+                ['answer' => 'oldest'],
+            ],
+        ];
+        $sent = self::sentEdits($this->editorSees($scenario));
+
+        self::assertSame(
+            [['title', 'a', 1], ['title', 'a', 1], ['price', '1', 2], ['title', 'ab', 3]],
+            array_map(static fn (array $p): array => [$p['field'], $p['value'], $p['seq']], $sent),
+            'one count for the page, in the order the values were typed; the retry is the same edit',
+        );
+        $runtime = $sent[0]['runtime'];
+        self::assertIsString($runtime);
+        self::assertMatchesRegularExpression('/^[A-Za-z0-9_-]{8,64}$/', $runtime, 'what the server accepts as a runtime id');
+        self::assertSame([$runtime], array_values(array_unique(array_column($sent, 'runtime'))), 'one page, one id');
+
+        $otherPage = self::sentEdits($this->editorSees($scenario));
+        self::assertNotSame($runtime, $otherPage[0]['runtime'], 'another page (a reload, another tab) is another runtime');
+    }
+
+    #[Test]
+    public function the_value_in_flight_sent_again_by_a_hidden_page_is_stored_once(): void
+    {
+        $seen = $this->editorSees([
+            'manifest' => self::manifest('shared', 'bob', ['title']),
+            'inputs' => ['title' => ''],
+            'hold' => ['field.edit'],
+            'steps' => [['type' => 'title', 'value' => 'a'], ['pagehide' => true]],
+        ]);
+        $sent = self::sentEdits($seen);
+        self::assertSame([['field' => 'title', 'value' => 'a']], self::edits($seen['keepalive']));
+        self::assertCount(2, $sent);
+        self::assertSame($sent[0], $sent[1], 'the same edit under the same sequence');
+
+        // Both arrive; someone else typed between them.
+        $first = $this->serverReceives([$sent[0]]);
+        $this->draft->mergeFields(self::SCOPE, ['title' => 'theirs'], 'alice');
+        $second = $this->serverReceives([$sent[1]]);
+
+        self::assertSame(['accepted', 'accepted'], [...$first, ...$second]);
+        self::assertSame('theirs', $this->draft->load(self::SCOPE)?->values['title'] ?? null, 'the copy is not a newer edit');
+    }
+
+    /**
+     * The requests without what orders a field.edit on the server.
+     *
+     * @param list<array{event: string, payload: array<string, mixed>}> $requests
+     * @return list<array{event: string, payload: array<string, mixed>}>
+     */
+    private static function withoutOrder(array $requests): array
+    {
+        foreach ($requests as $at => $request) {
+            if ($request['event'] === 'field.edit') {
+                unset($requests[$at]['payload']['seq'], $requests[$at]['payload']['runtime']);
+            }
+        }
+
+        return $requests;
+    }
+
+    /**
+     * The field.edit payloads of a run exactly as the runtime posted them,
+     * in order: with the sequence and the runtime id the server orders them
+     * by, which editorSees() takes out of `posts`, `served` and `keepalive`.
+     *
+     * @param array{sent: list<array{event: string, payload: array<string, mixed>}>} $seen
+     * @return list<array<string, mixed>>
+     */
+    private static function sentEdits(array $seen): array
+    {
+        return array_column(array_filter($seen['sent'], static fn (array $p): bool => $p['event'] === 'field.edit'), 'payload');
+    }
+
+    /**
+     * The real handler gets these field.edit payloads, from one participant,
+     * in this order; what each was answered with ('accepted' or the reason).
+     *
+     * @param list<array<string, mixed>> $payloads
+     * @return list<string>
+     */
+    private function serverReceives(array $payloads): array
+    {
+        $answers = [];
+        foreach ($payloads as $payload) {
+            $response = $this->handler()->handle((object) [], $this->event('field.edit', 'shared', $payload));
+            $answers[] = $response->error === null ? 'accepted' : $response->error->code;
+        }
+
+        return $answers;
+    }
+
     /**
      * The lock.release payloads of a list of requests, in order.
      *
@@ -1851,7 +2002,7 @@ final class FormCollabRuntimeTest extends TestCase
 
     /**
      * @param array<string, mixed> $scenario
-     * @return array{values: array<string, string>, fieldLocks: array<string, ?string>, chips: list<array{text: string, attrs: array<string, string>, elements: int}>, lock: ?array{text: string, attrs: array<string, string>, elements: int}, conflict: array{text: string, hidden: bool, buttons: list<string>}, saveStatus: string, events: list<array{type: string, detail: mixed}>, posts: list<array{event: string, payload: array<string, mixed>}>, served: list<array{event: string, payload: array<string, mixed>}>, keepalive: list<array{event: string, payload: array<string, mixed>}>, aborted: int, maxInFlight: array<string, int>, disabled: array<string, bool>, disabledAfterSubmit: ?array<string, bool>, formData: ?list<array{string, string}>, appFormData: ?list<array{string, string}>, htmlSinks: list<mixed>}
+     * @return array{values: array<string, string>, fieldLocks: array<string, ?string>, chips: list<array{text: string, attrs: array<string, string>, elements: int}>, lock: ?array{text: string, attrs: array<string, string>, elements: int}, conflict: array{text: string, hidden: bool, buttons: list<string>}, saveStatus: string, events: list<array{type: string, detail: mixed}>, posts: list<array{event: string, payload: array<string, mixed>}>, sent: list<array{event: string, payload: array<string, mixed>}>, served: list<array{event: string, payload: array<string, mixed>}>, keepalive: list<array{event: string, payload: array<string, mixed>}>, aborted: int, maxInFlight: array<string, int>, disabled: array<string, bool>, disabledAfterSubmit: ?array<string, bool>, formData: ?list<array{string, string}>, appFormData: ?list<array{string, string}>, htmlSinks: list<mixed>}
      */
     private function editorSees(array $scenario): array
     {
@@ -1873,7 +2024,16 @@ final class FormCollabRuntimeTest extends TestCase
         $seen = json_decode($stdout, true);
         self::assertTrue($exit === 0 && is_array($seen), "the runtime harness failed (exit {$exit}).\nstdout: {$stdout}\nstderr: {$stderr}");
 
-        /** @var array{values: array<string, string>, fieldLocks: array<string, ?string>, chips: list<array{text: string, attrs: array<string, string>, elements: int}>, lock: ?array{text: string, attrs: array<string, string>, elements: int}, conflict: array{text: string, hidden: bool, buttons: list<string>}, saveStatus: string, events: list<array{type: string, detail: mixed}>, posts: list<array{event: string, payload: array<string, mixed>}>, served: list<array{event: string, payload: array<string, mixed>}>, keepalive: list<array{event: string, payload: array<string, mixed>}>, aborted: int, maxInFlight: array<string, int>, disabled: array<string, bool>, disabledAfterSubmit: ?array<string, bool>, formData: ?list<array{string, string}>, appFormData: ?list<array{string, string}>, htmlSinks: list<mixed>} $seen */
-        return $seen;
+        // What a field.edit says and what orders it are asserted apart: the
+        // posts as sent stay in `sent`, and the lists the tests compare lose
+        // the sequence and the runtime id (random per run).
+        $seen['sent'] = $seen['posts'] ?? [];
+        /** @var array{values: array<string, string>, fieldLocks: array<string, ?string>, chips: list<array{text: string, attrs: array<string, string>, elements: int}>, lock: ?array{text: string, attrs: array<string, string>, elements: int}, conflict: array{text: string, hidden: bool, buttons: list<string>}, saveStatus: string, events: list<array{type: string, detail: mixed}>, posts: list<array{event: string, payload: array<string, mixed>}>, sent: list<array{event: string, payload: array<string, mixed>}>, served: list<array{event: string, payload: array<string, mixed>}>, keepalive: list<array{event: string, payload: array<string, mixed>}>, aborted: int, maxInFlight: array<string, int>, disabled: array<string, bool>, disabledAfterSubmit: ?array<string, bool>, formData: ?list<array{string, string}>, appFormData: ?list<array{string, string}>, htmlSinks: list<mixed>} $typed */
+        $typed = $seen;
+        foreach (['posts', 'served', 'keepalive'] as $list) {
+            $typed[$list] = self::withoutOrder($typed[$list]);
+        }
+
+        return $typed;
     }
 }

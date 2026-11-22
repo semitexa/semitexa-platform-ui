@@ -4,6 +4,22 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
 `## <version> — <date>` (newest first); `## Unreleased
 
 ### Fixed
+- A late request no longer puts an older value back into a collaborative form's
+  draft. Field edits were ordered only by when they arrived, and two cases stayed
+  open: the value a page sends as it is hidden races the edit still in flight,
+  and an edit the page gave up on after 10 s can still be processed, after the
+  newer value. Every `field.edit` now carries `seq` (one count per page) and
+  `runtime` (the page's id), and the draft keeps the highest sequence stored per
+  field and page, written in the same step as the value. An older edit is
+  refused (422, `field_edit_superseded`), which the runtime takes as an answer
+  and does not send again; the same edit arriving twice is acknowledged and
+  written once. Only edits of one page are compared: two people, and two tabs
+  of one person, stay ordered by arrival. The order ends with the draft.
+  **Schema:** `form_collab_draft` gains the nullable column `edit_marks_json`
+  (`bin/semitexa update` / `orm:sync` adds it). **Own draft store:** ordering is
+  the new, optional `FormCollabOrderedDraftStoreInterface`; a store that
+  implements only `FormCollabDraftStoreInterface` keeps working and keeps
+  arrival order.
 - A collaborative form keeps saving after its page has been open five minutes.
   Its events carry signed contexts that live `SignedContext::DEFAULT_TTL_SECONDS`
   and nothing renewed them: past that every edit, lock and presence ping was

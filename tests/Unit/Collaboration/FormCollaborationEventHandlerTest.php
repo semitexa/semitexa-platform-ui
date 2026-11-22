@@ -93,6 +93,170 @@ final class FormCollaborationEventHandlerTest extends TestCase
         self::assertContains(self::SCOPE, $this->invalidator->touched);
     }
 
+    /**
+     * A sequenced field.edit of `$field`, as page `$runtime` of `$actor` sends it.
+     */
+    private function edit(string $value, ?int $seq, string $runtime = 'runtime-one', string $actor = 'actor-A', string $field = 'title'): UiEventContext
+    {
+        return new UiEventContext(
+            eventId: 'evt',
+            correlationId: 'cor',
+            semanticEvent: 'field.edit',
+            signedClaims: ['i' => $actor, 'cfg' => ['scope' => self::SCOPE, 'mode' => 'shared', 'fields' => ['title', 'body']]],
+            request: ['field' => $field, 'value' => $value] + ($seq === null ? [] : ['seq' => $seq, 'runtime' => $runtime]),
+        );
+    }
+
+    #[Test]
+    public function an_edit_older_than_one_stored_from_the_same_page_is_refused(): void
+    {
+        self::assertSame(UiEventResponseStatus::Ok, $this->handler->handle((object) [], $this->edit('ab', 2))->status);
+        $touches = count($this->invalidator->touched);
+
+        $late = $this->handler->handle((object) [], $this->edit('a', 1));
+
+        self::assertSame(FormCollaborationEventHandler::EDIT_SUPERSEDED, $late->error?->code);
+        self::assertSame(['field' => 'title'], $late->error->details);
+        self::assertSame(['title' => 'ab'], $this->draft->load(self::SCOPE)?->values, 'the newer value stands');
+        self::assertCount($touches, $this->invalidator->touched, 'nothing changed, nobody is told');
+    }
+
+    #[Test]
+    public function an_edit_arriving_a_second_time_is_acknowledged_and_written_once(): void
+    {
+        // The page got no answer and sent the same edit again; meanwhile
+        // someone else typed into the field.
+        $this->handler->handle((object) [], $this->edit('mine', 1));
+        $this->handler->handle((object) [], $this->edit('theirs', 1, 'runtime-two', 'actor-B'));
+        $touches = count($this->invalidator->touched);
+
+        $again = $this->handler->handle((object) [], $this->edit('mine', 1));
+
+        self::assertSame(UiEventResponseStatus::Ok, $again->status, 'the server has it: an answer the page stops on');
+        self::assertSame(['title' => 'theirs'], $this->draft->load(self::SCOPE)?->values, 'not written over what was typed since');
+        self::assertCount($touches, $this->invalidator->touched);
+    }
+
+    #[Test]
+    public function two_tabs_of_one_person_do_not_refuse_each_others_edits(): void
+    {
+        // One actor, so one lock holder; each tab counts its own edits.
+        $this->handler->handle((object) [], $this->edit('from the first tab', 7, 'runtime-one'));
+
+        $other = $this->handler->handle((object) [], $this->edit('from the second tab', 1, 'runtime-two'));
+
+        self::assertSame(UiEventResponseStatus::Ok, $other->status);
+        self::assertSame(['title' => 'from the second tab'], $this->draft->load(self::SCOPE)?->values);
+
+        // And each is still ordered against itself.
+        self::assertSame(
+            FormCollaborationEventHandler::EDIT_SUPERSEDED,
+            $this->handler->handle((object) [], $this->edit('late, first tab', 6, 'runtime-one'))->error?->code,
+        );
+    }
+
+    #[Test]
+    public function edits_of_different_people_stay_in_arrival_order_even_under_one_runtime_id(): void
+    {
+        // The runtime id is the body's word. Naming someone else's does not
+        // put an edit in their sequence: the actor is part of the key.
+        $this->handler->handle((object) [], $this->edit('alice', 9, 'runtime-one', 'actor-A'));
+
+        $bob = $this->handler->handle((object) [], $this->edit('bob', 1, 'runtime-one', 'actor-B'));
+
+        self::assertSame(UiEventResponseStatus::Ok, $bob->status);
+        self::assertSame(['title' => 'bob'], $this->draft->load(self::SCOPE)?->values, 'whoever arrives last, as before');
+        self::assertSame(UiEventResponseStatus::Ok, $this->handler->handle((object) [], $this->edit('alice again', 10, 'runtime-one', 'actor-A'))->status);
+    }
+
+    #[Test]
+    public function a_lower_sequence_for_another_field_is_not_an_older_edit(): void
+    {
+        // A page sends its fields side by side; they overtake each other.
+        $this->handler->handle((object) [], $this->edit('title typed second', 5, field: 'title'));
+
+        $body = $this->handler->handle((object) [], $this->edit('body typed first', 4, field: 'body'));
+
+        self::assertSame(UiEventResponseStatus::Ok, $body->status);
+        self::assertSame(['title' => 'title typed second', 'body' => 'body typed first'], $this->draft->load(self::SCOPE)?->values);
+    }
+
+    #[Test]
+    public function an_edit_that_names_no_usable_sequence_is_merged_as_it_arrives(): void
+    {
+        $this->handler->handle((object) [], $this->edit('sequenced', 5));
+
+        // A page from before the sequence, and bodies that are not one.
+        $bodies = [
+            'none' => [],
+            'sequence as text' => ['seq' => '1', 'runtime' => 'runtime-one'],
+            'sequence of zero' => ['seq' => 0, 'runtime' => 'runtime-one'],
+            'no runtime' => ['seq' => 1],
+            'runtime too short' => ['seq' => 1, 'runtime' => 'r1'],
+            'runtime with other characters' => ['seq' => 1, 'runtime' => "runtime one\n"],
+            'runtime too long' => ['seq' => 1, 'runtime' => str_repeat('r', 65)],
+        ];
+        foreach ($bodies as $case => $body) {
+            $resp = $this->handler->handle((object) [], $this->ctx('field.edit', 'shared', ['field' => 'title', 'value' => $case] + $body));
+
+            self::assertSame(UiEventResponseStatus::Ok, $resp->status, $case);
+            self::assertSame(['title' => $case], $this->draft->load(self::SCOPE)?->values, $case);
+        }
+    }
+
+    #[Test]
+    public function the_sequence_ends_with_the_draft(): void
+    {
+        $this->handler->handle((object) [], $this->edit('before the save', 5));
+        $this->draft->discard(self::SCOPE);
+
+        $resp = $this->handler->handle((object) [], $this->edit('a page that counts from one', 1));
+
+        self::assertSame(UiEventResponseStatus::Ok, $resp->status, 'a new draft has stored nothing yet');
+    }
+
+    #[Test]
+    public function a_store_that_keeps_no_marks_merges_sequenced_edits_as_they_arrive(): void
+    {
+        $plain = new class ($this->draft) implements FormCollabDraftStoreInterface {
+            public function __construct(private readonly FormCollabDraftStoreInterface $inner)
+            {
+            }
+
+            public function load(string $scopeKey): ?FormCollabDraftState
+            {
+                return $this->inner->load($scopeKey);
+            }
+
+            public function open(string $scopeKey, array $seedValues, ?string $actor): FormCollabDraftState
+            {
+                return $this->inner->open($scopeKey, $seedValues, $actor);
+            }
+
+            public function apply(string $scopeKey, array $values, int $expectedVersion, ?string $actor, ?string $expectedEpoch = null): FormCollabDraftState
+            {
+                return $this->inner->apply($scopeKey, $values, $expectedVersion, $actor, $expectedEpoch);
+            }
+
+            public function mergeFields(string $scopeKey, array $partialValues, ?string $actor): FormCollabDraftState
+            {
+                return $this->inner->mergeFields($scopeKey, $partialValues, $actor);
+            }
+
+            public function discard(string $scopeKey): void
+            {
+                $this->inner->discard($scopeKey);
+            }
+        };
+        $handler = (new FormCollaborationEventHandler())->withCollaborationDeps($plain, $this->presence, $this->lock, $this->invalidator);
+
+        $handler->handle((object) [], $this->edit('ab', 2));
+        $late = $handler->handle((object) [], $this->edit('a', 1));
+
+        self::assertSame(UiEventResponseStatus::Ok, $late->status, "an app's own store keeps working, unordered as it was");
+        self::assertSame(['title' => 'a'], $this->draft->load(self::SCOPE)?->values);
+    }
+
     #[Test]
     public function a_field_edit_for_a_field_off_the_signed_allow_list_is_rejected(): void
     {

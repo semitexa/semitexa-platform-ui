@@ -21,6 +21,7 @@ final readonly class FormCollabDraft
 {
     /**
      * @param array<string, scalar|null> $values field name → current value
+     * @param array<string, array<string, int>> $editMarks field → source → highest edit sequence stored
      */
     public function __construct(
         private string $id,
@@ -30,6 +31,7 @@ final readonly class FormCollabDraft
         private int $version,
         private ?string $updatedBy = null,
         private ?\DateTimeImmutable $updatedAt = null,
+        private array $editMarks = [],
     ) {}
 
     public function getId(): string
@@ -69,6 +71,17 @@ final readonly class FormCollabDraft
     }
 
     /** The snapshot readers get — no identity, no way to write back by accident. */
+    /**
+     * Per field, the highest edit sequence stored from each source: what
+     * keeps a late request from replacing a newer value.
+     *
+     * @return array<string, array<string, int>>
+     */
+    public function getEditMarks(): array
+    {
+        return $this->editMarks;
+    }
+
     public function toState(): FormCollabDraftState
     {
         return new FormCollabDraftState(

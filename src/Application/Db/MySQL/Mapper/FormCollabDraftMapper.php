@@ -7,6 +7,7 @@ namespace Semitexa\PlatformUi\Application\Db\MySQL\Mapper;
 use Semitexa\Orm\Attribute\AsMapper;
 use Semitexa\Orm\Domain\Contract\ResourceModelMapperInterface;
 use Semitexa\PlatformUi\Application\Db\MySQL\Model\FormCollabDraftResource;
+use Semitexa\PlatformUi\Application\Service\Collaboration\FormFieldEditMarks;
 use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraft;
 
 /**
@@ -40,6 +41,7 @@ final class FormCollabDraftMapper implements ResourceModelMapperInterface
             version: $resourceModel->version,
             updatedBy: $resourceModel->updated_by,
             updatedAt: $resourceModel->updated_at,
+            editMarks: FormFieldEditMarks::sanitize(json_decode($resourceModel->edit_marks_json ?? '', true)),
         );
     }
 
@@ -55,6 +57,7 @@ final class FormCollabDraftMapper implements ResourceModelMapperInterface
             version: $domainModel->getVersion(),
             updated_by: $domainModel->getUpdatedBy(),
             updated_at: $domainModel->getUpdatedAt() ?? new \DateTimeImmutable(),
+            edit_marks_json: $domainModel->getEditMarks() === [] ? null : json_encode($domainModel->getEditMarks(), JSON_THROW_ON_ERROR),
         );
     }
 }
