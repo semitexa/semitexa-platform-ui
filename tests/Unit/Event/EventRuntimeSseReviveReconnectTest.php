@@ -259,8 +259,9 @@ final class EventRuntimeSseReviveReconnectTest extends TestCase
     {
         $code = $this->jsCode();
         // A feed moved to a new session must not unsubscribe from the old one.
-        self::assertStringContainsString("postStreamControl('view', s.feed, s.params, s.session, subscriptionId)", $code);
-        self::assertStringContainsString("postStreamControl('unsubscribe', feedRef.feed, null, s.session, subscriptionId)", $code);
+        // verify:accept-test-change the id is read from the entry (s.id): a rehome gives the feed a new one; the session argument, which this pins, is unchanged
+        self::assertStringContainsString("postStreamControl('view', s.feed, s.params, s.session, s.id)", $code);
+        self::assertStringContainsString("postStreamControl('unsubscribe', feedRef.feed, null, s.session, s.id)", $code);
     }
 
     #[Test]
