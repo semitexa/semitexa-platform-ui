@@ -9,6 +9,8 @@ use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\PlatformUi\Application\Component\Builtin\CollaborativeFormComponent;
+use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
+use Semitexa\PlatformUi\Application\Service\Event\UiInteractionAuthorizerInterface;
 use Semitexa\PlatformUi\Attribute\HandlesUiEvent;
 use Semitexa\PlatformUi\Domain\Contract\FormCollabDraftStoreInterface;
 use Semitexa\PlatformUi\Domain\Contract\FormCollaboratorLabelResolverInterface;
@@ -16,10 +18,12 @@ use Semitexa\PlatformUi\Domain\Contract\FormLockStoreInterface;
 use Semitexa\PlatformUi\Domain\Contract\FormPresenceStoreInterface;
 use Semitexa\PlatformUi\Domain\Contract\UiEventHandlerInterface;
 use Semitexa\PlatformUi\Domain\Exception\FormDraftVersionConflictException;
+use Semitexa\PlatformUi\Domain\Exception\UiInteractionForbiddenException;
 use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollaborationMode;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventContext;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventError;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventResponse;
+use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionEvent;
 use Semitexa\Ssr\Domain\Contract\ScopeInvalidatorInterface;
 use Semitexa\Ssr\Domain\Model\FormDocumentScope;
 
@@ -68,6 +72,10 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
     #[InjectAsReadonly]
     protected ScopeInvalidatorInterface $scopeInvalidator;
 
+    /** Asked, at a renewal, about every event whose context is signed again. */
+    #[InjectAsReadonly]
+    protected UiInteractionAuthorizerInterface $authorizer;
+
     /** Asked for the app's optional {@see FormCollaboratorLabelResolverInterface}. */
     #[InjectAsReadonly]
     protected ContainerInterface $container;
@@ -77,6 +85,9 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
 
     /** The reason a renewal gets once the visitor is not who the form was drawn for. */
     public const RENEW_SUBJECT_CHANGED = 'collab_renew_subject_changed';
+
+    /** The reason a renewal gets (403) once the authorizer denies an event of the form. */
+    public const RENEW_FORBIDDEN = 'collab_renew_forbidden';
 
     /** A label is shown in a chip: one line, no control or bidi characters, this long at most. */
     public const LABEL_MAX_LENGTH = 64;
@@ -96,6 +107,13 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
     {
         $this->identitySource = $identitySource;
         $this->labelResolver = $labelResolver;
+        return $this;
+    }
+
+    /** Test seam — production path uses property injection. */
+    public function withAuthorizer(UiInteractionAuthorizerInterface $authorizer): self
+    {
+        $this->authorizer = $authorizer;
         return $this;
     }
 
@@ -129,6 +147,11 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
         // inject arbitrary field names into the shared draft.
         $allowedFields = self::allowedFields($cfg);
 
+        // Outside the catch-all below: its refusal is a 403 of its own.
+        if ($context->semanticEvent === 'manifest.renew') {
+            return $this->onManifestRenew($context->signedClaims, $mode);
+        }
+
         [$actorId, $actorLabel] = $this->resolveActor($context);
         $request = is_array($context->request) ? $context->request : [];
 
@@ -140,7 +163,6 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
                 'lock.release'    => $this->onLockRelease($scope, $request, $actorId),
                 'lock.heartbeat'  => $this->onLockHeartbeat($scope, $request, $actorId),
                 'presence.ping'   => $this->onPresencePing($scope, $request, $actorId, $actorLabel),
-                'manifest.renew'  => $this->onManifestRenew($context->signedClaims),
                 default           => self::error('unknown_collab_event', 'Unsupported collaborative event.'),
             };
         } catch (FormDraftVersionConflictException $e) {
@@ -344,13 +366,28 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
      * drawn is reloaded instead. The tokens are signed from the signed claims
      * alone, and nothing is written.
      *
+     * The authorizer was asked about the renewal; it is asked here about what
+     * the renewal hands out. The renewal token lives a day and the tokens it
+     * replaces five minutes: without this, somebody whose access to the record
+     * ended while the tab was open kept editing and locking for the rest of
+     * the day. Every event of the mode is asked as if it were being sent now
+     * (the scope is in `config`), so the application's rule for edits governs
+     * renewals with no rule of its own. One denial refuses the renewal (403);
+     * so does a handler with no authorizer to ask.
+     *
      * @param array<string, mixed> $claims
      */
-    private function onManifestRenew(array $claims): UiEventResponse
+    private function onManifestRenew(array $claims, FormCollaborationMode $mode): UiEventResponse
     {
         $who = $claims['who'] ?? null;
         if (!is_string($who) || !hash_equals($who, $this->currentUserId())) {
             return self::error(self::RENEW_SUBJECT_CHANGED, 'This form was opened by another visitor. Reload to continue.');
+        }
+        if (!$this->mayStill($claims, $mode)) {
+            throw new UiInteractionForbiddenException(
+                self::RENEW_FORBIDDEN,
+                'Authorization policy no longer allows editing this form. Reload to continue.',
+            );
         }
         $renewed = (new CollabManifestBuilder())->renewed($claims);
         if ($renewed === null) {
@@ -358,6 +395,47 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
         }
 
         return new UiEventResponse(frontend: ['collab' => ['renewed' => $renewed]]);
+    }
+
+    /**
+     * Whether the authorizer allows, now, every event the renewal would sign
+     * a token for.
+     *
+     * @param array<string, mixed> $claims verified renewal claims
+     */
+    private function mayStill(array $claims, FormCollaborationMode $mode): bool
+    {
+        $componentName = self::stringOrEmpty($claims['c'] ?? '');
+        $component = UiComponentRegistry::get($componentName);
+        if (!isset($this->authorizer) || $component === null) {
+            return false;
+        }
+        /** @var array<string, mixed> $config the signed cfg: scope, mode, fields */
+        $config = is_array($claims['cfg'] ?? null) ? $claims['cfg'] : [];
+        $now = time();
+        foreach (CollabManifestBuilder::semanticEventsFor($mode) as [$part, $event]) {
+            $binding = UiComponentRegistry::getExternalBinding($componentName, $part, $event);
+            if ($binding === null) {
+                return false;
+            }
+            $asked = new UiInteractionEvent(
+                componentName: $componentName,
+                instanceId: self::stringOrEmpty($claims['i'] ?? ''),
+                partName: $part,
+                eventName: $event,
+                updatesPath: null,
+                payload: [],
+                issuedAt: $now,
+                expiresAt: $now,
+                claims: ['c' => $componentName, 'i' => $claims['i'] ?? '', 'p' => $part, 'e' => $event, 'cfg' => $config],
+                config: $config,
+            );
+            if (!$this->authorizer->authorizeExternal($asked, $component, $binding)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** The signed-in user's id, '' for a guest. */

@@ -12,13 +12,22 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
   visitor the page was drawn for. When an event is refused as expired the
   runtime sends it as `manifest.renew`, gets the same event contexts signed
   again, subscribes the document feed with the new one and sends the refused
-  event once more. An expired context is still refused, and an application's
+  event once more. An expired context is still refused. An application's
   `UiInteractionAuthorizerInterface` is asked for the renewal as for any event
   (part `manifest`, event `renew`): one that allows events by name has to
-  allow this one. A renewal the server refuses (signed out or into another
-  account, a day gone) is not asked again: the status host gets
-  `data-state="expired"` and the form dispatches `semitexa:collab:expired`, for
-  the page to ask for a reload.
+  allow this one. It is then asked about every event of the form's mode
+  (`field.edit`, the lock events, ...) with the form's scope in `config`, as if
+  each were being sent, and one denial refuses the renewal (403,
+  `collab_renew_forbidden`): the rule an application has for edits governs
+  renewals too, so access that ended while the tab was open ends with the
+  contexts the page holds, not a day later. The replay store gives a renewal
+  what it gives any event and no more: one event id is answered once, for at
+  most 600 s; a new event id renews again, by design. A renewal the server
+  refuses (signed out or into another account, access ended, a day gone) is
+  not asked again: the status host gets `data-state="expired"` and the form
+  dispatches `semitexa:collab:expired`, for the page to ask for a reload. One
+  that got no answer (the network, a 5xx, a 429) is asked again by the next
+  expired event, five seconds later at the earliest.
 - A collaborative form's shared draft now ends. After the record's save commits,
   call `FormCollaborationDrafts::discardForRecord($formKey, $recordId, $values)`
   with the stored value of every managed field: open editors are re-based on

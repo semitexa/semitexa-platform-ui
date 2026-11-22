@@ -19,6 +19,7 @@ use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
 use Semitexa\PlatformUi\Tests\Support\ArrayCacheManager;
 use Semitexa\PlatformUi\Tests\Support\CollabScopeRecorder;
 use Semitexa\PlatformUi\Tests\Support\HugDispatch;
+use Semitexa\PlatformUi\Tests\Support\RevocableAuthorizer;
 use Semitexa\Ssr\Application\Handler\PayloadHandler\HugEventHandler;
 use Semitexa\Ssr\Application\Service\UiEvent\SignedContext;
 use Semitexa\Ssr\Application\Service\UiEvent\SignedContextBinding;
@@ -54,6 +55,7 @@ final class FormCollabContextRenewalTest extends TestCase
     private InMemoryFormCollabDraftStore $draft;
     private FormCollaborationEventHandler $handler;
     private HugDispatch $hug;
+    private RevocableAuthorizer $authorizer;
     private int $sent = 0;
 
     protected function setUp(): void
@@ -82,8 +84,12 @@ final class FormCollabContextRenewalTest extends TestCase
             (new CacheBackedFormLockStore())->withCacheManager($cache),
             new CollabScopeRecorder(),
         )->withIdentity(static fn (): ?object => null);
+        // One authorizer for the dispatcher and the handler, as the container
+        // gives both the application's.
+        $this->authorizer = new RevocableAuthorizer();
+        $this->handler->withAuthorizer($this->authorizer);
         $handler = $this->handler;
-        $this->hug = (new HugDispatch())->withContainer(new class ($handler) implements ContainerInterface {
+        $this->hug = (new HugDispatch())->withAuthorizer($this->authorizer)->withContainer(new class ($handler) implements ContainerInterface {
             public function __construct(private readonly FormCollaborationEventHandler $handler)
             {
             }
@@ -330,6 +336,106 @@ final class FormCollabContextRenewalTest extends TestCase
     }
 
     #[Test]
+    public function a_renewal_is_refused_once_the_authorizer_denies_what_it_would_grant(): void
+    {
+        // Access to the record ends while the tab is open. The contexts the
+        // page holds die in five minutes; the renewal context lives a day,
+        // and must not hand out new ones meanwhile.
+        $manifest = $this->manifest('shared', ['title']);
+        $this->renewedBy($manifest['renew']);
+        self::assertSame(
+            ['manifest.renew', 'field.edit', 'presence.ping'],
+            $this->authorizer->asked,
+            'the renewal, then every event it signs a context for',
+        );
+
+        $this->authorizer->revoke(self::SCOPE, 'field.edit');
+        $refused = $this->send($manifest['renew'], []);
+
+        self::assertSame(403, $refused['http']);
+        self::assertSame(FormCollaborationEventHandler::RENEW_FORBIDDEN, $refused['data']['reason'] ?? null);
+        self::assertNoContextIn($refused);
+
+        // The runtime, answered so: it stops, says so, and asks no more.
+        $seen = $this->editorSees([
+            'manifest' => $manifest,
+            'inputs' => ['title' => ''],
+            'replies' => ['field.edit' => [self::expired(), self::expired()], 'manifest.renew' => [$refused]],
+            'steps' => [['type' => 'title', 'value' => 'a'], ['elapse' => 60000], ['type' => 'title', 'value' => 'ab'], ['tick' => true]],
+        ]);
+        self::assertSame(
+            ['presence.ping', 'field.edit', 'manifest.renew', 'field.edit', 'presence.ping'],
+            array_column($seen['posts'], 'event'),
+            'one renewal; neither refused edit goes again',
+        );
+        self::assertContains(['type' => 'semitexa:collab:expired', 'detail' => []], $seen['events']);
+        self::assertSame('expired', $seen['status']);
+    }
+
+    #[Test]
+    public function the_authorizer_is_asked_about_the_events_of_the_forms_mode(): void
+    {
+        // A lock the visitor may no longer take refuses the renewal of a
+        // form that locks, and says nothing about one that does not.
+        $this->authorizer->revoke(self::SCOPE, 'lock.acquire');
+
+        self::assertSame(403, $this->send($this->manifest('form-lock', ['title'])['renew'], [])['http']);
+        self::assertSame(403, $this->send($this->manifest('field-lock', ['title'])['renew'], [])['http']);
+        $this->renewedBy($this->manifest('shared', ['title'])['renew']);
+        $this->renewedBy($this->manifest('optimistic', ['title'])['renew']);
+
+        // Another record's revocation is not this one's.
+        $other = (new CollabManifestBuilder())->build('platform.collab-form', self::INSTANCE, 'property', '43', 'form-lock', ['title']);
+        $this->renewedBy($other['renew']);
+
+        // And a handler with nobody to ask refuses.
+        $shared = $this->manifest('shared', ['title'])['renew'];
+        \Closure::bind(function (): void {
+            unset($this->authorizer);
+        }, $this->handler, FormCollaborationEventHandler::class)();
+        $nobody = $this->send($shared, []);
+        self::assertSame(403, $nobody['http']);
+        self::assertNoContextIn($nobody);
+    }
+
+    #[Test]
+    public function a_renewal_answered_429_is_asked_again_after_the_gap(): void
+    {
+        // Asked too often is not refused: the form must not be over for it.
+        $seen = $this->editorSees([
+            'manifest' => self::scripted('shared'),
+            'inputs' => ['title' => ''],
+            'replies' => [
+                'field.edit' => [self::expired(), self::expired(), self::expired()],
+                'manifest.renew' => [['http' => 429, 'data' => ['error' => 'rate_limited']], self::renewal()],
+            ],
+            'steps' => [
+                ['type' => 'title', 'value' => 'a'],
+                ['type' => 'title', 'value' => 'ab'],
+                ['elapse' => 5000],
+                ['type' => 'title', 'value' => 'abc'],
+            ],
+        ]);
+
+        self::assertSame(
+            [
+                ['event' => 'presence.ping', 'ctx' => 'ctx-presence.ping'],
+                ['event' => 'field.edit', 'ctx' => 'ctx-field.edit'],
+                ['event' => 'manifest.renew', 'ctx' => 'ctx-renew'],
+                // Typed at once: no renewal is asked inside the gap.
+                ['event' => 'field.edit', 'ctx' => 'ctx-field.edit'],
+                ['event' => 'field.edit', 'ctx' => 'ctx-field.edit'],
+                ['event' => 'manifest.renew', 'ctx' => 'ctx-renew'],
+                ['event' => 'field.edit', 'ctx' => 'new-field.edit'],
+            ],
+            $seen['contexts'],
+        );
+        self::assertSame(['field' => 'title', 'value' => 'abc'], $seen['posts'][count($seen['posts']) - 1]['payload']);
+        self::assertSame([], array_values(array_filter($seen['events'], static fn (array $e): bool => $e['type'] === 'semitexa:collab:expired')));
+        self::assertNull($seen['status'], 'the status host was never told "expired"');
+    }
+
+    #[Test]
     public function a_renewal_for_another_route_or_with_altered_claims_is_refused(): void
     {
         $renew = $this->manifest('shared', ['title'])['renew'];
@@ -356,15 +462,20 @@ final class FormCollabContextRenewalTest extends TestCase
     }
 
     #[Test]
-    public function a_renewal_opens_no_replay(): void
+    public function a_renewal_request_sent_twice_is_a_duplicate_and_an_edits_replay_stays_one(): void
     {
         $manifest = $this->manifest('shared', ['title']);
 
-        // A renewal request sent twice is a duplicate, like any event.
+        // What the replay store gives a renewal is what it gives any event:
+        // ONE event id is answered once (for at most 600 s, the store's cap
+        // for a context that lives longer). A new event id renews again, by
+        // design: that is the runtime's next renewal. What keeps a renewal
+        // from a stranger is the session, the visitor and the authorizer.
         self::assertSame(200, $this->send($manifest['renew'], [], 'evt_renew_once')['http']);
         $again = $this->send($manifest['renew'], [], 'evt_renew_once');
         self::assertSame(409, $again['http']);
         self::assertNoContextIn($again);
+        self::assertSame(200, $this->send($manifest['renew'], [], 'evt_renew_twice')['http']);
 
         // An edit request captured under the first context and sent again
         // is still a duplicate after a renewal: the renewal replaced nothing
@@ -464,7 +575,7 @@ final class FormCollabContextRenewalTest extends TestCase
             'manifest' => self::scripted('shared'),
             'inputs' => ['title' => ''],
             'replies' => ['field.edit' => [self::expired(), self::expired()], 'manifest.renew' => [['http' => 503], self::renewal()]],
-            'steps' => [['type' => 'title', 'value' => 'a'], ['type' => 'title', 'value' => 'ab']],
+            'steps' => [['type' => 'title', 'value' => 'a'], ['elapse' => 5000], ['type' => 'title', 'value' => 'ab']],
         ]);
         self::assertSame(
             ['presence.ping', 'field.edit', 'manifest.renew', 'field.edit', 'manifest.renew', 'field.edit'],
@@ -664,7 +775,7 @@ final class FormCollabContextRenewalTest extends TestCase
 
     /**
      * @param array<string, mixed> $scenario
-     * @return array{posts: list<array{event: string, payload: array<string, mixed>}>, contexts: list<array{event: string, ctx: string}>, feedCtx: ?string, feedOpens: int, events: list<array{type: string, detail: mixed}>}
+     * @return array{posts: list<array{event: string, payload: array<string, mixed>}>, contexts: list<array{event: string, ctx: string}>, feedCtx: ?string, feedOpens: int, status: ?string, events: list<array{type: string, detail: mixed}>}
      */
     private function editorSees(array $scenario): array
     {
@@ -685,7 +796,7 @@ final class FormCollabContextRenewalTest extends TestCase
         $seen = json_decode($stdout, true);
         self::assertTrue($exit === 0 && is_array($seen), "the runtime harness failed (exit {$exit}).\nstdout: {$stdout}\nstderr: {$stderr}");
 
-        /** @var array{posts: list<array{event: string, payload: array<string, mixed>}>, contexts: list<array{event: string, ctx: string}>, feedCtx: ?string, feedOpens: int, events: list<array{type: string, detail: mixed}>} $seen */
+        /** @var array{posts: list<array{event: string, payload: array<string, mixed>}>, contexts: list<array{event: string, ctx: string}>, feedCtx: ?string, feedOpens: int, status: ?string, events: list<array{type: string, detail: mixed}>} $seen */
         return $seen;
     }
 }

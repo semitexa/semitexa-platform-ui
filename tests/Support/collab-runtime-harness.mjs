@@ -14,7 +14,8 @@
 // {click: '<attribute>'},
 // {answer: 'oldest' | 'newest-first'} (the server gets and answers one held request, or
 // all of them and what they cause, newest first), {fail: 'oldest'} (it never arrives),
-// {tick} (every interval fires once), {elapse: ms} (the clock moves; timeouts due fire),
+// {tick} (every interval fires once), {elapse: ms} (the clock moves, Date.now() with it;
+// timeouts due fire),
 // {pagehide}, {unmount} (the form leaves the page), {enable} (the page enables an input
 // itself), {formData} (what `new FormData(form)` holds, built outside any submit) or
 // {submit: true | {prevent, appFormData, form}} (the form, or the second form of that key,
@@ -25,7 +26,7 @@
 // what the page heard (events), what was posted, what the server received and in
 // which order (served), which posts asked for keepalive, how many requests the page
 // aborted, the signed context each post carried (contexts) and the one the feed is
-// subscribed with now (feedCtx, after feedOpens subscriptions), the most requests one
+// subscribed with now (feedCtx, after feedOpens subscriptions), the status host's state, the most requests one
 // field had in flight at once, the form data (the
 // browser's, the app's own, and which inputs were disabled right after the submit),
 // and every write to an HTML sink (innerHTML and the like) — a label must never
@@ -117,7 +118,7 @@ const root = documentEl.appendChild(new El('div'));
 root.setAttribute('data-ui-component-instance-id', String(scenario.manifest.i));
 const host = (attr) => { const el = root.appendChild(new El('span')); el.setAttribute(attr, ''); return el; };
 const presenceHost = host('data-ui-collab-presence');
-host('data-ui-collab-status');
+const statusHost = host('data-ui-collab-status');
 const lockHost = scenario.lockHost ? host('data-ui-collab-lock') : null;
 const saveStatus = host('data-ui-collab-save-status');
 const conflictHost = host('data-ui-collab-conflict');
@@ -246,9 +247,9 @@ const core = {
 const source = readFileSync(scenario.runtime, 'utf8').replace(/^import\s[^;]+;\s*$/m, '');
 if (/^\s*import\s/m.test(source)) { throw new Error('the runtime has an import this harness does not provide'); }
 new Function(
-    'openFeedChannel', 'mount', 'envelope', 'hug', 'window', 'document', 'Event', 'CustomEvent', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout',
+    'openFeedChannel', 'mount', 'envelope', 'hug', 'window', 'document', 'Event', 'CustomEvent', 'Date', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout',
     source,
-)(core.openFeedChannel, core.mount, core.envelope, core.hug, fakeWindow, fakeDocument, FakeEvent, FakeEvent, (fn) => { intervals.push({ id: ++intervalId, fn }); return intervalId; }, (id) => { intervals = intervals.filter((t) => t.id !== id); }, fakeSetTimeout, fakeClearTimeout);
+)(core.openFeedChannel, core.mount, core.envelope, core.hug, fakeWindow, fakeDocument, FakeEvent, FakeEvent, { now: () => clock }, (fn) => { intervals.push({ id: ++intervalId, fn }); return intervalId; }, (id) => { intervals = intervals.filter((t) => t.id !== id); }, fakeSetTimeout, fakeClearTimeout);
 
 const mountedForm = mounted.connect(manifestEl);
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -342,6 +343,7 @@ process.stdout.write(JSON.stringify({
     contexts,
     feedCtx: feed && feed.params ? feed.params.ctx : null,
     feedOpens,
+    status: statusHost.getAttribute('data-state'),
     served,
     keepalive,
     aborted,

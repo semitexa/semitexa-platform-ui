@@ -61,8 +61,10 @@
  * one, and the refused event goes once more. One renewal at a time, however
  * many events expired together. Every send reads the event's context at that
  * moment, so a timer started before a renewal never sends the old one. A
- * renewal the server refuses (signed out, another account, a day gone) is not
- * asked again: the status host says `expired`, `semitexa:collab:expired` is
+ * renewal that got no answer (the network, a 5xx, a 429) is asked again by the
+ * next expired event, five seconds later at the earliest. A renewal the server
+ * refuses (signed out, another account, access to the record ended, a day
+ * gone) is not asked again: the status host says `expired`, `semitexa:collab:expired` is
  * dispatched, and the page has to be reloaded.
  *
  * Manifest contract (emitted by the server `ui_collab_manifest()` helper as
@@ -99,9 +101,11 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
     var RELEASE_WAIT_MS = 25000;
     // HUG's wording for an authentic context past its TTL (HugEventHandler::SIGNED_CONTEXT_EXPIRED).
     var CONTEXT_EXPIRED = 'Signed context expired.';
-    // A context refused as expired sooner than this after a renewal is not
-    // renewed again: the server and this page disagree, and asking in a loop
-    // would not settle it.
+    // No renewal is asked sooner than this after the last one settled. After
+    // one that succeeded: a context refused as expired at once means the
+    // server and this page disagree, and asking in a loop would not settle
+    // it. After one with no answer (the network, a 5xx, a 429): every expired
+    // event would ask again, as fast as the visitor types.
     var RENEW_MIN_GAP_MS = 5000;
 
     /** Booted instances, keyed by render instance id, so a re-scan is idempotent. */
@@ -265,10 +269,10 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         this.formListeners = [];
         this.pageHideListener = null;
         // Contexts that expire (see CONTEXTS THAT EXPIRE above): the renewal
-        // under way, when the last one succeeded, and whether the server
-        // refused one.
+        // under way, when the last one settled without a refusal (null: none
+        // yet), and whether the server refused one.
         this.renewing = null;
-        this.renewedAt = 0;
+        this.renewedAt = null;
         this.renewRefused = false;
     }
 
@@ -341,7 +345,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         }
         var token = this.m.renew;
         if (typeof token !== 'string' || token === '' || this.renewRefused || this.closed
-            || (this.renewedAt !== 0 && Date.now() - this.renewedAt < RENEW_MIN_GAP_MS)) {
+            || (this.renewedAt !== null && Date.now() - this.renewedAt < RENEW_MIN_GAP_MS)) {
             return Promise.resolve(false);
         }
         var self = this;
@@ -356,9 +360,12 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             var fresh = collab ? collab.renewed : null;
             if (!fresh || typeof fresh.feedCtx !== 'string' || !fresh.events || typeof fresh.events !== 'object') {
                 // A refusal is an answer: asking again gets the same one. No
-                // answer at all (the network, a 5xx) is asked again later.
-                if (r && r.status >= 400 && r.status < 500) {
+                // answer (a 5xx, or a 429: asked too often, not refused) is
+                // asked again later.
+                if (r && r.status >= 400 && r.status < 500 && r.status !== 429) {
                     self.contextsLost();
+                } else {
+                    self.renewedAt = Date.now();
                 }
                 return false;
             }
@@ -374,6 +381,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             }
             return true;
         }, function () {
+            self.renewedAt = Date.now();
             return false;
         }).then(function (renewed) {
             self.renewing = null;

@@ -35,7 +35,10 @@ use Semitexa\Ssr\Domain\Model\FormDocumentScope;
  * alone. It routes to the renewal and nowhere else, so it never stands in for
  * an event; an expired event token is still refused, by itself it renews
  * nothing; and {@see SignedContext} binds `renew` to the session and tenant it
- * was minted for, as it binds every token here.
+ * was minted for, as it binds every token here. Before anything is signed
+ * again {@see FormCollaborationEventHandler} asks the application's authorizer
+ * about every event of the mode: a day-long token must not outlive the right
+ * to edit the record.
  *
  * `self` is the stable per-participant id (auth user id, else the per-render
  * instance id) — the echo-suppression coordinate the runtime compares against a
@@ -117,7 +120,8 @@ final class CollabManifestBuilder
      * renewal token: the same component, instance, scope, mode and fields, the
      * events that mode uses, for as long as the first ones lived. Nothing here
      * comes from a request body. Null when the claims are not a renewal
-     * token's. The caller has checked `who`; {@see SignedContext::sign()}
+     * token's. The caller has checked `who` and asked the authorizer about
+     * each event; {@see SignedContext::sign()}
      * binds the result to the session and tenant asking, which verification
      * has just matched against the token's.
      *
@@ -211,7 +215,7 @@ final class CollabManifestBuilder
      *
      * @return list<array{0: string, 1: string}>
      */
-    private static function semanticEventsFor(FormCollaborationMode $mode): array
+    public static function semanticEventsFor(FormCollaborationMode $mode): array
     {
         if ($mode->isOptimistic()) {
             return [
