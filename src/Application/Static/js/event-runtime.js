@@ -2816,7 +2816,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
     // own EventSource. Degrades to a no-op when the page has no KISS session (the
     // caller then keeps its own-EventSource fallback).
 
-    var SSE_SUBSCRIPTIONS = {}; // subscription_id -> { feedRef, params, onFrame }
+    var SSE_SUBSCRIPTIONS = {}; // subscription_id -> { id, feed, params, onFrame, session, … }
     var SSE_DATA_FRAME_TYPE_LIST = [
         'ui.document.data', 'ui.document.error',
         'ui.collection.data', 'ui.collection.error', 'ui.collection.patch'
@@ -2907,6 +2907,8 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
      *   subscription is live on it again.
      * Returns { degraded, subscriptionId, view(params), unsubscribe() }. When
      * `degraded` is true the page has no KISS session — the caller pulls.
+     * `subscriptionId` is the id the feed rides now: a navigation that moves
+     * it to another page's session gives it a new one (rehomeSubscriptions).
      */
     function sseSubscribe(feedRef, params, onFrame, onUnavailable, onResumed) {
         var noop = { degraded: true, subscriptionId: null, view: function () {}, unsubscribe: function () {} };
@@ -2919,33 +2921,32 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
 
         ensureKissOpen(sessionId);
 
-        var subscriptionId = mintHexPrefixedId('sse_', 16); // sse_<32hex>
         var patches = feedRef.patches === true;
-        SSE_SUBSCRIPTIONS[subscriptionId] = { feed: feedRef.feed, params: params || {}, onFrame: onFrame, onUnavailable: onUnavailable, onResumed: onResumed, patches: patches, session: sessionId };
-        postStreamControl('subscribe', feedRef.feed, params, sessionId, subscriptionId, patches);
+        // `id` is read from the entry on every use: a rehome replaces it.
+        var s = { id: mintHexPrefixedId('sse_', 16) /* sse_<32hex> */, feed: feedRef.feed, params: params || {}, onFrame: onFrame, onUnavailable: onUnavailable, onResumed: onResumed, patches: patches, session: sessionId };
+        SSE_SUBSCRIPTIONS[s.id] = s;
+        postStreamControl('subscribe', feedRef.feed, params, sessionId, s.id, patches);
 
         return {
             degraded: false,
-            subscriptionId: subscriptionId,
+            get subscriptionId() { return s.id; },
             view: function (nextParams) {
-                var s = SSE_SUBSCRIPTIONS[subscriptionId];
-                if (!s) {
+                if (SSE_SUBSCRIPTIONS[s.id] !== s) {
                     return;
                 }
                 // A reconnect re-subscribes with the CURRENT view, not the first one.
                 s.params = nextParams || {};
                 if (s.session !== null) {
-                    postStreamControl('view', s.feed, s.params, s.session, subscriptionId);
+                    postStreamControl('view', s.feed, s.params, s.session, s.id);
                 }
             },
             unsubscribe: function () {
-                var s = SSE_SUBSCRIPTIONS[subscriptionId];
-                if (!s) {
+                if (SSE_SUBSCRIPTIONS[s.id] !== s) {
                     return;
                 }
-                delete SSE_SUBSCRIPTIONS[subscriptionId];
+                delete SSE_SUBSCRIPTIONS[s.id];
                 if (s.session !== null) {
-                    postStreamControl('unsubscribe', feedRef.feed, null, s.session, subscriptionId);
+                    postStreamControl('unsubscribe', feedRef.feed, null, s.session, s.id);
                 }
             }
         };
@@ -2963,7 +2964,15 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         }
     }
 
-    /** Re-POST every active subscribe (same ids) after the shared connection reconnects. */
+    /**
+     * Re-POST every active subscribe (same ids) after the shared connection reconnects.
+     *
+     * A feed still on another page's session is left alone: a navigation is
+     * under way and rehomeSubscriptions(), deferred behind the swap, moves it
+     * under a new id. Given this session here, it would keep its old id, the
+     * rehome would find nothing to move, and the server would refuse the id
+     * as the old session's. A paused feed (no session) resumes as before.
+     */
     function resubscribeAll() {
         var sessionId = readPageSseSessionId();
         if (sessionId === null) {
@@ -2972,6 +2981,9 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         for (var id in SSE_SUBSCRIPTIONS) {
             if (Object.prototype.hasOwnProperty.call(SSE_SUBSCRIPTIONS, id)) {
                 var s = SSE_SUBSCRIPTIONS[id];
+                if (s.session !== null && s.session !== sessionId) {
+                    continue;
+                }
                 s.session = sessionId;
                 postStreamControl('subscribe', s.feed, s.params, sessionId, id, s.patches === true);
             }
@@ -2984,6 +2996,11 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
      * A feed in the chrome survives the swap, and the stream it rode just
      * closed. Called once the swap's removals have run, so what is still here
      * is what stayed. A page with no session has no stream to offer: pull.
+     *
+     * Each moved feed subscribes under a NEW id. An id belongs to the session
+     * that subscribed it, and the server holds the old page's subscription
+     * until that page's stream is seen closed (up to a heartbeat later): the
+     * same id from another session is refused there as someone else's.
      */
     function rehomeSubscriptions() {
         var sessionId = readPageSseSessionId();
@@ -3001,8 +3018,11 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         stale.forEach(function (id) {
             var s = SSE_SUBSCRIPTIONS[id];
             var wasPaused = s.session === null;
+            delete SSE_SUBSCRIPTIONS[id];
+            s.id = mintHexPrefixedId('sse_', 16);
+            SSE_SUBSCRIPTIONS[s.id] = s;
             s.session = sessionId;
-            postStreamControl('subscribe', s.feed, s.params, sessionId, id, s.patches === true);
+            postStreamControl('subscribe', s.feed, s.params, sessionId, s.id, s.patches === true);
             if (wasPaused && typeof s.onResumed === 'function') {
                 try { s.onResumed(); } catch (cbErr) { reportCallbackError(cbErr); }
             }
