@@ -69,5 +69,11 @@ final readonly class FormCollabDraftResource
 
         #[Column(type: MySqlType::Datetime)]
         public \DateTimeImmutable $updated_at,
+
+        // Per field, the highest edit sequence stored from each source. In the
+        // row, so it is written under the same version guard as the value it
+        // orders. Null: no sequenced edit yet (and every row from before).
+        #[Column(type: MySqlType::LongText, nullable: true)]
+        public ?string $edit_marks_json = null,
     ) {}
 }

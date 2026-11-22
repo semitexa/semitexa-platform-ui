@@ -14,11 +14,14 @@ use Semitexa\PlatformUi\Application\Service\Collaboration\CacheBackedFormLockSto
 use Semitexa\PlatformUi\Application\Service\Collaboration\CacheBackedFormPresenceStore;
 use Semitexa\PlatformUi\Application\Service\Collaboration\FormCollabSaveNotices;
 use Semitexa\PlatformUi\Application\Service\Collaboration\FormCollabDraftRetention;
+use Semitexa\PlatformUi\Application\Service\Collaboration\FormFieldEditMarks;
 use Semitexa\PlatformUi\Application\Service\Collaboration\FormCollaborationDrafts;
 use Semitexa\PlatformUi\Application\Service\Collaboration\FormCollaborationEventHandler;
 use Semitexa\PlatformUi\Application\Service\Collaboration\FormDocumentProjector;
 use Semitexa\PlatformUi\Application\Service\Collaboration\InMemoryFormCollabDraftStore;
 use Semitexa\PlatformUi\Domain\Contract\FormCollabDraftStoreInterface;
+use Semitexa\PlatformUi\Domain\Contract\FormCollabOrderedDraftStoreInterface;
+use Semitexa\PlatformUi\Domain\Model\Collaboration\FormFieldEditOrder;
 use Semitexa\PlatformUi\Domain\Contract\FormPresenceStoreInterface;
 use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollaborationMode;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventContext;
@@ -72,7 +75,7 @@ final class FormCollabDraftEndsTest extends TestCase
             'CREATE TABLE form_collab_draft (
                 id TEXT PRIMARY KEY, tenant_id TEXT, scope_key TEXT NOT NULL,
                 values_json TEXT NOT NULL, version INTEGER NOT NULL,
-                updated_by TEXT, updated_at TEXT NOT NULL
+                updated_by TEXT, updated_at TEXT NOT NULL, edit_marks_json TEXT
             )',
         );
         $orm->getAdapter()->execute(
@@ -98,6 +101,239 @@ final class FormCollabDraftEndsTest extends TestCase
         self::assertSame(['price' => '150'], $reopened->values, 'seeded from what the caller read, not from the old edits');
         self::assertSame(1, $reopened->version);
         self::assertSame('bob', $reopened->updatedBy);
+    }
+
+    #[Test]
+    #[DataProvider('stores')]
+    public function edits_of_one_source_are_kept_in_the_order_they_were_made(string $kind): void
+    {
+        $store = $this->store($kind);
+        self::assertInstanceOf(FormCollabOrderedDraftStoreInterface::class, $store);
+
+        self::assertSame(FormFieldEditOrder::Applied, $store->mergeFieldInOrder(self::SCOPE, 'price', '120', 'alice', 'tab-1', 2), 'the first edit creates the draft');
+        self::assertSame(FormFieldEditOrder::Superseded, $store->mergeFieldInOrder(self::SCOPE, 'price', '12', 'alice', 'tab-1', 1));
+        self::assertSame(FormFieldEditOrder::Repeated, $store->mergeFieldInOrder(self::SCOPE, 'price', '120', 'alice', 'tab-1', 2));
+        self::assertSame(['price' => '120'], $store->load(self::SCOPE)?->values);
+        self::assertSame(1, $store->load(self::SCOPE)->version, 'a refused edit writes nothing');
+
+        self::assertSame(FormFieldEditOrder::Applied, $store->mergeFieldInOrder(self::SCOPE, 'price', '99', 'alice', 'tab-2', 1), 'another source counts for itself');
+        self::assertSame(FormFieldEditOrder::Applied, $store->mergeFieldInOrder(self::SCOPE, 'title', 'Flat', 'alice', 'tab-1', 1), 'and so does another field');
+        self::assertSame(FormFieldEditOrder::Applied, $store->mergeFieldInOrder(self::SCOPE, 'price', '125', 'alice', 'tab-1', 3));
+        self::assertSame(['price' => '125', 'title' => 'Flat'], $store->load(self::SCOPE)?->values);
+    }
+
+    #[Test]
+    #[DataProvider('stores')]
+    public function a_full_save_and_an_unsequenced_edit_keep_the_order_of_the_edits_before_them(string $kind): void
+    {
+        $store = $this->store($kind);
+        self::assertInstanceOf(FormCollabOrderedDraftStoreInterface::class, $store);
+        $store->mergeFieldInOrder(self::SCOPE, 'price', '120', 'alice', 'tab-1', 2);
+
+        $saved = $store->apply(self::SCOPE, ['price' => '130'], 1, 'bob');
+        $store->mergeFields(self::SCOPE, ['title' => 'Flat'], 'carol');
+
+        self::assertSame(FormFieldEditOrder::Superseded, $store->mergeFieldInOrder(self::SCOPE, 'price', '12', 'alice', 'tab-1', 1), 'the late edit is still late');
+        self::assertSame(['price' => '130', 'title' => 'Flat'], $store->load(self::SCOPE)?->values);
+        self::assertSame($saved->epoch, $store->load(self::SCOPE)->epoch);
+    }
+
+    #[Test]
+    #[DataProvider('stores')]
+    public function the_order_of_edits_ends_with_the_draft(string $kind): void
+    {
+        $store = $this->store($kind);
+        self::assertInstanceOf(FormCollabOrderedDraftStoreInterface::class, $store);
+        $store->mergeFieldInOrder(self::SCOPE, 'price', '120', 'alice', 'tab-1', 5);
+
+        $store->discard(self::SCOPE);
+
+        self::assertSame(FormFieldEditOrder::Applied, $store->mergeFieldInOrder(self::SCOPE, 'price', '1', 'alice', 'tab-1', 1));
+
+        // An abandoned draft is no draft either.
+        $this->presence->lastSeen[self::SCOPE] = $this->now;
+        $this->now += 31 * self::MINUTE;
+        self::assertSame(FormFieldEditOrder::Applied, $store->mergeFieldInOrder(self::SCOPE, 'price', '2', 'alice', 'tab-1', 1));
+    }
+
+    /**
+     * An in-memory store whose presence read, the one place it can suspend,
+     * runs `$during` on its `$onRead`-th call: what another coroutine does
+     * while this one waits for the cache.
+     *
+     * @param \Closure(InMemoryFormCollabDraftStore): void $during
+     * @param-out \Closure(bool): void $arm true starts the count, false ends it; the read is plain otherwise
+     */
+    private function storeSuspendingAt(int $onRead, \Closure $during, ?\Closure &$arm): InMemoryFormCollabDraftStore
+    {
+        $store = new InMemoryFormCollabDraftStore();
+        $presence = new class ($this->presence) implements FormPresenceStoreInterface {
+            public ?\Closure $onRead = null;
+
+            public function __construct(private readonly SettablePresenceStore $inner)
+            {
+            }
+
+            public function ping(string $scopeKey, string $participantId, string $label, string $role): array
+            {
+                return $this->inner->ping($scopeKey, $participantId, $label, $role);
+            }
+
+            public function leave(string $scopeKey, string $participantId): array
+            {
+                return $this->inner->leave($scopeKey, $participantId);
+            }
+
+            public function roster(string $scopeKey): array
+            {
+                return $this->inner->roster($scopeKey);
+            }
+
+            public function lastSeenAt(string $scopeKey): ?int
+            {
+                if ($this->onRead !== null) {
+                    ($this->onRead)();
+                }
+
+                return $this->inner->lastSeenAt($scopeKey);
+            }
+        };
+        $store->withRetention((new FormCollabDraftRetention())->with($presence, 30, fn (): int => $this->now));
+
+        $arm = static function (bool $on) use ($presence, $onRead, $during, $store): void {
+            $reads = 0;
+            $presence->onRead = !$on ? null : static function () use (&$reads, $presence, $onRead, $during, $store): void {
+                if (++$reads === $onRead) {
+                    $presence->onRead = null;
+                    $during($store);
+                }
+            };
+        };
+
+        return $store;
+    }
+
+    /** @return iterable<string, array{0: int}> */
+    public static function presenceReads(): iterable
+    {
+        yield 'during the first presence read' => [1];
+        yield 'during a second presence read, if the merge makes one' => [2];
+    }
+
+    #[Test]
+    #[DataProvider('presenceReads')]
+    public function an_edit_stored_while_an_older_one_waits_for_the_presence_read_is_not_overwritten_by_it(int $onRead): void
+    {
+        // In-memory store. The older edit is being merged; wherever it waits,
+        // the newer edit of the same page is stored meanwhile.
+        $newerStored = false;
+        $store = $this->storeSuspendingAt($onRead, static function (InMemoryFormCollabDraftStore $store) use (&$newerStored): void {
+            $newerStored = $store->mergeFieldInOrder(self::SCOPE, 'title', 'ab', 'alice', 'tab-1', 2) === FormFieldEditOrder::Applied;
+        }, $arm);
+        $store->mergeFields(self::SCOPE, ['title' => ''], 'alice');
+        // Old enough to be asked about, and attended: every look at it reads presence.
+        $this->now += 31 * self::MINUTE;
+        $this->presence->lastSeen[self::SCOPE] = $this->now;
+
+        $arm(true);
+        $older = $store->mergeFieldInOrder(self::SCOPE, 'title', 'a', 'alice', 'tab-1', 1);
+        $arm(false);
+
+        if ($onRead === 1) {
+            self::assertTrue($newerStored, 'the merge reads presence at least once: the case is exercised');
+        }
+        if ($newerStored) {
+            self::assertSame(FormFieldEditOrder::Superseded, $older);
+            self::assertSame(['title' => 'ab'], $store->load(self::SCOPE)?->values, 'the newer value stands');
+            self::assertSame(FormFieldEditOrder::Repeated, $store->mergeFieldInOrder(self::SCOPE, 'title', 'ab', 'alice', 'tab-1', 2), 'and so does its mark');
+        } else {
+            self::assertSame(FormFieldEditOrder::Applied, $older, 'nothing was stored meanwhile');
+        }
+    }
+
+    #[Test]
+    public function a_draft_stored_while_an_older_edit_waits_to_hear_the_old_one_expired_is_not_dropped_with_it(): void
+    {
+        // In-memory store. The draft is abandoned. The older edit asks
+        // presence about it and waits; the newer edit of the same page gets
+        // the same answer first, drops the draft and starts a new one. The
+        // answer the older edit then receives is about the draft that is gone.
+        $newerStored = false;
+        $store = $this->storeSuspendingAt(1, static function (InMemoryFormCollabDraftStore $store) use (&$newerStored): void {
+            $newerStored = $store->mergeFieldInOrder(self::SCOPE, 'title', 'ab', 'alice', 'tab-1', 2) === FormFieldEditOrder::Applied;
+        }, $arm);
+        $store->mergeFields(self::SCOPE, ['title' => 'abandoned', 'notes' => 'abandoned'], 'bob');
+        $abandoned = $store->load(self::SCOPE)?->epoch;
+        $this->presence->lastSeen[self::SCOPE] = $this->now;
+        $this->now += 31 * self::MINUTE;
+
+        $arm(true);
+        $older = $store->mergeFieldInOrder(self::SCOPE, 'title', 'a', 'alice', 'tab-1', 1);
+        $arm(false);
+
+        self::assertTrue($newerStored, 'the newer edit was stored while the older one waited');
+        self::assertSame(FormFieldEditOrder::Superseded, $older, "judged against the new draft's marks");
+        // The new draft was written just now by the wall clock; the test's is ahead.
+        $this->now = time();
+        $stored = $store->load(self::SCOPE);
+        self::assertSame(['title' => 'ab'], $stored?->values, 'the newer value, in the draft that replaced the abandoned one');
+        self::assertNotSame($abandoned, $stored->epoch);
+        self::assertSame(FormFieldEditOrder::Repeated, $store->mergeFieldInOrder(self::SCOPE, 'title', 'ab', 'alice', 'tab-1', 2), 'and its mark');
+    }
+
+    #[Test]
+    #[DataProvider('presenceReads')]
+    public function a_draft_that_expires_while_an_edit_is_merged_does_not_hand_its_marks_to_the_next_draft(int $onRead): void
+    {
+        // In-memory store. The last editor's heartbeat ages out while the
+        // edit waits: the draft it was checked against is dropped and the
+        // edit starts a new one, which has stored nothing from anybody.
+        $store = $this->storeSuspendingAt($onRead, function (): void {
+            $this->presence->lastSeen[self::SCOPE] = $this->now - 120 * self::MINUTE;
+        }, $arm);
+        $store->mergeFieldInOrder(self::SCOPE, 'title', 'old draft', 'bob', 'tab-2', 9);
+        $before = $store->load(self::SCOPE)?->epoch;
+        $this->now += 31 * self::MINUTE;
+        $this->presence->lastSeen[self::SCOPE] = $this->now;
+
+        $arm(true);
+        self::assertSame(FormFieldEditOrder::Applied, $store->mergeFieldInOrder(self::SCOPE, 'title', 'mine', 'alice', 'tab-1', 1));
+        $arm(false);
+        // Attended again, so the draft the edit wrote is there to look at.
+        $this->presence->lastSeen[self::SCOPE] = $this->now;
+        $written = $store->load(self::SCOPE);
+        self::assertNotNull($written, 'the edit stored a draft');
+        self::assertSame(['title' => 'mine'], $written->values, 'holding the edit, whichever draft it is');
+        $after = $written->epoch;
+
+        $late = $store->mergeFieldInOrder(self::SCOPE, 'title', 'bob, counting from one', 'bob', 'tab-2', 1);
+        if ($after !== $before) {
+            self::assertSame(FormFieldEditOrder::Applied, $late, 'a replacement draft starts with no marks');
+        } else {
+            self::assertSame(FormFieldEditOrder::Superseded, $late, 'the same draft still knows the edit for an old one');
+        }
+        if ($onRead === 1) {
+            self::assertNotSame($before, $after, 'the merge reads presence at least once: the case is exercised');
+        }
+    }
+
+    #[Test]
+    public function a_field_remembers_a_bounded_number_of_sources_and_forgets_the_one_written_longest_ago(): void
+    {
+        $marks = [];
+        for ($n = 1; $n <= FormFieldEditMarks::SOURCES_PER_FIELD; $n++) {
+            [, $marks] = FormFieldEditMarks::place($marks, 'price', 'tab-' . $n, 10);
+        }
+        // tab-1 writes again: no longer the oldest.
+        [, $marks] = FormFieldEditMarks::place($marks, 'price', 'tab-1', 11);
+        [$order, $marks] = FormFieldEditMarks::place($marks, 'price', 'one more', 1);
+
+        self::assertSame(FormFieldEditOrder::Applied, $order);
+        self::assertCount(FormFieldEditMarks::SOURCES_PER_FIELD, $marks['price']);
+        self::assertSame(FormFieldEditOrder::Superseded, FormFieldEditMarks::place($marks, 'price', 'tab-1', 10)[0], 'kept: it wrote last');
+        self::assertSame(FormFieldEditOrder::Applied, FormFieldEditMarks::place($marks, 'price', 'tab-2', 1)[0], 'forgotten: ordered by arrival again');
+        self::assertSame($marks, FormFieldEditMarks::sanitize(json_decode((string) json_encode($marks), true)), 'and they survive the row');
+        self::assertSame([], FormFieldEditMarks::sanitize(['price' => ['tab' => '3', 'x' => -1], 'title' => 'no']));
     }
 
     #[Test]

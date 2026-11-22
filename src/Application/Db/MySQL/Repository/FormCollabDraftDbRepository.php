@@ -17,10 +17,13 @@ use Semitexa\Orm\Query\Operator;
 use Semitexa\Orm\Repository\DomainRepository;
 use Semitexa\PlatformUi\Application\Db\MySQL\Model\FormCollabDraftResource;
 use Semitexa\PlatformUi\Application\Service\Collaboration\FormCollabDraftRetention;
+use Semitexa\PlatformUi\Application\Service\Collaboration\FormFieldEditMarks;
 use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraft;
 use Semitexa\PlatformUi\Domain\Contract\FormCollabDraftStoreInterface;
+use Semitexa\PlatformUi\Domain\Contract\FormCollabOrderedDraftStoreInterface;
 use Semitexa\PlatformUi\Domain\Exception\FormDraftVersionConflictException;
 use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
+use Semitexa\PlatformUi\Domain\Model\Collaboration\FormFieldEditOrder;
 
 /**
  * Database-backed collaborative-form draft store — the production default for
@@ -46,9 +49,13 @@ use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
  * retention rule calls abandoned before anyone sees it; both deletes (that one
  * and {@see discard()}) go through the ORM's #[Version] guard, so an edit that
  * lands in between is never deleted with the old row.
+ *
+ * {@see mergeFieldInOrder()} keeps its edit marks in the draft's own row, read
+ * and written in the same guarded round as the value: two workers handling
+ * two edits of one page cannot both pass the check.
  */
 #[SatisfiesRepositoryContract(of: FormCollabDraftStoreInterface::class)]
-final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
+final class FormCollabDraftDbRepository implements FormCollabOrderedDraftStoreInterface
 {
     private const MERGE_ATTEMPTS = 5;
 
@@ -193,17 +200,55 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
      */
     public function mergeFields(string $scopeKey, array $partialValues, ?string $actor): FormCollabDraftState
     {
+        $merged = $this->merge($scopeKey, $partialValues, $actor, null);
+        assert($merged instanceof FormCollabDraft);
+
+        return $merged->toState();
+    }
+
+    /**
+     * The same merge for one field, with the order check inside each round:
+     * the marks are read with the row the round writes to, so an edit that
+     * landed since is seen on the next one.
+     */
+    public function mergeFieldInOrder(
+        string $scopeKey,
+        string $field,
+        int|float|string|bool|null $value,
+        ?string $actor,
+        string $source,
+        int $sequence,
+    ): FormFieldEditOrder {
+        $merged = $this->merge($scopeKey, [$field => $value], $actor, [$field, $source, $sequence]);
+
+        return $merged instanceof FormFieldEditOrder ? $merged : FormFieldEditOrder::Applied;
+    }
+
+    /**
+     * @param array<string, scalar|null> $partialValues
+     * @param array{0: string, 1: string, 2: int}|null $edit field, source and sequence of an ordered edit
+     * @return FormCollabDraft|FormFieldEditOrder the draft as written, or why nothing was
+     */
+    private function merge(string $scopeKey, array $partialValues, ?string $actor, ?array $edit): FormCollabDraft|FormFieldEditOrder
+    {
         for ($attempt = 1; ; $attempt++) {
             $existing = $this->findByScope($scopeKey);
             try {
+                $marks = $existing?->getEditMarks() ?? [];
+                if ($edit !== null) {
+                    [$order, $marks] = FormFieldEditMarks::place($marks, $edit[0], $edit[1], $edit[2]);
+                    if ($order !== FormFieldEditOrder::Applied) {
+                        return $order;
+                    }
+                }
                 if ($existing === null) {
                     // Null: another first edit created the row a moment ago
                     // (1062 on the (tenant_id, scope_key) key, seen live
                     // 2026-10-15). Merge into it on the next round instead of
                     // failing the event and dropping this edit.
-                    $inserted = $this->tryInsertDraft($scopeKey, $partialValues, $actor);
+                    $inserted = $this->tryInsertDraft($scopeKey, $partialValues, $actor, $marks);
                     if ($inserted !== null) {
-                        return $inserted->toState();
+                        return $inserted;
                     }
                 } else {
                     $merged = $existing->getValues();
@@ -211,7 +256,7 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
                         $merged[$field] = $value;
                     }
 
-                    return $this->updateDraft($existing, $merged, $actor)->toState();
+                    return $this->updateDraft($existing, $merged, $actor, $marks);
                 }
             } catch (StaleAggregateException) {
                 // Written or discarded since the read: redo on what is there now.
@@ -285,12 +330,13 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
      * failure with still no row in the way is some other constraint, rethrown.
      *
      * @param array<string, scalar|null> $values
+     * @param array<string, array<string, int>> $editMarks
      */
-    private function tryInsertDraft(string $scopeKey, array $values, ?string $actor): ?FormCollabDraft
+    private function tryInsertDraft(string $scopeKey, array $values, ?string $actor, array $editMarks = []): ?FormCollabDraft
     {
         for ($attempt = 1; ; $attempt++) {
             try {
-                return $this->insertDraft($scopeKey, $values, 1, $actor);
+                return $this->insertDraft($scopeKey, $values, 1, $actor, $editMarks);
             } catch (ConstraintViolationException $e) {
                 if ($this->readByScope($scopeKey) !== null) {
                     return null;
@@ -310,8 +356,9 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
 
     /**
      * @param array<string, scalar|null> $values
+     * @param array<string, array<string, int>> $editMarks
      */
-    private function insertDraft(string $scopeKey, array $values, int $version, ?string $actor): FormCollabDraft
+    private function insertDraft(string $scopeKey, array $values, int $version, ?string $actor, array $editMarks = []): FormCollabDraft
     {
         $draft = new FormCollabDraft(
             id:        self::mintId(),
@@ -321,6 +368,7 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
             version:   $version,
             updatedBy: $actor,
             updatedAt: new \DateTimeImmutable(),
+            editMarks: $editMarks,
         );
         $this->repository()->insert($draft);
 
@@ -328,16 +376,15 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
     }
 
     /**
-     * @param array<string, scalar|null> $values
-     */
-    /**
      * Write the next version over the one read into $existing. The ORM's
      * #[Version] guard bumps it and throws StaleAggregateException when the
-     * row moved on in between.
+     * row moved on in between. The edit marks stay as read unless given: a
+     * full save replaces the values, not the order of the edits before it.
      *
      * @param array<string, scalar|null> $values
+     * @param array<string, array<string, int>>|null $editMarks
      */
-    private function updateDraft(FormCollabDraft $existing, array $values, ?string $actor): FormCollabDraft
+    private function updateDraft(FormCollabDraft $existing, array $values, ?string $actor, ?array $editMarks = null): FormCollabDraft
     {
         $draft = new FormCollabDraft(
             id:        $existing->getId(),
@@ -351,6 +398,7 @@ final class FormCollabDraftDbRepository implements FormCollabDraftStoreInterface
             version:   $existing->getVersion(),
             updatedBy: $actor,
             updatedAt: new \DateTimeImmutable(),
+            editMarks: $editMarks ?? $existing->getEditMarks(),
         );
 
         /** @var FormCollabDraft */

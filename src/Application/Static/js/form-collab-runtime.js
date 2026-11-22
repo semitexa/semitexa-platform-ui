@@ -27,21 +27,26 @@
  * documented fast-path. A field whose own edit is still on its way to the
  * server (in flight, or waiting behind one) counts as being edited too.
  *
- * EDIT ORDER: every `field.edit` carries the whole value and no sequence, and
- * the server keeps whichever arrives last. So a field has at most ONE edit in
- * flight; while it flies only the latest value is kept, and it goes out when
- * the one before it settles. An edit with no answer in 10 s is aborted and
- * counts as failed. A failed value is sent once more at once, then on up to
- * three heartbeats, then dropped. A lock is released only after the field's
- * last edit settled, so the edit is never refused for arriving behind the
- * release.
- *   Not covered, and only a sequence number from the server would: when the
- * page is hidden the latest value (and a release waiting for it) is sent at
- * once, beside an edit still in flight, and the two can arrive in either
- * order; and an edit aborted after 10 s that the server still processes can
- * land after the newer value sent behind it. A refusal (4xx: the session
- * expired, the lock was lost) is an answer: the value it refused is not sent
- * again.
+ * EDIT ORDER: every `field.edit` carries the whole value. A field has at most
+ * ONE edit in flight; while it flies only the latest value is kept, and it
+ * goes out when the one before it settles. An edit with no answer in 10 s is
+ * aborted and counts as failed. A failed value is sent once more at once,
+ * then on up to three heartbeats, then dropped. A lock is released only after
+ * the field's last edit settled, so the edit is never refused for arriving
+ * behind the release.
+ *   That orders what this page sends, not what the server receives: when the
+ * page is hidden the latest value is sent at once, beside an edit still in
+ * flight, and the two can arrive in either order; and an edit aborted after
+ * 10 s that the server still processes can land after the newer value sent
+ * behind it. So every value gets a SEQUENCE when it is queued (`seq`, one
+ * count for the page, sent with the page's `runtime` id), and the server
+ * keeps, with the draft, the highest it stored per field and page: an older
+ * one is refused (`field_edit_superseded`). A value sent again (after a
+ * failure, a renewal, as the page is hidden) carries the sequence it was
+ * given, so the server knows it for the same edit and stores it once.
+ * Another tab of the same person is another runtime: the two never refuse
+ * each other. A refusal (4xx: superseded, the session expired, the lock was
+ * lost) is an answer: the value it refused is not sent again.
  *
  * LOCKED FIELDS AND THE APP'S OWN POST: a field someone else holds is
  * `disabled`, and a browser leaves disabled controls out of a form's data, so
@@ -107,6 +112,26 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
     // it. After one with no answer (the network, a 5xx, a 429): every expired
     // event would ask again, as fast as the visitor types.
     var RENEW_MIN_GAP_MS = 5000;
+
+    // This page, to the server that orders its edits (see EDIT ORDER): new
+    // with every load, shared by every form on the page, as is the count.
+    var RUNTIME_ID = (function () {
+        var bytes = [];
+        var i;
+        if (typeof crypto !== 'undefined' && crypto && typeof crypto.getRandomValues === 'function') {
+            bytes = Array.prototype.slice.call(crypto.getRandomValues(new Uint8Array(12)));
+        } else {
+            for (i = 0; i < 12; i++) {
+                bytes.push(Math.floor(Math.random() * 256));
+            }
+        }
+        var id = '';
+        for (i = 0; i < bytes.length; i++) {
+            id += (bytes[i] < 16 ? '0' : '') + bytes[i].toString(16);
+        }
+        return id;
+    })();
+    var editSequence = 0;
 
     /** Booted instances, keyed by render instance id, so a re-scan is idempotent. */
     var booted = Object.create(null);
@@ -233,10 +258,13 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         // keystroke during the acquire round-trip is never silently dropped.
         this.pendingEdit = Object.create(null);
         // field.edit order (see EDIT ORDER above), by field name:
-        // {inFlight, sent, waiting, value, retried, beats, typed, valueNo,
-        // expired}: the last three number the values typed into the field
-        // and hold the latest one refused for an expired context until it
-        // is sent again (resendExpiredEdit). `waiting` with no
+        // {inFlight, sent, sentSeq, waiting, value, seq, retried, beats,
+        // typed, valueNo, expired}: `seq` is the sequence the server orders
+        // `value` by, given once and sent with every send of it (`sentSeq`:
+        // that of the value in flight); the last three number the values
+        // typed into the field and hold the latest one refused for an
+        // expired context until it is sent again (resendExpiredEdit).
+        // `waiting` with no
         // edit in flight is a value whose send failed twice: the next edit,
         // the presence heartbeat (EDIT_HEARTBEAT_RETRIES times), a lock
         // release or the page being hidden sends it.
@@ -1260,10 +1288,11 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         }
         var q = this.edits[field];
         if (!q) {
-            q = this.edits[field] = { inFlight: false, sent: null, waiting: false, value: null, retried: false, beats: 0, typed: 0, valueNo: 0, expired: null };
+            q = this.edits[field] = { inFlight: false, sent: null, sentSeq: 0, waiting: false, value: null, seq: 0, retried: false, beats: 0, typed: 0, valueNo: 0, expired: null };
         }
         q.waiting = true;
         q.value = value;
+        q.seq = ++editSequence;
         q.valueNo = ++q.typed;
         q.expired = null; // superseded: this value is the one to save
         q.retried = false;
@@ -1281,11 +1310,13 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         var self = this;
         var value = q.value;
         var valueNo = q.valueNo;
+        var seq = q.seq;
         var timer = null;
         var over = false;
         q.waiting = false;
         q.inFlight = true;
         q.sent = value;
+        q.sentSeq = seq;
         var relocked = !!this.fieldRelocked[field];
         var settled = function (failed) {
             if (over) {
@@ -1303,6 +1334,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
                 q.waiting = true;
                 q.value = value;
                 q.valueNo = valueNo;
+                q.seq = seq; // the same edit, sent again
                 if (q.retried) {
                     self.editsSettled();
                     return;
@@ -1329,7 +1361,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         var request;
         try {
             request = hug(
-                envelope({ semanticEvent: 'field.edit', signedContext: ctx, payload: { field: field, value: value } }),
+                envelope({ semanticEvent: 'field.edit', signedContext: ctx, payload: { field: field, value: value, seq: seq, runtime: RUNTIME_ID } }),
                 options
             );
         } catch (e) {
@@ -1338,12 +1370,13 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         }
         // Failed = the server did not answer (network, EDIT_TIMEOUT_MS) or
         // broke (5xx). A refusal (4xx: the field is locked, unknown, the
-        // session expired) is an answer.
+        // session expired, or a newer edit of the field is stored already)
+        // is an answer.
         request.then(
             function (r) {
                 settled(!!r && r.ok === false && r.status >= 500);
                 if (contextExpired(r)) {
-                    self.resendExpiredEdit(field, value, valueNo, ctx);
+                    self.resendExpiredEdit(field, value, valueNo, ctx, seq);
                 } else if (r && r.ok === false && r.data && r.data.reason === 'field_locked') {
                     self.onEditFieldLocked(field, relocked);
                 } else if (relocked && r && r.ok !== false) {
@@ -1377,13 +1410,13 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
      * (emitFieldEdit) or applied from the feed (applyField), or the server
      * refuses to renew for good (contextsLost).
      */
-    CollabForm.prototype.resendExpiredEdit = function (field, value, valueNo, ctx) {
+    CollabForm.prototype.resendExpiredEdit = function (field, value, valueNo, ctx, seq) {
         var self = this;
         var q = this.edits[field];
         if (!q || valueNo !== q.typed) {
             return;
         }
-        q.expired = { value: value, valueNo: valueNo, ctx: ctx };
+        q.expired = { value: value, valueNo: valueNo, ctx: ctx, seq: seq };
         this.renewContexts('field.edit', ctx).then(function (renewed) {
             if (renewed) {
                 self.resendExpiredEdits();
@@ -1419,6 +1452,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
                 q.waiting = true;
                 q.value = refused.value;
                 q.valueNo = refused.valueNo;
+                q.seq = refused.seq; // refused unread, so still the same edit
                 q.retried = false;
                 q.beats = 0;
             }
@@ -1586,7 +1620,12 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             for (var name in self.edits) {
                 var q = self.edits[name];
                 if (ctx && !self.postedFields[name] && (q.waiting || q.inFlight)) {
-                    self.postEvent('field.edit', ctx, { field: name, value: q.waiting ? q.value : q.sent });
+                    self.postEvent('field.edit', ctx, {
+                        field: name,
+                        value: q.waiting ? q.value : q.sent,
+                        seq: q.waiting ? q.seq : q.sentSeq,
+                        runtime: RUNTIME_ID
+                    });
                 }
                 q.waiting = false;
             }

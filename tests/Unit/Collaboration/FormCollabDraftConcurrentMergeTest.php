@@ -12,6 +12,7 @@ use Semitexa\Orm\OrmManager;
 use Semitexa\PlatformUi\Application\Db\MySQL\Repository\FormCollabDraftDbRepository;
 use Semitexa\PlatformUi\Application\Service\Collaboration\FormCollabDraftRetention;
 use Semitexa\PlatformUi\Domain\Exception\FormDraftVersionConflictException;
+use Semitexa\PlatformUi\Domain\Model\Collaboration\FormFieldEditOrder;
 use Semitexa\PlatformUi\Tests\Support\SettablePresenceStore;
 
 /**
@@ -61,7 +62,7 @@ final class FormCollabDraftConcurrentMergeTest extends TestCase
             'CREATE TABLE form_collab_draft (
                 id TEXT PRIMARY KEY, tenant_id TEXT, scope_key TEXT NOT NULL,
                 values_json TEXT NOT NULL, version INTEGER NOT NULL,
-                updated_by TEXT, updated_at TEXT NOT NULL,
+                updated_by TEXT, updated_at TEXT NOT NULL, edit_marks_json TEXT,
                 race_hook INTEGER GENERATED ALWAYS AS (bob_moves()) VIRTUAL
             )',
         );
@@ -94,6 +95,34 @@ final class FormCollabDraftConcurrentMergeTest extends TestCase
         self::assertSame(3, $stored->version);
         self::assertSame($stored->values, $state->values);
         self::assertSame(3, $state->version);
+    }
+
+    #[Test]
+    public function an_older_edit_racing_the_newer_one_of_the_same_page_is_refused_on_the_row_as_it_now_stands(): void
+    {
+        // Two workers hold two edits of one page. The older one reads the
+        // row, the newer one is stored, and the older one writes on what it
+        // read: a check made before the write, or kept outside the row,
+        // would let it through.
+        $this->bobDuringAlicesRead = fn () => $this->bob->mergeFieldInOrder(self::SCOPE, 'title', 'ab', 'carol', 'tab-1', 2);
+
+        $order = $this->alice->mergeFieldInOrder(self::SCOPE, 'title', 'a', 'carol', 'tab-1', 1);
+
+        self::assertSame(FormFieldEditOrder::Superseded, $order);
+        self::assertSame(['seed' => 'x', 'title' => 'ab'], $this->bob->load(self::SCOPE)?->values);
+        self::assertSame(2, $this->bob->load(self::SCOPE)->version, 'one write');
+    }
+
+    #[Test]
+    public function a_newer_edit_racing_the_older_one_is_written_over_it(): void
+    {
+        $this->bobDuringAlicesRead = fn () => $this->bob->mergeFieldInOrder(self::SCOPE, 'title', 'a', 'carol', 'tab-1', 1);
+
+        $order = $this->alice->mergeFieldInOrder(self::SCOPE, 'title', 'ab', 'carol', 'tab-1', 2);
+
+        self::assertSame(FormFieldEditOrder::Applied, $order);
+        self::assertSame(['seed' => 'x', 'title' => 'ab'], $this->bob->load(self::SCOPE)?->values);
+        self::assertSame(FormFieldEditOrder::Superseded, $this->bob->mergeFieldInOrder(self::SCOPE, 'title', 'a', 'carol', 'tab-1', 1), 'and its mark with it');
     }
 
     #[Test]

@@ -516,6 +516,60 @@ final class FormCollabContextRenewalTest extends TestCase
     }
 
     #[Test]
+    public function a_value_sent_again_after_a_renewal_carries_the_sequence_it_was_given(): void
+    {
+        // Refused for its context, the edit never reached the draft: sent
+        // again it is the same edit, and the server must not take it for a
+        // newer one than what the page sends next.
+        $seen = $this->editorSees([
+            'manifest' => self::scripted('shared'),
+            'inputs' => ['title' => ''],
+            'replies' => ['field.edit' => [self::expired()], 'manifest.renew' => [self::renewal()]],
+            'steps' => [['type' => 'title', 'value' => 'a'], ['type' => 'title', 'value' => 'ab']],
+        ]);
+
+        $sent = self::edits($seen['sent']);
+        self::assertSame(
+            [['a', 1], ['a', 1], ['ab', 2]],
+            array_map(static fn (array $p): array => [$p['value'], $p['seq']], $sent),
+        );
+        self::assertSame(
+            ['ctx-field.edit', 'new-field.edit', 'new-field.edit'],
+            array_column(array_values(array_filter($seen['contexts'], static fn (array $c): bool => $c['event'] === 'field.edit')), 'ctx'),
+        );
+    }
+
+    #[Test]
+    public function an_edit_refused_as_superseded_is_an_answer_the_page_does_not_send_again(): void
+    {
+        // Through HUG, as a page's requests arrive: the newer edit first.
+        $manifest = $this->manifest('shared', ['title']);
+        $edit = $manifest['events']['field.edit'];
+        $page = ['field' => 'title', 'runtime' => 'runtime-of-one-page'];
+        self::assertSame(200, $this->send($edit, $page + ['value' => 'ab', 'seq' => 2])['http']);
+
+        $refusal = $this->send($edit, $page + ['value' => 'a', 'seq' => 1]);
+
+        self::assertSame(422, $refusal['http'], 'a refusal, not a failure: 5xx would be sent again');
+        self::assertSame(FormCollaborationEventHandler::EDIT_SUPERSEDED, $refusal['data']['reason'] ?? null, self::show($refusal['data']));
+        self::assertSame(['title' => 'ab'], $this->draft->load(self::SCOPE)->values ?? null);
+        self::assertSame(200, $this->send($edit, $page + ['value' => 'ab', 'seq' => 2])['http'], 'the stored edit arriving again is acknowledged');
+
+        // That answer, given to the runtime: no retry at once, none on the
+        // heartbeats, and the page keeps what was typed.
+        $seen = $this->editorSees([
+            'manifest' => self::scripted('shared'),
+            'inputs' => ['title' => ''],
+            'replies' => ['field.edit' => [$refusal]],
+            'steps' => [['focus' => 'title'], ['type' => 'title', 'value' => 'a'], ['tick' => true], ['tick' => true], ['tick' => true], ['tick' => true], ['elapse' => 30000]],
+        ]);
+
+        self::assertSame([['field' => 'title', 'value' => 'a']], self::edits($seen['posts']));
+        self::assertSame(['title' => 'a'], $seen['values']);
+        self::assertNull($seen['status']);
+    }
+
+    #[Test]
     public function a_value_refused_while_the_renewal_got_no_answer_goes_with_the_next_renewal(): void
     {
         // The edit expired and the renewal met a 503. Nothing else is typed:
@@ -931,7 +985,7 @@ final class FormCollabContextRenewalTest extends TestCase
 
     /**
      * @param array<string, mixed> $scenario
-     * @return array{posts: list<array{event: string, payload: array<string, mixed>}>, contexts: list<array{event: string, ctx: string}>, values: array<string, string>, feedCtx: ?string, feedOpens: int, status: ?string, events: list<array{type: string, detail: mixed}>}
+     * @return array{posts: list<array{event: string, payload: array<string, mixed>}>, sent: list<array{event: string, payload: array<string, mixed>}>, contexts: list<array{event: string, ctx: string}>, values: array<string, string>, feedCtx: ?string, feedOpens: int, status: ?string, events: list<array{type: string, detail: mixed}>}
      */
     private function editorSees(array $scenario): array
     {
@@ -952,7 +1006,18 @@ final class FormCollabContextRenewalTest extends TestCase
         $seen = json_decode($stdout, true);
         self::assertTrue($exit === 0 && is_array($seen), "the runtime harness failed (exit {$exit}).\nstdout: {$stdout}\nstderr: {$stderr}");
 
-        /** @var array{posts: list<array{event: string, payload: array<string, mixed>}>, contexts: list<array{event: string, ctx: string}>, values: array<string, string>, feedCtx: ?string, feedOpens: int, status: ?string, events: list<array{type: string, detail: mixed}>} $seen */
-        return $seen;
+        // The posts as sent stay in `sent`; `posts` loses what orders a
+        // field.edit on the server (the sequence, and the runtime id, random
+        // per run), so the tests compare what was edited.
+        $seen['sent'] = $seen['posts'] ?? [];
+        /** @var array{posts: list<array{event: string, payload: array<string, mixed>}>, sent: list<array{event: string, payload: array<string, mixed>}>, contexts: list<array{event: string, ctx: string}>, values: array<string, string>, feedCtx: ?string, feedOpens: int, status: ?string, events: list<array{type: string, detail: mixed}>} $typed */
+        $typed = $seen;
+        foreach ($typed['posts'] as $at => $post) {
+            if ($post['event'] === 'field.edit') {
+                unset($typed['posts'][$at]['payload']['seq'], $typed['posts'][$at]['payload']['runtime']);
+            }
+        }
+
+        return $typed;
     }
 }

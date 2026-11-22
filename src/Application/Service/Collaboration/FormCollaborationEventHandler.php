@@ -13,6 +13,7 @@ use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
 use Semitexa\PlatformUi\Application\Service\Event\UiInteractionAuthorizerInterface;
 use Semitexa\PlatformUi\Attribute\HandlesUiEvent;
 use Semitexa\PlatformUi\Domain\Contract\FormCollabDraftStoreInterface;
+use Semitexa\PlatformUi\Domain\Contract\FormCollabOrderedDraftStoreInterface;
 use Semitexa\PlatformUi\Domain\Contract\FormCollaboratorLabelResolverInterface;
 use Semitexa\PlatformUi\Domain\Contract\FormLockStoreInterface;
 use Semitexa\PlatformUi\Domain\Contract\FormPresenceStoreInterface;
@@ -20,6 +21,7 @@ use Semitexa\PlatformUi\Domain\Contract\UiEventHandlerInterface;
 use Semitexa\PlatformUi\Domain\Exception\FormDraftVersionConflictException;
 use Semitexa\PlatformUi\Domain\Exception\UiInteractionForbiddenException;
 use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollaborationMode;
+use Semitexa\PlatformUi\Domain\Model\Collaboration\FormFieldEditOrder;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventContext;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventError;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventResponse;
@@ -43,7 +45,8 @@ use Semitexa\Ssr\Domain\Model\FormDocumentScope;
  *   - `scope` and `mode` are read from the SIGNED `cfg` claim (the page minted
  *     them, HMAC-protected) — never from the spoofable request body;
  *   - the actor identity comes from the verified auth context, never the body;
- *   - only the field name + value + version come from the request body.
+ *   - only the field name + value + version come from the request body, and
+ *     an edit's sequence and runtime id, which order that actor's own edits.
  *
  * Semantic events handled (`{part}.{event}`): `field.edit`, `form.save`,
  * `lock.acquire`, `lock.release`, `lock.heartbeat`, `presence.ping`, and
@@ -88,6 +91,13 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
 
     /** The reason a renewal gets (403) once the authorizer denies an event of the form. */
     public const RENEW_FORBIDDEN = 'collab_renew_forbidden';
+
+    /**
+     * The reason a field edit gets when the draft already holds a newer edit
+     * of that field from the same page. An answer, not a failure: the newer
+     * value is stored, and the page does not send this one again.
+     */
+    public const EDIT_SUPERSEDED = 'field_edit_superseded';
 
     /** A label is shown in a chip: one line, no control or bidi characters, this long at most. */
     public const LABEL_MAX_LENGTH = 64;
@@ -239,10 +249,52 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
         // compares against its own `self`. Anonymous editors share the label
         // "Guest" but get distinct ids, so a guest never suppresses another
         // guest's delta. The friendly label still rides presence (presence.ping).
-        $this->draftStore->mergeFields($scope, [$field => self::scalarOrNull($request['value'] ?? null)], $actorId);
-        $this->scopeInvalidator->touch($scope);
+        $value = self::scalarOrNull($request['value'] ?? null);
+        $order = $this->mergeEdit($scope, $field, $value, $actorId, $request);
+        if ($order === FormFieldEditOrder::Superseded) {
+            return self::error(self::EDIT_SUPERSEDED, 'A newer edit of this field is already stored.', ['field' => $field]);
+        }
+        if ($order === FormFieldEditOrder::Applied) {
+            $this->scopeInvalidator->touch($scope);
+        }
 
+        // Repeated: the edit sent again after its answer was lost. The draft
+        // has it; writing it once more could replace what someone typed since.
         return self::ack();
+    }
+
+    /**
+     * Write the edit, in the order it was MADE when the page says which that
+     * is: `seq` counts the values a page sent and `runtime` names the page.
+     * The order they arrive in is not it: a request the page gave up on is
+     * still processed, and the two a hidden page sends race each other.
+     *
+     * Both come from the untrusted body, so they only ever order the edits
+     * of the actor the session names: the key is the actor AND the runtime.
+     * A lock holder is the person, not the tab; two tabs of one person
+     * count separately, and neither can refuse the other's newer edit.
+     * Edits of different people stay in arrival order.
+     *
+     * Without both (a page from before the sequence), or with a store that
+     * keeps no marks, the edit is merged as it arrives.
+     *
+     * @param array<string, mixed> $request
+     */
+    private function mergeEdit(string $scope, string $field, int|float|string|bool|null $value, string $actorId, array $request): FormFieldEditOrder
+    {
+        $sequence = $request['seq'] ?? null;
+        $runtime = $request['runtime'] ?? null;
+        if (
+            $this->draftStore instanceof FormCollabOrderedDraftStoreInterface
+            && is_int($sequence) && $sequence > 0
+            && is_string($runtime) && preg_match('/^[A-Za-z0-9_-]{8,64}$/', $runtime) === 1
+        ) {
+            return $this->draftStore->mergeFieldInOrder($scope, $field, $value, $actorId, FormFieldEditMarks::source($actorId, $runtime), $sequence);
+        }
+
+        $this->draftStore->mergeFields($scope, [$field => $value], $actorId);
+
+        return FormFieldEditOrder::Applied;
     }
 
     /**

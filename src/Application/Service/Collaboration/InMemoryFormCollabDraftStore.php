@@ -7,12 +7,13 @@ namespace Semitexa\PlatformUi\Application\Service\Collaboration;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Tenant\TenantContextAccess;
 use Semitexa\Core\Tenant\TenantContextInterface;
-use Semitexa\PlatformUi\Domain\Contract\FormCollabDraftStoreInterface;
+use Semitexa\PlatformUi\Domain\Contract\FormCollabOrderedDraftStoreInterface;
 use Semitexa\PlatformUi\Domain\Exception\FormDraftVersionConflictException;
 use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
+use Semitexa\PlatformUi\Domain\Model\Collaboration\FormFieldEditOrder;
 
 /**
- * Worker-local fallback for {@see FormCollabDraftStoreInterface} — the same
+ * Worker-local fallback for {@see FormCollabOrderedDraftStoreInterface} — the same
  * role {@see \Semitexa\PlatformUi\Application\Service\Submit\InMemoryUiFormDatabaseDemoSubmissionRepository}
  * plays for demo submissions: a default for unit tests and single-worker dev
  * runs. NOT safe across multiple Swoole workers (the map is per-process);
@@ -26,10 +27,18 @@ use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollabDraftState;
  * NOT `final` so tests can extend it to assert call discipline, matching the
  * demo in-memory repository convention.
  */
-class InMemoryFormCollabDraftStore implements FormCollabDraftStoreInterface
+class InMemoryFormCollabDraftStore implements FormCollabOrderedDraftStoreInterface
 {
     /** @var array<string, array<string, FormCollabDraftState>> tenant key → scope key → draft */
     private array $drafts = [];
+
+    /**
+     * The edit marks of each draft, with the epoch of the draft they belong
+     * to: a draft that replaced a discarded or expired one starts with none.
+     *
+     * @var array<string, array<string, array{epoch: string, marks: array<string, array<string, int>>}>>
+     */
+    private array $editMarks = [];
 
     /**
      * Optional tenant partition, mirroring the DB store so both implementations
@@ -71,15 +80,32 @@ class InMemoryFormCollabDraftStore implements FormCollabDraftStoreInterface
 
     public function discard(string $scopeKey): void
     {
-        unset($this->drafts[$this->tenantKey()][$scopeKey]);
+        unset($this->drafts[$this->tenantKey()][$scopeKey], $this->editMarks[$this->tenantKey()][$scopeKey]);
     }
 
-    /** The draft, unless it was abandoned: then it is dropped and absent. */
+    /**
+     * The draft, unless it was abandoned: then it is dropped and absent.
+     *
+     * Asking whether it is abandoned can suspend (a presence read), and the
+     * answer is about the draft read BEFORE it. One written, replaced or
+     * discarded meanwhile is what stands: it is returned as it is now, and
+     * never dropped on the older draft's account.
+     */
     private function live(string $scopeKey): ?FormCollabDraftState
     {
-        $draft = $this->drafts[$this->tenantKey()][$scopeKey] ?? null;
-        if ($draft !== null && isset($this->retention) && $this->retention->isAbandoned($scopeKey, $draft->updatedAt)) {
-            $this->discard($scopeKey);
+        $tenant = $this->tenantKey();
+        $draft = $this->drafts[$tenant][$scopeKey] ?? null;
+        if ($draft === null || !isset($this->retention)) {
+            return $draft;
+        }
+
+        $abandoned = $this->retention->isAbandoned($scopeKey, $draft->updatedAt);
+        $now = $this->drafts[$tenant][$scopeKey] ?? null;
+        if ($now !== $draft) {
+            return $now;
+        }
+        if ($abandoned) {
+            unset($this->drafts[$tenant][$scopeKey], $this->editMarks[$tenant][$scopeKey]);
 
             return null;
         }
@@ -120,6 +146,38 @@ class InMemoryFormCollabDraftStore implements FormCollabDraftStoreInterface
         }
 
         return $this->store($scopeKey, $merged, ($current->version ?? 0) + 1, $actor, $current?->epoch);
+    }
+
+    public function mergeFieldInOrder(
+        string $scopeKey,
+        string $field,
+        int|float|string|bool|null $value,
+        ?string $actor,
+        string $source,
+        int $sequence,
+    ): FormFieldEditOrder {
+        // The one step that can suspend: whether the draft is abandoned may
+        // be a presence read. Another edit can be stored, or the draft
+        // replaced, meanwhile, so what it returns is not used. Everything
+        // after it reads the draft and its marks as they stand NOW and
+        // writes both without yielding: the check and the write are one step.
+        $this->live($scopeKey);
+
+        $tenant = $this->tenantKey();
+        $current = $this->drafts[$tenant][$scopeKey] ?? null;
+        $kept = $this->editMarks[$tenant][$scopeKey] ?? null;
+        // Marks of another draft (this one replaced it) are not this draft's.
+        $marks = $current !== null && $kept !== null && $kept['epoch'] === $current->epoch ? $kept['marks'] : [];
+
+        [$order, $marks] = FormFieldEditMarks::place($marks, $field, $source, $sequence);
+        if ($order === FormFieldEditOrder::Applied) {
+            $merged = $current->values ?? [];
+            $merged[$field] = $value;
+            $stored = $this->store($scopeKey, $merged, ($current->version ?? 0) + 1, $actor, $current?->epoch);
+            $this->editMarks[$tenant][$scopeKey] = ['epoch' => $stored->epoch, 'marks' => $marks];
+        }
+
+        return $order;
     }
 
     /**
