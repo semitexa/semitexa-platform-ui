@@ -156,6 +156,134 @@ final class FormCollabDraftEndsTest extends TestCase
         self::assertSame(FormFieldEditOrder::Applied, $store->mergeFieldInOrder(self::SCOPE, 'price', '2', 'alice', 'tab-1', 1));
     }
 
+    /**
+     * An in-memory store whose presence read, the one place it can suspend,
+     * runs `$during` on its `$onRead`-th call: what another coroutine does
+     * while this one waits for the cache.
+     *
+     * @param \Closure(InMemoryFormCollabDraftStore): void $during
+     * @param-out \Closure(bool): void $arm true starts the count, false ends it; the read is plain otherwise
+     */
+    private function storeSuspendingAt(int $onRead, \Closure $during, ?\Closure &$arm): InMemoryFormCollabDraftStore
+    {
+        $store = new InMemoryFormCollabDraftStore();
+        $presence = new class ($this->presence) implements FormPresenceStoreInterface {
+            public ?\Closure $onRead = null;
+
+            public function __construct(private readonly SettablePresenceStore $inner)
+            {
+            }
+
+            public function ping(string $scopeKey, string $participantId, string $label, string $role): array
+            {
+                return $this->inner->ping($scopeKey, $participantId, $label, $role);
+            }
+
+            public function leave(string $scopeKey, string $participantId): array
+            {
+                return $this->inner->leave($scopeKey, $participantId);
+            }
+
+            public function roster(string $scopeKey): array
+            {
+                return $this->inner->roster($scopeKey);
+            }
+
+            public function lastSeenAt(string $scopeKey): ?int
+            {
+                if ($this->onRead !== null) {
+                    ($this->onRead)();
+                }
+
+                return $this->inner->lastSeenAt($scopeKey);
+            }
+        };
+        $store->withRetention((new FormCollabDraftRetention())->with($presence, 30, fn (): int => $this->now));
+
+        $arm = static function (bool $on) use ($presence, $onRead, $during, $store): void {
+            $reads = 0;
+            $presence->onRead = !$on ? null : static function () use (&$reads, $presence, $onRead, $during, $store): void {
+                if (++$reads === $onRead) {
+                    $presence->onRead = null;
+                    $during($store);
+                }
+            };
+        };
+
+        return $store;
+    }
+
+    /** @return iterable<string, array{0: int}> */
+    public static function presenceReads(): iterable
+    {
+        yield 'during the first presence read' => [1];
+        yield 'during a second presence read, if the merge makes one' => [2];
+    }
+
+    #[Test]
+    #[DataProvider('presenceReads')]
+    public function an_edit_stored_while_an_older_one_waits_for_the_presence_read_is_not_overwritten_by_it(int $onRead): void
+    {
+        // In-memory store. The older edit is being merged; wherever it waits,
+        // the newer edit of the same page is stored meanwhile.
+        $newerStored = false;
+        $store = $this->storeSuspendingAt($onRead, static function (InMemoryFormCollabDraftStore $store) use (&$newerStored): void {
+            $newerStored = $store->mergeFieldInOrder(self::SCOPE, 'title', 'ab', 'alice', 'tab-1', 2) === FormFieldEditOrder::Applied;
+        }, $arm);
+        $store->mergeFields(self::SCOPE, ['title' => ''], 'alice');
+        // Old enough to be asked about, and attended: every look at it reads presence.
+        $this->now += 31 * self::MINUTE;
+        $this->presence->lastSeen[self::SCOPE] = $this->now;
+
+        $arm(true);
+        $older = $store->mergeFieldInOrder(self::SCOPE, 'title', 'a', 'alice', 'tab-1', 1);
+        $arm(false);
+
+        if ($onRead === 1) {
+            self::assertTrue($newerStored, 'the merge reads presence at least once: the case is exercised');
+        }
+        if ($newerStored) {
+            self::assertSame(FormFieldEditOrder::Superseded, $older);
+            self::assertSame(['title' => 'ab'], $store->load(self::SCOPE)?->values, 'the newer value stands');
+            self::assertSame(FormFieldEditOrder::Repeated, $store->mergeFieldInOrder(self::SCOPE, 'title', 'ab', 'alice', 'tab-1', 2), 'and so does its mark');
+        } else {
+            self::assertSame(FormFieldEditOrder::Applied, $older, 'nothing was stored meanwhile');
+        }
+    }
+
+    #[Test]
+    #[DataProvider('presenceReads')]
+    public function a_draft_that_expires_while_an_edit_is_merged_does_not_hand_its_marks_to_the_next_draft(int $onRead): void
+    {
+        // In-memory store. The last editor's heartbeat ages out while the
+        // edit waits: the draft it was checked against is dropped and the
+        // edit starts a new one, which has stored nothing from anybody.
+        $store = $this->storeSuspendingAt($onRead, function (): void {
+            $this->presence->lastSeen[self::SCOPE] = $this->now - 120 * self::MINUTE;
+        }, $arm);
+        $store->mergeFieldInOrder(self::SCOPE, 'title', 'old draft', 'bob', 'tab-2', 9);
+        $before = $store->load(self::SCOPE)?->epoch;
+        $this->now += 31 * self::MINUTE;
+        $this->presence->lastSeen[self::SCOPE] = $this->now;
+
+        $arm(true);
+        self::assertSame(FormFieldEditOrder::Applied, $store->mergeFieldInOrder(self::SCOPE, 'title', 'mine', 'alice', 'tab-1', 1));
+        $arm(false);
+        // Attended again, so the draft the edit wrote is there to look at.
+        $this->presence->lastSeen[self::SCOPE] = $this->now;
+        $after = $store->load(self::SCOPE)?->epoch;
+
+        $late = $store->mergeFieldInOrder(self::SCOPE, 'title', 'bob, counting from one', 'bob', 'tab-2', 1);
+        if ($after !== $before) {
+            self::assertSame(FormFieldEditOrder::Applied, $late, 'a replacement draft starts with no marks');
+        } else {
+            self::assertSame(FormFieldEditOrder::Superseded, $late, 'the same draft still knows the edit for an old one');
+        }
+        if ($onRead === 1) {
+            self::assertNotSame($before, $after, 'the merge reads presence at least once: the case is exercised');
+        }
+    }
+
     #[Test]
     public function a_field_remembers_a_bounded_number_of_sources_and_forgets_the_one_written_longest_ago(): void
     {

@@ -15,8 +15,10 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
   and does not send again; the same edit arriving twice is acknowledged and
   written once. Only edits of one page are compared: two people, and two tabs
   of one person, stay ordered by arrival. The order ends with the draft.
-  **Schema:** `form_collab_draft` gains the nullable column `edit_marks_json`
-  (`bin/semitexa update` / `orm:sync` adds it). **Own draft store:** ordering is
+  **Schema:** `form_collab_draft` gains the nullable column `edit_marks_json`.
+  Run `bin/semitexa update` (it runs `orm:sync`) BEFORE the new code serves
+  requests: until the column exists every write to a draft fails.
+  **Own draft store:** ordering is
   the new, optional `FormCollabOrderedDraftStoreInterface`; a store that
   implements only `FormCollabDraftStoreInterface` keeps working and keeps
   arrival order.
@@ -71,10 +73,11 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
   carried: the post carries their values, and an edit arriving behind the
   save would start a new draft. A field of another form, or one typed into
   after the submit, is sent as usual.
-  Known limits: a value sent as the page is hidden can still arrive before an
-  older edit that was in flight, and a page restored from the back/forward
-  cache can retry an older edit after the newer value went out with
-  `keepalive` (only a sequence number from the server would order them); an
+  Known limits: with a draft store that implements only
+  `FormCollabDraftStoreInterface`, a value sent as the page is hidden can
+  still arrive before an older edit that was in flight, and a page restored
+  from the back/forward cache can retry an older edit after the newer value
+  went out with `keepalive`; an
   edit one participant sent before another participant's save can still
   arrive after that save and open a new draft holding the older value (only
   a server check of the save that ended the draft would refuse it); a

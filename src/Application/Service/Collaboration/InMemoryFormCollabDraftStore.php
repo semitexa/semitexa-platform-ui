@@ -139,14 +139,24 @@ class InMemoryFormCollabDraftStore implements FormCollabOrderedDraftStoreInterfa
         string $source,
         int $sequence,
     ): FormFieldEditOrder {
+        // The one step that can suspend: whether the draft is abandoned may
+        // be a presence read. Another edit can be stored, or the draft
+        // replaced, meanwhile, so what it returns is not used. Everything
+        // after it reads the draft and its marks as they stand NOW and
+        // writes both without yielding: the check and the write are one step.
+        $this->live($scopeKey);
+
         $tenant = $this->tenantKey();
-        $current = $this->live($scopeKey);
+        $current = $this->drafts[$tenant][$scopeKey] ?? null;
         $kept = $this->editMarks[$tenant][$scopeKey] ?? null;
+        // Marks of another draft (this one replaced it) are not this draft's.
         $marks = $current !== null && $kept !== null && $kept['epoch'] === $current->epoch ? $kept['marks'] : [];
 
         [$order, $marks] = FormFieldEditMarks::place($marks, $field, $source, $sequence);
         if ($order === FormFieldEditOrder::Applied) {
-            $stored = $this->mergeFields($scopeKey, [$field => $value], $actor);
+            $merged = $current->values ?? [];
+            $merged[$field] = $value;
+            $stored = $this->store($scopeKey, $merged, ($current->version ?? 0) + 1, $actor, $current?->epoch);
             $this->editMarks[$tenant][$scopeKey] = ['epoch' => $stored->epoch, 'marks' => $marks];
         }
 
