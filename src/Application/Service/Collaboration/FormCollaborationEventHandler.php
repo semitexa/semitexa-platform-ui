@@ -9,6 +9,8 @@ use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
 use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\PlatformUi\Application\Component\Builtin\CollaborativeFormComponent;
+use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
+use Semitexa\PlatformUi\Application\Service\Event\UiInteractionAuthorizerInterface;
 use Semitexa\PlatformUi\Attribute\HandlesUiEvent;
 use Semitexa\PlatformUi\Domain\Contract\FormCollabDraftStoreInterface;
 use Semitexa\PlatformUi\Domain\Contract\FormCollaboratorLabelResolverInterface;
@@ -16,10 +18,12 @@ use Semitexa\PlatformUi\Domain\Contract\FormLockStoreInterface;
 use Semitexa\PlatformUi\Domain\Contract\FormPresenceStoreInterface;
 use Semitexa\PlatformUi\Domain\Contract\UiEventHandlerInterface;
 use Semitexa\PlatformUi\Domain\Exception\FormDraftVersionConflictException;
+use Semitexa\PlatformUi\Domain\Exception\UiInteractionForbiddenException;
 use Semitexa\PlatformUi\Domain\Model\Collaboration\FormCollaborationMode;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventContext;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventError;
 use Semitexa\PlatformUi\Domain\Model\Event\UiEventResponse;
+use Semitexa\PlatformUi\Domain\Model\Event\UiInteractionEvent;
 use Semitexa\Ssr\Domain\Contract\ScopeInvalidatorInterface;
 use Semitexa\Ssr\Domain\Model\FormDocumentScope;
 
@@ -42,7 +46,9 @@ use Semitexa\Ssr\Domain\Model\FormDocumentScope;
  *   - only the field name + value + version come from the request body.
  *
  * Semantic events handled (`{part}.{event}`): `field.edit`, `form.save`,
- * `lock.acquire`, `lock.release`, `lock.heartbeat`, `presence.ping`.
+ * `lock.acquire`, `lock.release`, `lock.heartbeat`, `presence.ping`, and
+ * `manifest.renew`, which trades the manifest's renewal token for fresh event
+ * tokens ({@see CollabManifestBuilder::renewed()}).
  */
 #[AsService]
 #[HandlesUiEvent(component: CollaborativeFormComponent::class, part: 'field', event: 'edit')]
@@ -51,6 +57,7 @@ use Semitexa\Ssr\Domain\Model\FormDocumentScope;
 #[HandlesUiEvent(component: CollaborativeFormComponent::class, part: 'lock', event: 'release')]
 #[HandlesUiEvent(component: CollaborativeFormComponent::class, part: 'lock', event: 'heartbeat')]
 #[HandlesUiEvent(component: CollaborativeFormComponent::class, part: 'form', event: 'save')]
+#[HandlesUiEvent(component: CollaborativeFormComponent::class, part: 'manifest', event: 'renew')]
 final class FormCollaborationEventHandler implements UiEventHandlerInterface
 {
     #[InjectAsReadonly]
@@ -65,12 +72,22 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
     #[InjectAsReadonly]
     protected ScopeInvalidatorInterface $scopeInvalidator;
 
+    /** Asked, at a renewal, about every event whose context is signed again. */
+    #[InjectAsReadonly]
+    protected UiInteractionAuthorizerInterface $authorizer;
+
     /** Asked for the app's optional {@see FormCollaboratorLabelResolverInterface}. */
     #[InjectAsReadonly]
     protected ContainerInterface $container;
 
     /** The reason a save from a runtime that predates the draft epoch gets. */
     public const OUTDATED_CLIENT = 'collab_client_outdated';
+
+    /** The reason a renewal gets once the visitor is not who the form was drawn for. */
+    public const RENEW_SUBJECT_CHANGED = 'collab_renew_subject_changed';
+
+    /** The reason a renewal gets (403) once the authorizer denies an event of the form. */
+    public const RENEW_FORBIDDEN = 'collab_renew_forbidden';
 
     /** A label is shown in a chip: one line, no control or bidi characters, this long at most. */
     public const LABEL_MAX_LENGTH = 64;
@@ -94,6 +111,13 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
     }
 
     /** Test seam — production path uses property injection. */
+    public function withAuthorizer(UiInteractionAuthorizerInterface $authorizer): self
+    {
+        $this->authorizer = $authorizer;
+        return $this;
+    }
+
+    /** Test seam — production path uses property injection. */
     public function withCollaborationDeps(
         FormCollabDraftStoreInterface $draftStore,
         FormPresenceStoreInterface $presenceStore,
@@ -110,18 +134,23 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
     public function handle(object $payload, UiEventContext $context): UiEventResponse
     {
         $cfg = $context->signedClaims['cfg'] ?? [];
-        $scope = is_array($cfg) ? (string) ($cfg['scope'] ?? '') : '';
+        $scope = is_array($cfg) ? self::stringOrEmpty($cfg['scope'] ?? '') : '';
         if (!FormDocumentScope::isValid($scope)) {
             return self::error('invalid_scope', 'The collaborative document scope is missing or malformed.');
         }
 
-        $mode = FormCollaborationMode::tryFrom(is_array($cfg) ? (string) ($cfg['mode'] ?? '') : '')
+        $mode = FormCollaborationMode::tryFrom(is_array($cfg) ? self::stringOrEmpty($cfg['mode'] ?? '') : '')
             ?? FormCollaborationMode::default();
 
         // The managed-field allow-list rides the SIGNED cfg; write events
         // (field.edit / form.save) are constrained to it so a valid token can't
         // inject arbitrary field names into the shared draft.
         $allowedFields = self::allowedFields($cfg);
+
+        // Outside the catch-all below: its refusal is a 403 of its own.
+        if ($context->semanticEvent === 'manifest.renew') {
+            return $this->onManifestRenew($context->signedClaims, $mode);
+        }
 
         [$actorId, $actorLabel] = $this->resolveActor($context);
         $request = is_array($context->request) ? $context->request : [];
@@ -184,7 +213,7 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
      */
     private function onFieldEdit(string $scope, FormCollaborationMode $mode, array $request, string $actorId, string $actorLabel, array $allowedFields): UiEventResponse
     {
-        $field = (string) ($request['field'] ?? '');
+        $field = self::stringOrEmpty($request['field'] ?? '');
         if ($field === '') {
             return self::error('missing_field', 'A field name is required for a field edit.');
         }
@@ -229,7 +258,8 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
         // Drop any submitted key not on the signed allow-list before it reaches the
         // shared draft — the request body is untrusted.
         $values = array_intersect_key($values, array_flip($allowedFields));
-        $expectedVersion = (int) ($request['version'] ?? 0);
+        $version = $request['version'] ?? 0;
+        $expectedVersion = is_scalar($version) ? (int) $version : 0;
 
         // A save names the draft it was based on (see below). One that names
         // none comes from a runtime older than that (a tab left open across a
@@ -316,7 +346,7 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
      */
     private function onPresencePing(string $scope, array $request, string $actorId, string $actorLabel): UiEventResponse
     {
-        $role = (string) ($request['role'] ?? 'editor');
+        $role = is_scalar($request['role'] ?? null) ? (string) $request['role'] : 'editor';
         // Read the draft BEFORE this heartbeat counts as presence. A page sends
         // its first ping and opens its feed at once; when the ping won, the
         // draft somebody abandoned days ago looked attended again and the feed
@@ -326,6 +356,94 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
         $this->scopeInvalidator->touch($scope);
 
         return self::ack();
+    }
+
+    /**
+     * Fresh event tokens for a form whose own have expired. The renewal token
+     * was verified on the way here (signature, TTL, session and tenant), and
+     * the application's authorizer was asked as for any event; what is left is
+     * the visitor: a page signed out of, or into another account, since it was
+     * drawn is reloaded instead. The tokens are signed from the signed claims
+     * alone, and nothing is written.
+     *
+     * The authorizer was asked about the renewal; it is asked here about what
+     * the renewal hands out. The renewal token lives a day and the tokens it
+     * replaces five minutes: without this, somebody whose access to the record
+     * ended while the tab was open kept editing and locking for the rest of
+     * the day. Every event of the mode is asked as if it were being sent now
+     * (the scope is in `config`), so the application's rule for edits governs
+     * renewals with no rule of its own. One denial refuses the renewal (403);
+     * so does a handler with no authorizer to ask.
+     *
+     * @param array<string, mixed> $claims
+     */
+    private function onManifestRenew(array $claims, FormCollaborationMode $mode): UiEventResponse
+    {
+        $who = $claims['who'] ?? null;
+        if (!is_string($who) || !hash_equals($who, $this->currentUserId())) {
+            return self::error(self::RENEW_SUBJECT_CHANGED, 'This form was opened by another visitor. Reload to continue.');
+        }
+        if (!$this->mayStill($claims, $mode)) {
+            throw new UiInteractionForbiddenException(
+                self::RENEW_FORBIDDEN,
+                'Authorization policy no longer allows editing this form. Reload to continue.',
+            );
+        }
+        $renewed = (new CollabManifestBuilder())->renewed($claims);
+        if ($renewed === null) {
+            return self::error('collab_renew_invalid', 'This form cannot be renewed. Reload to continue.');
+        }
+
+        return new UiEventResponse(frontend: ['collab' => ['renewed' => $renewed]]);
+    }
+
+    /**
+     * Whether the authorizer allows, now, every event the renewal would sign
+     * a token for.
+     *
+     * @param array<string, mixed> $claims verified renewal claims
+     */
+    private function mayStill(array $claims, FormCollaborationMode $mode): bool
+    {
+        $componentName = self::stringOrEmpty($claims['c'] ?? '');
+        $component = UiComponentRegistry::get($componentName);
+        if (!isset($this->authorizer) || $component === null) {
+            return false;
+        }
+        /** @var array<string, mixed> $config the signed cfg: scope, mode, fields */
+        $config = is_array($claims['cfg'] ?? null) ? $claims['cfg'] : [];
+        $now = time();
+        foreach (CollabManifestBuilder::semanticEventsFor($mode) as [$part, $event]) {
+            $binding = UiComponentRegistry::getExternalBinding($componentName, $part, $event);
+            if ($binding === null) {
+                return false;
+            }
+            $asked = new UiInteractionEvent(
+                componentName: $componentName,
+                instanceId: self::stringOrEmpty($claims['i'] ?? ''),
+                partName: $part,
+                eventName: $event,
+                updatesPath: null,
+                payload: [],
+                issuedAt: $now,
+                expiresAt: $now,
+                claims: ['c' => $componentName, 'i' => $claims['i'] ?? '', 'p' => $part, 'e' => $event, 'cfg' => $config],
+                config: $config,
+            );
+            if (!$this->authorizer->authorizeExternal($asked, $component, $binding)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** The signed-in user's id, '' for a guest. */
+    private function currentUserId(): string
+    {
+        $user = $this->currentUser();
+
+        return $user !== null && method_exists($user, 'getId') ? self::stringOrEmpty($user->getId()) : '';
     }
 
     /**
@@ -350,7 +468,7 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
             }
         }
 
-        $instance = (string) ($context->signedClaims['i'] ?? '');
+        $instance = self::stringOrEmpty($context->signedClaims['i'] ?? '');
         $id = $instance !== '' ? $instance : 'anonymous';
 
         return [$id, 'Guest'];
@@ -440,6 +558,7 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
         return is_scalar($value) || $value instanceof \Stringable ? (string) $value : '';
     }
 
+    /** @param array<string, mixed> $request */
     private static function optionalField(array $request): ?string
     {
         $field = $request['field'] ?? null;

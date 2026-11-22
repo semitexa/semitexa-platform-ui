@@ -24,7 +24,7 @@ use Semitexa\Ssr\Attribute\AsComponent;
  * bound to this component's parts via `#[HandlesUiEvent]`.
  *
  * Parts exist as the binding anchors the dispatcher validates a signed event's
- * `(component, part, event)` against — `field`/`presence`/`lock` are declared
+ * `(component, part, event)` against — `field`/`presence`/`lock`/`manifest` are declared
  * as slots (no rendered primitive) precisely because the interaction arrives
  * over the canonical HUG (`POST /__semitexa_hug`) write path keyed by the signed claim, not by
  * DOM part rendering. `content` is the caller's field markup (inputs tagged
@@ -39,6 +39,7 @@ use Semitexa\Ssr\Attribute\AsComponent;
 #[UiSlot(name: 'field', description: 'Per-field edit binding anchor (field.edit).')]
 #[UiSlot(name: 'presence', description: 'Presence heartbeat binding anchor (presence.ping).')]
 #[UiSlot(name: 'lock', description: 'Lock lifecycle binding anchor (lock.acquire/release/heartbeat).')]
+#[UiSlot(name: 'manifest', description: 'Context renewal binding anchor (manifest.renew).')]
 #[UiSlot(name: 'content', description: 'Caller-provided field inputs (tagged data-ui-field-name).')]
 final class CollaborativeFormComponent
 {

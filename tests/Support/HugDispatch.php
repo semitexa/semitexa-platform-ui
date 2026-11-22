@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Semitexa\PlatformUi\Tests\Support;
 
+use Psr\Container\ContainerInterface;
 use Semitexa\Core\Exception\ValidationException;
 use Semitexa\Core\Http\Response\ResourceResponse;
 use Semitexa\Core\Request;
@@ -30,6 +31,7 @@ final class HugDispatch
     private UiReplayStoreInterface $replayStore;
     private ?UiInteractionAuthorizerInterface $authorizer = null;
     private ?UiFieldRuleRegistryInterface $ruleRegistry = null;
+    private ?ContainerInterface $container = null;
 
     public function __construct()
     {
@@ -51,6 +53,13 @@ final class HugDispatch
     public function withRuleRegistry(UiFieldRuleRegistryInterface $ruleRegistry): self
     {
         $this->ruleRegistry = $ruleRegistry;
+        return $this;
+    }
+
+    /** Where class-level #[HandlesUiEvent] handlers are resolved from, as in production. */
+    public function withContainer(ContainerInterface $container): self
+    {
+        $this->container = $container;
         return $this;
     }
 
@@ -78,8 +87,11 @@ final class HugDispatch
     {
         $legacy = json_decode($legacyJson, true, 512, JSON_THROW_ON_ERROR);
         $legacy = is_array($legacy) ? $legacy : [];
+        /** @var array<string, mixed> $payload a JSON object's keys are strings */
         $payload = is_array($legacy['payload'] ?? null) ? $legacy['payload'] : [];
-        return $this->send((string) ($legacy['ctx'] ?? ''), (string) ($legacy['dispatchId'] ?? ''), $payload);
+        $ctx = $legacy['ctx'] ?? '';
+        $dispatchId = $legacy['dispatchId'] ?? '';
+        return $this->send(is_scalar($ctx) ? (string) $ctx : '', is_scalar($dispatchId) ? (string) $dispatchId : '', $payload);
     }
 
     public function sendRaw(string $body): ResourceResponse
@@ -102,6 +114,9 @@ final class HugDispatch
         }
         if ($this->ruleRegistry !== null) {
             $dispatcher->withRuleRegistry($this->ruleRegistry);
+        }
+        if ($this->container !== null) {
+            $dispatcher->withContainer($this->container);
         }
 
         try {
@@ -127,6 +142,7 @@ final class HugDispatch
     /** @return array<string, mixed> */
     public static function json(ResourceResponse $response): array
     {
+        /** @var array<string, mixed>|scalar|null $decoded HUG answers a JSON object */
         $decoded = json_decode($response->getContent(), true, 512, JSON_THROW_ON_ERROR);
         return is_array($decoded) ? $decoded : [];
     }

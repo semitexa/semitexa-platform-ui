@@ -3,7 +3,8 @@
 // hold, form, controls};
 // replies maps an event to the queue of answers HUG gives it (default: accepted);
 // an answer {http: 503} is that status with no body, {http: 422, data} one with a body,
-// {http: 422, stall: true} one whose status arrives and whose body never does.
+// {http: 422, stall: true} one whose status arrives and whose body never does,
+// {http: 422, data, late: true} one whose body arrives when a step {body: 'oldest'} says so.
 // hold lists the events whose requests stay in flight until a step answers them.
 // form puts the inputs in a <form>; controls gives an input another shape:
 // {tag, type, name, checked, multiple, options: [{value, selected}]} (name null = no name),
@@ -14,7 +15,8 @@
 // {click: '<attribute>'},
 // {answer: 'oldest' | 'newest-first'} (the server gets and answers one held request, or
 // all of them and what they cause, newest first), {fail: 'oldest'} (it never arrives),
-// {tick} (every interval fires once), {elapse: ms} (the clock moves; timeouts due fire),
+// {tick} (every interval fires once), {elapse: ms} (the clock moves, Date.now() with it;
+// timeouts due fire),
 // {pagehide}, {unmount} (the form leaves the page), {enable} (the page enables an input
 // itself), {formData} (what `new FormData(form)` holds, built outside any submit) or
 // {submit: true | {prevent, appFormData, form}} (the form, or the second form of that key,
@@ -24,7 +26,9 @@
 // stdout: what a person would see (input values, presence chips, lock texts, prompts),
 // what the page heard (events), what was posted, what the server received and in
 // which order (served), which posts asked for keepalive, how many requests the page
-// aborted, the most requests one field had in flight at once, the form data (the
+// aborted, the signed context each post carried (contexts) and the one the feed is
+// subscribed with now (feedCtx, after feedOpens subscriptions), the status host's state, the most requests one
+// field had in flight at once, the form data (the
 // browser's, the app's own, and which inputs were disabled right after the submit),
 // and every write to an HTML sink (innerHTML and the like) — a label must never
 // reach one.
@@ -115,7 +119,7 @@ const root = documentEl.appendChild(new El('div'));
 root.setAttribute('data-ui-component-instance-id', String(scenario.manifest.i));
 const host = (attr) => { const el = root.appendChild(new El('span')); el.setAttribute(attr, ''); return el; };
 const presenceHost = host('data-ui-collab-presence');
-host('data-ui-collab-status');
+const statusHost = host('data-ui-collab-status');
 const lockHost = scenario.lockHost ? host('data-ui-collab-lock') : null;
 const saveStatus = host('data-ui-collab-save-status');
 const conflictHost = host('data-ui-collab-conflict');
@@ -171,8 +175,11 @@ manifestEl.textContent = JSON.stringify(scenario.manifest);
 let mounted = null;
 let feed = null;
 const posts = [];
+const contexts = [];
+let feedOpens = 0;
 const served = [];
 const held = [];
+const lateBodies = [];
 let intervals = [];
 let intervalId = 0;
 let appFormData = null;
@@ -200,15 +207,17 @@ const serve = (e, opts) => {
     if (opts && typeof opts.onResponse === 'function') { opts.onResponse({ ok: http === null || http < 400, status: http === null ? 200 : http }); }
     if (http === null) { return { data: reply }; }
     if (reply.stall) { return new Promise(() => {}); }
+    if (reply.late) { return new Promise((resolve) => { lateBodies.push(() => resolve({ ok: http < 400, status: http, data: reply.data === undefined ? null : reply.data })); }); }
     return { ok: http < 400, status: http, data: reply.data === undefined ? null : reply.data };
 };
 const landed = (e) => { const f = fieldOf(e); if (f !== null) { flying[f]--; } };
 const core = {
-    openFeedChannel: (opts) => { feed = opts; return { close() {} }; },
+    openFeedChannel: (opts) => { feed = opts; feedOpens++; return { close() {} }; },
     mount: (_selector, def) => { mounted = def; return { scan() {} }; },
     envelope: (e) => e,
     hug: (e, opts) => {
         posts.push({ event: e.semanticEvent, payload: e.payload });
+        contexts.push({ event: e.semanticEvent, ctx: e.signedContext });
         if (opts && opts.keepalive === true) { keepalive.push({ event: e.semanticEvent, payload: e.payload }); }
         const f = fieldOf(e);
         if (f !== null) {
@@ -241,9 +250,9 @@ const core = {
 const source = readFileSync(scenario.runtime, 'utf8').replace(/^import\s[^;]+;\s*$/m, '');
 if (/^\s*import\s/m.test(source)) { throw new Error('the runtime has an import this harness does not provide'); }
 new Function(
-    'openFeedChannel', 'mount', 'envelope', 'hug', 'window', 'document', 'Event', 'CustomEvent', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout',
+    'openFeedChannel', 'mount', 'envelope', 'hug', 'window', 'document', 'Event', 'CustomEvent', 'Date', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout',
     source,
-)(core.openFeedChannel, core.mount, core.envelope, core.hug, fakeWindow, fakeDocument, FakeEvent, FakeEvent, (fn) => { intervals.push({ id: ++intervalId, fn }); return intervalId; }, (id) => { intervals = intervals.filter((t) => t.id !== id); }, fakeSetTimeout, fakeClearTimeout);
+)(core.openFeedChannel, core.mount, core.envelope, core.hug, fakeWindow, fakeDocument, FakeEvent, FakeEvent, { now: () => clock }, (fn) => { intervals.push({ id: ++intervalId, fn }); return intervalId; }, (id) => { intervals = intervals.filter((t) => t.id !== id); }, fakeSetTimeout, fakeClearTimeout);
 
 const mountedForm = mounted.connect(manifestEl);
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -264,6 +273,8 @@ for (const step of scenario.steps) {
         held.shift().answer();
     } else if (step.answer === 'newest-first') {
         while (held.length) { held.pop().answer(); await settle(); }
+    } else if (step.body === 'oldest') {
+        lateBodies.shift()();
     } else if (step.fail === 'oldest') {
         held.shift().fail();
     } else if (step.unmount) {
@@ -334,6 +345,10 @@ process.stdout.write(JSON.stringify({
     conflict: { ...describe(conflictHost), buttons: buttonsIn(conflictHost) },
     events: root.heard.filter((e) => e.type.startsWith('semitexa:')),
     posts,
+    contexts,
+    feedCtx: feed && feed.params ? feed.params.ctx : null,
+    feedOpens,
+    status: statusHost.getAttribute('data-state'),
     served,
     keepalive,
     aborted,

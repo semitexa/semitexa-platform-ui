@@ -53,6 +53,20 @@
  *   Not covered: data built with no submit event before it, that is
  * `form.submit()` and a `new FormData(form)` outside a submit listener.
  *
+ * CONTEXTS THAT EXPIRE: the event contexts live five minutes and a form is
+ * edited for longer. HUG names an authentic context past its TTL apart from a
+ * rejected one; on that answer the manifest's `renew` context (signed for a
+ * day, for this session and visitor) is sent as `manifest.renew`, the answer
+ * replaces `events` and `feedCtx`, the feed is subscribed again with the new
+ * one, and the refused event goes once more. One renewal at a time, however
+ * many events expired together. Every send reads the event's context at that
+ * moment, so a timer started before a renewal never sends the old one. A
+ * renewal that got no answer (the network, a 5xx, a 429) is asked again by the
+ * next expired event, five seconds later at the earliest. A renewal the server
+ * refuses (signed out, another account, access to the record ended, a day
+ * gone) is not asked again: the status host says `expired`, `semitexa:collab:expired` is
+ * dispatched, and the page has to be reloaded.
+ *
  * Manifest contract (emitted by the server `ui_collab_manifest()` helper as
  * `<script type="application/json" data-ui-collab-manifest>`):
  *   {
@@ -60,6 +74,7 @@
  *     scope, mode, self,          document scope, collaboration mode, my id
  *     feed, feedCtx,              the read feed's route name + its signed cfg token
  *     events,                     { "field.edit": ctx, "presence.ping": ctx } — posted to HUG
+ *     renew,                      the context that is traded for fresh events + feedCtx
  *     fields, heartbeatMs         managed field names + presence cadence
  *     saved                       id of the save notice current at render ('' = none/unknown)
  *   }
@@ -84,6 +99,14 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
     var EDIT_HEARTBEAT_RETRIES = 3;
     // The longest a lock release waits for edits in flight (two timeouts and a margin).
     var RELEASE_WAIT_MS = 25000;
+    // HUG's wording for an authentic context past its TTL (HugEventHandler::SIGNED_CONTEXT_EXPIRED).
+    var CONTEXT_EXPIRED = 'Signed context expired.';
+    // No renewal is asked sooner than this after the last one settled. After
+    // one that succeeded: a context refused as expired at once means the
+    // server and this page disagree, and asking in a loop would not settle
+    // it. After one with no answer (the network, a 5xx, a 429): every expired
+    // event would ask again, as fast as the visitor types.
+    var RENEW_MIN_GAP_MS = 5000;
 
     /** Booted instances, keyed by render instance id, so a re-scan is idempotent. */
     var booted = Object.create(null);
@@ -102,6 +125,15 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             return null;
         }
         return data;
+    }
+
+    /** Whether a HUG answer {ok, status, data} refuses a context only because its TTL ran out. */
+    function contextExpired(answer) {
+        var errors = answer && answer.status === 422 && answer.data && answer.data.context
+            ? answer.data.context.errors
+            : null;
+        var list = errors ? errors.signedContext : null;
+        return Array.isArray(list) && list.indexOf(CONTEXT_EXPIRED) !== -1;
     }
 
     /**
@@ -201,7 +233,10 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         // keystroke during the acquire round-trip is never silently dropped.
         this.pendingEdit = Object.create(null);
         // field.edit order (see EDIT ORDER above), by field name:
-        // {inFlight, sent, waiting, value, retried, beats}. `waiting` with no
+        // {inFlight, sent, waiting, value, retried, beats, typed, valueNo,
+        // expired}: the last three number the values typed into the field
+        // and hold the latest one refused for an expired context until it
+        // is sent again (resendExpiredEdit). `waiting` with no
         // edit in flight is a value whose send failed twice: the next edit,
         // the presence heartbeat (EDIT_HEARTBEAT_RETRIES times), a lock
         // release or the page being hidden sends it.
@@ -233,6 +268,12 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         this.postedFields = Object.create(null);
         this.formListeners = [];
         this.pageHideListener = null;
+        // Contexts that expire (see CONTEXTS THAT EXPIRE above): the renewal
+        // under way, when the last one settled without a refusal (null: none
+        // yet), and whether the server refused one.
+        this.renewing = null;
+        this.renewedAt = null;
+        this.renewRefused = false;
     }
 
     CollabForm.prototype.fieldEl = function (name) {
@@ -280,6 +321,109 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             // Collaboration is live or nothing: a page without a KISS session
             // says so instead of showing a stale document as shared.
             onPull: function () { self.setStatus('offline'); }
+        });
+    };
+
+    // -- contexts that expire (see CONTEXTS THAT EXPIRE above) ---------------
+
+    CollabForm.prototype.contextOf = function (semanticEvent) {
+        var ctx = this.m.events ? this.m.events[semanticEvent] : null;
+        return typeof ctx === 'string' && ctx !== '' ? ctx : null;
+    };
+
+    /**
+     * Fresh contexts for `semanticEvent`, whose context `used` was refused as
+     * expired. Resolves true when the event has another context now (this
+     * call renewed, or one before it did), false when it cannot be renewed.
+     */
+    CollabForm.prototype.renewContexts = function (semanticEvent, used) {
+        if (used !== this.contextOf(semanticEvent)) {
+            return Promise.resolve(true); // renewed since it was sent
+        }
+        if (this.renewing) {
+            return this.renewing;
+        }
+        var token = this.m.renew;
+        if (typeof token !== 'string' || token === '' || this.renewRefused || this.closed
+            || (this.renewedAt !== null && Date.now() - this.renewedAt < RENEW_MIN_GAP_MS)) {
+            return Promise.resolve(false);
+        }
+        var self = this;
+        var request;
+        try {
+            request = hug(envelope({ semanticEvent: 'manifest.renew', signedContext: token, payload: {} }));
+        } catch (e) {
+            return Promise.resolve(false);
+        }
+        this.renewing = request.then(function (r) {
+            var collab = r && r.data && r.data.debug && r.data.debug.frontend ? r.data.debug.frontend.collab : null;
+            var fresh = collab ? collab.renewed : null;
+            if (!fresh || typeof fresh.feedCtx !== 'string' || !fresh.events || typeof fresh.events !== 'object') {
+                // A refusal is an answer: asking again gets the same one. No
+                // answer (a 5xx, or a 429: asked too often, not refused) is
+                // asked again later.
+                if (r && r.status >= 400 && r.status < 500 && r.status !== 429) {
+                    self.contextsLost();
+                } else {
+                    self.renewedAt = Date.now();
+                }
+                return false;
+            }
+            self.m.events = fresh.events;
+            self.m.feedCtx = fresh.feedCtx;
+            self.renewedAt = Date.now();
+            // The feed holds the context it was subscribed with: a reconnect
+            // would subscribe with the expired one and be refused.
+            if (!self.closed && self.channel) {
+                self.channel.close();
+                self.channel = null;
+                self.subscribe();
+            }
+            // Whichever event asked: the edits an earlier renewal with no
+            // answer left pending go now.
+            self.resendExpiredEdits();
+            return true;
+        }, function () {
+            self.renewedAt = Date.now();
+            return false;
+        }).then(function (renewed) {
+            self.renewing = null;
+            return renewed;
+        });
+        return this.renewing;
+    };
+
+    /** The contexts expired and the server will not renew them: only a reload helps. */
+    CollabForm.prototype.contextsLost = function () {
+        if (this.renewRefused) {
+            return;
+        }
+        this.renewRefused = true;
+        for (var field in this.edits) {
+            this.edits[field].expired = null; // nothing will send them
+        }
+        this.setStatus('expired');
+        this.root.dispatchEvent(new CustomEvent('semitexa:collab:expired', { bubbles: true, detail: {} }));
+    };
+
+    /**
+     * POST one event to HUG with the context it has now. Answered "expired",
+     * the contexts are renewed and the event goes once more; the answer is
+     * the last one received.
+     */
+    CollabForm.prototype.send = function (semanticEvent, payload, options) {
+        var self = this;
+        var used = this.contextOf(semanticEvent);
+        var post = function (ctx) {
+            return hug(envelope({ semanticEvent: semanticEvent, signedContext: ctx, payload: payload }), options);
+        };
+        return post(used).then(function (answer) {
+            if (!contextExpired(answer)) {
+                return answer;
+            }
+            return self.renewContexts(semanticEvent, used).then(function (renewed) {
+                return renewed ? post(self.contextOf(semanticEvent)) : answer;
+            });
         });
     };
 
@@ -925,6 +1069,13 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         if (input.value === next) {
             return; // no-op: avoids spurious input events / cursor jumps
         }
+        // A value of this field refused for an expired context and still
+        // pending (see resendExpiredEdit) is no longer what the field holds:
+        // sent after this, it would put the older value over the newer one
+        // in the draft while this screen showed the newer.
+        if (this.edits[name]) {
+            this.edits[name].expired = null;
+        }
         input.value = next;
         // Let any local view logic react without re-triggering a collab emit
         // (the emit listener checks the `__collabApplying` flag).
@@ -1109,10 +1260,12 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         }
         var q = this.edits[field];
         if (!q) {
-            q = this.edits[field] = { inFlight: false, sent: null, waiting: false, value: null, retried: false, beats: 0 };
+            q = this.edits[field] = { inFlight: false, sent: null, waiting: false, value: null, retried: false, beats: 0, typed: 0, valueNo: 0, expired: null };
         }
         q.waiting = true;
         q.value = value;
+        q.valueNo = ++q.typed;
+        q.expired = null; // superseded: this value is the one to save
         q.retried = false;
         q.beats = 0;
         delete this.postedFields[field]; // typed after the submit: not in that post
@@ -1127,6 +1280,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         }
         var self = this;
         var value = q.value;
+        var valueNo = q.valueNo;
         var timer = null;
         var over = false;
         q.waiting = false;
@@ -1148,6 +1302,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
                 // that it waits (see `edits`).
                 q.waiting = true;
                 q.value = value;
+                q.valueNo = valueNo;
                 if (q.retried) {
                     self.editsSettled();
                     return;
@@ -1187,7 +1342,9 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         request.then(
             function (r) {
                 settled(!!r && r.ok === false && r.status >= 500);
-                if (r && r.ok === false && r.data && r.data.reason === 'field_locked') {
+                if (contextExpired(r)) {
+                    self.resendExpiredEdit(field, value, valueNo, ctx);
+                } else if (r && r.ok === false && r.data && r.data.reason === 'field_locked') {
                     self.onEditFieldLocked(field, relocked);
                 } else if (relocked && r && r.ok !== false) {
                     delete self.fieldRelocked[field];
@@ -1204,6 +1361,69 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             }
             settled(true);
         }, EDIT_TIMEOUT_MS);
+    };
+
+    /**
+     * The server refused `value` (the field's `valueNo`-th) only because the
+     * context it was sent with had expired. The refusal settled the edit (the
+     * status is the answer), and its body may arrive long after: a later
+     * value may be waiting, on its way, or saved already.
+     *
+     * Only the value typed LAST is worth sending again; a refusal of an
+     * older one is dropped here, whatever became of the newer. The latest
+     * stays pending in `q.expired` until it is sent again
+     * (resendExpiredEdits, after a renewal that succeeded: this one, or any
+     * later one when this one got no answer), a newer value is typed
+     * (emitFieldEdit) or applied from the feed (applyField), or the server
+     * refuses to renew for good (contextsLost).
+     */
+    CollabForm.prototype.resendExpiredEdit = function (field, value, valueNo, ctx) {
+        var self = this;
+        var q = this.edits[field];
+        if (!q || valueNo !== q.typed) {
+            return;
+        }
+        q.expired = { value: value, valueNo: valueNo, ctx: ctx };
+        this.renewContexts('field.edit', ctx).then(function (renewed) {
+            if (renewed) {
+                self.resendExpiredEdits();
+            }
+        });
+    };
+
+    /**
+     * The contexts are fresh: every value still pending for an expired one
+     * goes again. One refused with the context the field has NOW stays
+     * pending: that context is as fresh as this page can get it, and the
+     * next renewal, not this one, may send it.
+     */
+    CollabForm.prototype.resendExpiredEdits = function () {
+        if (this.closed) {
+            return;
+        }
+        var current = this.contextOf('field.edit');
+        for (var field in this.edits) {
+            var q = this.edits[field];
+            var refused = q.expired;
+            if (!refused || refused.ctx === current) {
+                continue;
+            }
+            q.expired = null; // still the value typed last: typing clears it
+            // And still what the field holds: a remote value applied since
+            // (applyField clears it too) or a script's change is newer.
+            var input = this.inputOf(this.fieldEl(field));
+            if (input && String(input.value) !== String(refused.value)) {
+                continue;
+            }
+            if (!q.waiting && !q.inFlight) {
+                q.waiting = true;
+                q.value = refused.value;
+                q.valueNo = refused.valueNo;
+                q.retried = false;
+                q.beats = 0;
+            }
+            this.sendNextEdit(field);
+        }
     };
 
     /**
@@ -1471,9 +1691,11 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
     // later one of the same kind makes good (the next presence ping, the
     // lock's expiry) and for what is sent as the page is hidden. A field edit
     // otherwise goes through sendNextEdit, which sends a failed value again.
+    // `ctx` says the mode has the event; what travels is the event's context
+    // at the moment of sending (see send), which a renewal may have replaced.
     CollabForm.prototype.postEvent = function (semanticEvent, ctx, payload) {
         try {
-            hug(envelope({ semanticEvent: semanticEvent, signedContext: ctx, payload: payload }), { keepalive: true })
+            this.send(semanticEvent, payload, { keepalive: true })
                 .catch(function () { /* best-effort, see above */ });
         } catch (e) { /* noop */ }
     };
@@ -1483,7 +1705,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
     /** Like postEvent, but resolves with the parsed dispatch response (or null). */
     CollabForm.prototype.postEventAwait = function (semanticEvent, ctx, payload) {
         try {
-            return hug(envelope({ semanticEvent: semanticEvent, signedContext: ctx, payload: payload }))
+            return this.send(semanticEvent, payload)
                 .then(function (r) { return r.data; })
                 .catch(function () { return null; });
         } catch (e) {
