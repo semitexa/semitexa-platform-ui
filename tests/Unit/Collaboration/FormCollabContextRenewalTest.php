@@ -576,6 +576,38 @@ final class FormCollabContextRenewalTest extends TestCase
     }
 
     #[Test]
+    public function a_pending_refused_value_is_not_sent_over_a_newer_value_from_another_editor(): void
+    {
+        // Bob's "a" is refused as expired and the renewal meets a 503.
+        // Alice's newer "xyz" arrives by the feed and replaces his input
+        // (he is not in the field). The next ping renews: "a" must not go
+        // out over "xyz", which is what Bob's screen shows.
+        $seen = $this->editorSees([
+            'manifest' => self::scripted('shared'),
+            'inputs' => ['title' => ''],
+            'replies' => [
+                'field.edit' => [self::expired()],
+                'presence.ping' => [['status' => 'accepted'], self::expired()],
+                'manifest.renew' => [['http' => 503], self::renewal()],
+            ],
+            'steps' => [
+                ['type' => 'title', 'value' => 'a'],
+                ['snapshot' => ['data' => ['values' => ['title' => 'xyz'], 'origin' => 'alice', 'version' => 3, 'epoch' => 'e1'], 'meta' => []]],
+                ['elapse' => 5000],
+                ['tick' => true],
+            ],
+        ]);
+
+        self::assertSame('xyz', $seen['values']['title'], "Alice's value replaced Bob's on his screen");
+        self::assertSame(
+            ['presence.ping', 'field.edit', 'manifest.renew', 'presence.ping', 'manifest.renew', 'presence.ping'],
+            array_column($seen['posts'], 'event'),
+            'the renewal succeeded and nothing was sent again',
+        );
+        self::assertSame([['field' => 'title', 'value' => 'a']], self::edits($seen['posts']), 'the draft keeps "xyz"');
+    }
+
+    #[Test]
     public function a_refusal_whose_body_arrives_after_a_newer_value_was_saved_sends_nothing(): void
     {
         // Edit "a": the status (422) frees the field, the body is still on
@@ -899,7 +931,7 @@ final class FormCollabContextRenewalTest extends TestCase
 
     /**
      * @param array<string, mixed> $scenario
-     * @return array{posts: list<array{event: string, payload: array<string, mixed>}>, contexts: list<array{event: string, ctx: string}>, feedCtx: ?string, feedOpens: int, status: ?string, events: list<array{type: string, detail: mixed}>}
+     * @return array{posts: list<array{event: string, payload: array<string, mixed>}>, contexts: list<array{event: string, ctx: string}>, values: array<string, string>, feedCtx: ?string, feedOpens: int, status: ?string, events: list<array{type: string, detail: mixed}>}
      */
     private function editorSees(array $scenario): array
     {
@@ -920,7 +952,7 @@ final class FormCollabContextRenewalTest extends TestCase
         $seen = json_decode($stdout, true);
         self::assertTrue($exit === 0 && is_array($seen), "the runtime harness failed (exit {$exit}).\nstdout: {$stdout}\nstderr: {$stderr}");
 
-        /** @var array{posts: list<array{event: string, payload: array<string, mixed>}>, contexts: list<array{event: string, ctx: string}>, feedCtx: ?string, feedOpens: int, status: ?string, events: list<array{type: string, detail: mixed}>} $seen */
+        /** @var array{posts: list<array{event: string, payload: array<string, mixed>}>, contexts: list<array{event: string, ctx: string}>, values: array<string, string>, feedCtx: ?string, feedOpens: int, status: ?string, events: list<array{type: string, detail: mixed}>} $seen */
         return $seen;
     }
 }

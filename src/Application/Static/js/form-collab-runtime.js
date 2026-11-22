@@ -1069,6 +1069,13 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         if (input.value === next) {
             return; // no-op: avoids spurious input events / cursor jumps
         }
+        // A value of this field refused for an expired context and still
+        // pending (see resendExpiredEdit) is no longer what the field holds:
+        // sent after this, it would put the older value over the newer one
+        // in the draft while this screen showed the newer.
+        if (this.edits[name]) {
+            this.edits[name].expired = null;
+        }
         input.value = next;
         // Let any local view logic react without re-triggering a collab emit
         // (the emit listener checks the `__collabApplying` flag).
@@ -1367,7 +1374,8 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
      * stays pending in `q.expired` until it is sent again
      * (resendExpiredEdits, after a renewal that succeeded: this one, or any
      * later one when this one got no answer), a newer value is typed
-     * (emitFieldEdit) or the server refuses to renew for good (contextsLost).
+     * (emitFieldEdit) or applied from the feed (applyField), or the server
+     * refuses to renew for good (contextsLost).
      */
     CollabForm.prototype.resendExpiredEdit = function (field, value, valueNo, ctx) {
         var self = this;
@@ -1401,6 +1409,12 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
                 continue;
             }
             q.expired = null; // still the value typed last: typing clears it
+            // And still what the field holds: a remote value applied since
+            // (applyField clears it too) or a script's change is newer.
+            var input = this.inputOf(this.fieldEl(field));
+            if (input && String(input.value) !== String(refused.value)) {
+                continue;
+            }
             if (!q.waiting && !q.inFlight) {
                 q.waiting = true;
                 q.value = refused.value;

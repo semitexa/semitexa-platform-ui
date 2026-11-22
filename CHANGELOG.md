@@ -29,8 +29,9 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
   that got no answer (the network, a 5xx, a 429) is asked again by the next
   expired event, five seconds later at the earliest. The value of a field
   refused meanwhile stays pending and goes with the renewal that succeeds,
-  unless a newer one was typed; a refusal whose body arrives after a newer
-  value of the field was typed sends nothing.
+  unless a newer one was typed or arrived from another editor meanwhile; a
+  refusal whose body arrives after a newer value of the field was typed sends
+  nothing.
 - A collaborative form's shared draft now ends. After the record's save commits,
   call `FormCollaborationDrafts::discardForRecord($formKey, $recordId, $values)`
   with the stored value of every managed field: open editors are re-based on
