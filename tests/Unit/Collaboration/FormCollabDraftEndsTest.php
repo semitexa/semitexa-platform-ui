@@ -252,6 +252,36 @@ final class FormCollabDraftEndsTest extends TestCase
     }
 
     #[Test]
+    public function a_draft_stored_while_an_older_edit_waits_to_hear_the_old_one_expired_is_not_dropped_with_it(): void
+    {
+        // In-memory store. The draft is abandoned. The older edit asks
+        // presence about it and waits; the newer edit of the same page gets
+        // the same answer first, drops the draft and starts a new one. The
+        // answer the older edit then receives is about the draft that is gone.
+        $newerStored = false;
+        $store = $this->storeSuspendingAt(1, static function (InMemoryFormCollabDraftStore $store) use (&$newerStored): void {
+            $newerStored = $store->mergeFieldInOrder(self::SCOPE, 'title', 'ab', 'alice', 'tab-1', 2) === FormFieldEditOrder::Applied;
+        }, $arm);
+        $store->mergeFields(self::SCOPE, ['title' => 'abandoned', 'notes' => 'abandoned'], 'bob');
+        $abandoned = $store->load(self::SCOPE)?->epoch;
+        $this->presence->lastSeen[self::SCOPE] = $this->now;
+        $this->now += 31 * self::MINUTE;
+
+        $arm(true);
+        $older = $store->mergeFieldInOrder(self::SCOPE, 'title', 'a', 'alice', 'tab-1', 1);
+        $arm(false);
+
+        self::assertTrue($newerStored, 'the newer edit was stored while the older one waited');
+        self::assertSame(FormFieldEditOrder::Superseded, $older, "judged against the new draft's marks");
+        // The new draft was written just now by the wall clock; the test's is ahead.
+        $this->now = time();
+        $stored = $store->load(self::SCOPE);
+        self::assertSame(['title' => 'ab'], $stored?->values, 'the newer value, in the draft that replaced the abandoned one');
+        self::assertNotSame($abandoned, $stored->epoch);
+        self::assertSame(FormFieldEditOrder::Repeated, $store->mergeFieldInOrder(self::SCOPE, 'title', 'ab', 'alice', 'tab-1', 2), 'and its mark');
+    }
+
+    #[Test]
     #[DataProvider('presenceReads')]
     public function a_draft_that_expires_while_an_edit_is_merged_does_not_hand_its_marks_to_the_next_draft(int $onRead): void
     {

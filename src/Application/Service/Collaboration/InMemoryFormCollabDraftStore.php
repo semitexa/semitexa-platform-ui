@@ -83,12 +83,29 @@ class InMemoryFormCollabDraftStore implements FormCollabOrderedDraftStoreInterfa
         unset($this->drafts[$this->tenantKey()][$scopeKey], $this->editMarks[$this->tenantKey()][$scopeKey]);
     }
 
-    /** The draft, unless it was abandoned: then it is dropped and absent. */
+    /**
+     * The draft, unless it was abandoned: then it is dropped and absent.
+     *
+     * Asking whether it is abandoned can suspend (a presence read), and the
+     * answer is about the draft read BEFORE it. One written, replaced or
+     * discarded meanwhile is what stands: it is returned as it is now, and
+     * never dropped on the older draft's account.
+     */
     private function live(string $scopeKey): ?FormCollabDraftState
     {
-        $draft = $this->drafts[$this->tenantKey()][$scopeKey] ?? null;
-        if ($draft !== null && isset($this->retention) && $this->retention->isAbandoned($scopeKey, $draft->updatedAt)) {
-            $this->discard($scopeKey);
+        $tenant = $this->tenantKey();
+        $draft = $this->drafts[$tenant][$scopeKey] ?? null;
+        if ($draft === null || !isset($this->retention)) {
+            return $draft;
+        }
+
+        $abandoned = $this->retention->isAbandoned($scopeKey, $draft->updatedAt);
+        $now = $this->drafts[$tenant][$scopeKey] ?? null;
+        if ($now !== $draft) {
+            return $now;
+        }
+        if ($abandoned) {
+            unset($this->drafts[$tenant][$scopeKey], $this->editMarks[$tenant][$scopeKey]);
 
             return null;
         }
