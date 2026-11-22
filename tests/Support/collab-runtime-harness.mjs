@@ -3,7 +3,8 @@
 // hold, form, controls};
 // replies maps an event to the queue of answers HUG gives it (default: accepted);
 // an answer {http: 503} is that status with no body, {http: 422, data} one with a body,
-// {http: 422, stall: true} one whose status arrives and whose body never does.
+// {http: 422, stall: true} one whose status arrives and whose body never does,
+// {http: 422, data, late: true} one whose body arrives when a step {body: 'oldest'} says so.
 // hold lists the events whose requests stay in flight until a step answers them.
 // form puts the inputs in a <form>; controls gives an input another shape:
 // {tag, type, name, checked, multiple, options: [{value, selected}]} (name null = no name),
@@ -178,6 +179,7 @@ const contexts = [];
 let feedOpens = 0;
 const served = [];
 const held = [];
+const lateBodies = [];
 let intervals = [];
 let intervalId = 0;
 let appFormData = null;
@@ -205,6 +207,7 @@ const serve = (e, opts) => {
     if (opts && typeof opts.onResponse === 'function') { opts.onResponse({ ok: http === null || http < 400, status: http === null ? 200 : http }); }
     if (http === null) { return { data: reply }; }
     if (reply.stall) { return new Promise(() => {}); }
+    if (reply.late) { return new Promise((resolve) => { lateBodies.push(() => resolve({ ok: http < 400, status: http, data: reply.data === undefined ? null : reply.data })); }); }
     return { ok: http < 400, status: http, data: reply.data === undefined ? null : reply.data };
 };
 const landed = (e) => { const f = fieldOf(e); if (f !== null) { flying[f]--; } };
@@ -270,6 +273,8 @@ for (const step of scenario.steps) {
         held.shift().answer();
     } else if (step.answer === 'newest-first') {
         while (held.length) { held.pop().answer(); await settle(); }
+    } else if (step.body === 'oldest') {
+        lateBodies.shift()();
     } else if (step.fail === 'oldest') {
         held.shift().fail();
     } else if (step.unmount) {

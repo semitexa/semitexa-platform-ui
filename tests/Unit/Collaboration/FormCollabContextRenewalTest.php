@@ -516,6 +516,112 @@ final class FormCollabContextRenewalTest extends TestCase
     }
 
     #[Test]
+    public function a_value_refused_while_the_renewal_got_no_answer_goes_with_the_next_renewal(): void
+    {
+        // The edit expired and the renewal met a 503. Nothing else is typed:
+        // the value must still reach the draft, with the renewal the next
+        // expired event (the presence ping) gets.
+        $scenario = [
+            'manifest' => self::scripted('shared'),
+            'inputs' => ['title' => ''],
+            'replies' => [
+                'field.edit' => [self::expired()],
+                'presence.ping' => [['status' => 'accepted'], self::expired()],
+                'manifest.renew' => [['http' => 503], self::renewal()],
+            ],
+        ];
+        $seen = $this->editorSees($scenario + ['steps' => [['type' => 'title', 'value' => 'a'], ['elapse' => 5000], ['tick' => true]]]);
+
+        self::assertSame(
+            [
+                ['event' => 'presence.ping', 'ctx' => 'ctx-presence.ping'],
+                ['event' => 'field.edit', 'ctx' => 'ctx-field.edit'],
+                ['event' => 'manifest.renew', 'ctx' => 'ctx-renew'],
+                ['event' => 'presence.ping', 'ctx' => 'ctx-presence.ping'],
+                ['event' => 'manifest.renew', 'ctx' => 'ctx-renew'],
+                ['event' => 'field.edit', 'ctx' => 'new-field.edit'],
+                ['event' => 'presence.ping', 'ctx' => 'new-presence.ping'],
+            ],
+            $seen['contexts'],
+        );
+        self::assertSame(
+            [['field' => 'title', 'value' => 'a'], ['field' => 'title', 'value' => 'a']],
+            self::edits($seen['posts']),
+            'the value refused before the failed renewal, sent again after the one that succeeded',
+        );
+
+        // A value typed meanwhile takes its place, here one the server
+        // accepted: the older one is not sent behind it by the next renewal.
+        $superseded = $this->editorSees(['replies' => ['field.edit' => [self::expired(), ['status' => 'accepted']]] + $scenario['replies']] + $scenario + ['steps' => [
+            ['type' => 'title', 'value' => 'a'],
+            ['type' => 'title', 'value' => 'ab'],
+            ['elapse' => 5000],
+            ['tick' => true],
+        ]]);
+        self::assertSame(['presence.ping', 'field.edit', 'manifest.renew', 'field.edit', 'presence.ping', 'manifest.renew', 'presence.ping'], array_column($superseded['posts'], 'event'));
+        self::assertSame(
+            [['field' => 'title', 'value' => 'a'], ['field' => 'title', 'value' => 'ab']],
+            self::edits($superseded['posts']),
+        );
+
+        // Refused for good, nothing is pending any more: a later renewal
+        // (there is none to come) would have nothing to send.
+        $lost = $this->editorSees(['replies' => ['manifest.renew' => [['http' => 403, 'data' => ['status' => 'rejected']]]] + $scenario['replies']] + $scenario + ['steps' => [
+            ['type' => 'title', 'value' => 'a'],
+            ['elapse' => 5000],
+            ['tick' => true],
+        ]]);
+        self::assertSame([['field' => 'title', 'value' => 'a']], self::edits($lost['posts']));
+        self::assertSame('expired', $lost['status']);
+    }
+
+    #[Test]
+    public function a_refusal_whose_body_arrives_after_a_newer_value_was_saved_sends_nothing(): void
+    {
+        // Edit "a": the status (422) frees the field, the body is still on
+        // its way. The presence ping expires and renews. "ab" is typed and
+        // saved with the fresh context. Then the body of "a" arrives and
+        // says "expired": "a" must not go again, over "ab".
+        $seen = $this->editorSees([
+            'manifest' => self::scripted('shared'),
+            'inputs' => ['title' => ''],
+            'replies' => [
+                'field.edit' => [['late' => true] + self::expired()],
+                'presence.ping' => [['status' => 'accepted'], self::expired()],
+                'manifest.renew' => [self::renewal()],
+            ],
+            'steps' => [['type' => 'title', 'value' => 'a'], ['tick' => true], ['type' => 'title', 'value' => 'ab'], ['body' => 'oldest']],
+        ]);
+
+        self::assertSame(
+            [['field' => 'title', 'value' => 'a'], ['field' => 'title', 'value' => 'ab']],
+            self::edits($seen['posts']),
+            'the newer value is the last one sent',
+        );
+        $last = $seen['contexts'][count($seen['contexts']) - 1];
+        self::assertSame(['event' => 'field.edit', 'ctx' => 'new-field.edit'], $last);
+
+        // The same late body with nothing typed since: the value is still
+        // the latest, and goes again.
+        $still = $this->editorSees([
+            'manifest' => self::scripted('shared'),
+            'inputs' => ['title' => ''],
+            'replies' => [
+                'field.edit' => [['late' => true] + self::expired()],
+                'presence.ping' => [['status' => 'accepted'], self::expired()],
+                'manifest.renew' => [self::renewal()],
+            ],
+            'steps' => [['type' => 'title', 'value' => 'a'], ['tick' => true], ['body' => 'oldest']],
+        ]);
+        self::assertSame(
+            [['field' => 'title', 'value' => 'a'], ['field' => 'title', 'value' => 'a']],
+            self::edits($still['posts']),
+        );
+        $last = $still['contexts'][count($still['contexts']) - 1];
+        self::assertSame(['event' => 'field.edit', 'ctx' => 'new-field.edit'], $last);
+    }
+
+    #[Test]
     public function an_awaited_event_goes_again_and_later_ones_use_the_renewed_contexts(): void
     {
         // The lock is asked for with an expired context; its grant must not
@@ -592,6 +698,24 @@ final class FormCollabContextRenewalTest extends TestCase
             'steps' => [['type' => 'title', 'value' => 'a']],
         ]);
         self::assertSame(['presence.ping', 'field.edit', 'manifest.renew', 'field.edit'], array_column($loop['posts'], 'event'));
+    }
+
+    /**
+     * The field.edit payloads of a list of posts, in order.
+     *
+     * @param list<array{event: string, payload: array<string, mixed>}> $posts
+     * @return list<array<string, mixed>>
+     */
+    private static function edits(array $posts): array
+    {
+        $edits = [];
+        foreach ($posts as $post) {
+            if ($post['event'] === 'field.edit') {
+                $edits[] = $post['payload'];
+            }
+        }
+
+        return $edits;
     }
 
     /**

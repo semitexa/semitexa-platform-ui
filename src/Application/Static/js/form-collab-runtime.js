@@ -234,9 +234,9 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         this.pendingEdit = Object.create(null);
         // field.edit order (see EDIT ORDER above), by field name:
         // {inFlight, sent, waiting, value, retried, beats, typed, valueNo,
-        // expired}: the last three number the values typed into the field,
-        // so of those refused for an expired context the latest is the one
-        // sent again (resendExpiredEdit). `waiting` with no
+        // expired}: the last three number the values typed into the field
+        // and hold the latest one refused for an expired context until it
+        // is sent again (resendExpiredEdit). `waiting` with no
         // edit in flight is a value whose send failed twice: the next edit,
         // the presence heartbeat (EDIT_HEARTBEAT_RETRIES times), a lock
         // release or the page being hidden sends it.
@@ -379,6 +379,9 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
                 self.channel = null;
                 self.subscribe();
             }
+            // Whichever event asked: the edits an earlier renewal with no
+            // answer left pending go now.
+            self.resendExpiredEdits();
             return true;
         }, function () {
             self.renewedAt = Date.now();
@@ -396,6 +399,9 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             return;
         }
         this.renewRefused = true;
+        for (var field in this.edits) {
+            this.edits[field].expired = null; // nothing will send them
+        }
         this.setStatus('expired');
         this.root.dispatchEvent(new CustomEvent('semitexa:collab:expired', { bubbles: true, detail: {} }));
     };
@@ -1252,6 +1258,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         q.waiting = true;
         q.value = value;
         q.valueNo = ++q.typed;
+        q.expired = null; // superseded: this value is the one to save
         q.retried = false;
         q.beats = 0;
         delete this.postedFields[field]; // typed after the submit: not in that post
@@ -1352,26 +1359,48 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
     /**
      * The server refused `value` (the field's `valueNo`-th) only because the
      * context it was sent with had expired. The refusal settled the edit (the
-     * status is the answer), so a later value may be waiting or on its way
-     * already, and may be refused the same way. Once the contexts are renewed
-     * the LATEST value so refused goes again, unless a later one waits or
-     * flies: never an older value behind a newer.
+     * status is the answer), and its body may arrive long after: a later
+     * value may be waiting, on its way, or saved already.
+     *
+     * Only the value typed LAST is worth sending again; a refusal of an
+     * older one is dropped here, whatever became of the newer. The latest
+     * stays pending in `q.expired` until it is sent again
+     * (resendExpiredEdits, after a renewal that succeeded: this one, or any
+     * later one when this one got no answer), a newer value is typed
+     * (emitFieldEdit) or the server refuses to renew for good (contextsLost).
      */
     CollabForm.prototype.resendExpiredEdit = function (field, value, valueNo, ctx) {
         var self = this;
         var q = this.edits[field];
-        if (!q) {
+        if (!q || valueNo !== q.typed) {
             return;
         }
-        if (!q.expired || q.expired.valueNo < valueNo) {
-            q.expired = { value: value, valueNo: valueNo };
-        }
+        q.expired = { value: value, valueNo: valueNo, ctx: ctx };
         this.renewContexts('field.edit', ctx).then(function (renewed) {
-            var refused = q.expired;
-            q.expired = null;
-            if (!renewed || !refused || self.closed) {
-                return;
+            if (renewed) {
+                self.resendExpiredEdits();
             }
+        });
+    };
+
+    /**
+     * The contexts are fresh: every value still pending for an expired one
+     * goes again. One refused with the context the field has NOW stays
+     * pending: that context is as fresh as this page can get it, and the
+     * next renewal, not this one, may send it.
+     */
+    CollabForm.prototype.resendExpiredEdits = function () {
+        if (this.closed) {
+            return;
+        }
+        var current = this.contextOf('field.edit');
+        for (var field in this.edits) {
+            var q = this.edits[field];
+            var refused = q.expired;
+            if (!refused || refused.ctx === current) {
+                continue;
+            }
+            q.expired = null; // still the value typed last: typing clears it
             if (!q.waiting && !q.inFlight) {
                 q.waiting = true;
                 q.value = refused.value;
@@ -1379,8 +1408,8 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
                 q.retried = false;
                 q.beats = 0;
             }
-            self.sendNextEdit(field);
-        });
+            this.sendNextEdit(field);
+        }
     };
 
     /**
