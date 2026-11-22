@@ -24,7 +24,9 @@
 // stdout: what a person would see (input values, presence chips, lock texts, prompts),
 // what the page heard (events), what was posted, what the server received and in
 // which order (served), which posts asked for keepalive, how many requests the page
-// aborted, the most requests one field had in flight at once, the form data (the
+// aborted, the signed context each post carried (contexts) and the one the feed is
+// subscribed with now (feedCtx, after feedOpens subscriptions), the most requests one
+// field had in flight at once, the form data (the
 // browser's, the app's own, and which inputs were disabled right after the submit),
 // and every write to an HTML sink (innerHTML and the like) — a label must never
 // reach one.
@@ -171,6 +173,8 @@ manifestEl.textContent = JSON.stringify(scenario.manifest);
 let mounted = null;
 let feed = null;
 const posts = [];
+const contexts = [];
+let feedOpens = 0;
 const served = [];
 const held = [];
 let intervals = [];
@@ -204,11 +208,12 @@ const serve = (e, opts) => {
 };
 const landed = (e) => { const f = fieldOf(e); if (f !== null) { flying[f]--; } };
 const core = {
-    openFeedChannel: (opts) => { feed = opts; return { close() {} }; },
+    openFeedChannel: (opts) => { feed = opts; feedOpens++; return { close() {} }; },
     mount: (_selector, def) => { mounted = def; return { scan() {} }; },
     envelope: (e) => e,
     hug: (e, opts) => {
         posts.push({ event: e.semanticEvent, payload: e.payload });
+        contexts.push({ event: e.semanticEvent, ctx: e.signedContext });
         if (opts && opts.keepalive === true) { keepalive.push({ event: e.semanticEvent, payload: e.payload }); }
         const f = fieldOf(e);
         if (f !== null) {
@@ -334,6 +339,9 @@ process.stdout.write(JSON.stringify({
     conflict: { ...describe(conflictHost), buttons: buttonsIn(conflictHost) },
     events: root.heard.filter((e) => e.type.startsWith('semitexa:')),
     posts,
+    contexts,
+    feedCtx: feed && feed.params ? feed.params.ctx : null,
+    feedOpens,
     served,
     keepalive,
     aborted,

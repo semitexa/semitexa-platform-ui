@@ -4,6 +4,21 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
 `## <version> — <date>` (newest first); `## Unreleased
 
 ### Fixed
+- A collaborative form keeps saving after its page has been open five minutes.
+  Its events carry signed contexts that live `SignedContext::DEFAULT_TTL_SECONDS`
+  and nothing renewed them: past that every edit, lock and presence ping was
+  refused (422, `Signed context expired.`) with nothing shown. The manifest now
+  carries a `renew` context, signed for a day for the session, tenant and
+  visitor the page was drawn for. When an event is refused as expired the
+  runtime sends it as `manifest.renew`, gets the same event contexts signed
+  again, subscribes the document feed with the new one and sends the refused
+  event once more. An expired context is still refused, and an application's
+  `UiInteractionAuthorizerInterface` is asked for the renewal as for any event
+  (part `manifest`, event `renew`): one that allows events by name has to
+  allow this one. A renewal the server refuses (signed out or into another
+  account, a day gone) is not asked again: the status host gets
+  `data-state="expired"` and the form dispatches `semitexa:collab:expired`, for
+  the page to ask for a reload.
 - A collaborative form's shared draft now ends. After the record's save commits,
   call `FormCollaborationDrafts::discardForRecord($formKey, $recordId, $values)`
   with the stored value of every managed field: open editors are re-based on
