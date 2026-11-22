@@ -301,7 +301,10 @@ final class FormCollabDraftEndsTest extends TestCase
         $arm(false);
         // Attended again, so the draft the edit wrote is there to look at.
         $this->presence->lastSeen[self::SCOPE] = $this->now;
-        $after = $store->load(self::SCOPE)?->epoch;
+        $written = $store->load(self::SCOPE);
+        self::assertNotNull($written, 'the edit stored a draft');
+        self::assertSame(['title' => 'mine'], $written->values, 'holding the edit, whichever draft it is');
+        $after = $written->epoch;
 
         $late = $store->mergeFieldInOrder(self::SCOPE, 'title', 'bob, counting from one', 'bob', 'tab-2', 1);
         if ($after !== $before) {

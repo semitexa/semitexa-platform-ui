@@ -73,7 +73,10 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
   carried: the post carries their values, and an edit arriving behind the
   save would start a new draft. A field of another form, or one typed into
   after the submit, is sent as usual.
-  Known limits: with a draft store that implements only
+  Known limits: an ordered store keeps marks for at most 16 sources per
+  field, so once a field has had edits from 16 other pages since page A's
+  newer edit, A's mark may be gone and a late older edit from A is again
+  taken in arrival order. With a draft store that implements only
   `FormCollabDraftStoreInterface`, a value sent as the page is hidden can
   still arrive before an older edit that was in flight, and a page restored
   from the back/forward cache can retry an older edit after the newer value
