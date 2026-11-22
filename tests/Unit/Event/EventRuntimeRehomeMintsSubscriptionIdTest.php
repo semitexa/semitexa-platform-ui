@@ -100,6 +100,56 @@ final class EventRuntimeRehomeMintsSubscriptionIdTest extends TestCase
         self::assertSame(1, $run['posts']);
     }
 
+    #[Test]
+    public function a_reconnect_between_the_swap_and_the_rehome_leaves_the_move_to_the_rehome(): void
+    {
+        // The new page's stream says `reconnected` before the deferred rehome runs.
+        $run = $this->inNode(<<<'JS'
+            var handle = sseSubscribe({ feed: 'leads.feed' }, {}, function () {});
+            var first = handle.subscriptionId;
+
+            session = 'sse_page_two';
+            resubscribeAll();
+            var afterReconnect = posts.length;
+            rehomeSubscriptions();
+
+            out({ first: first, second: handle.subscriptionId, afterReconnect: afterReconnect, posts: posts });
+            JS);
+
+        self::assertSame(1, $run['afterReconnect'], 'the reconnect did not present the old id under the new session');
+        self::assertNotSame($run['first'], $run['second']);
+        self::assertSame(
+            [
+                ['subscribe', 'leads.feed', 'sse_page_one', $run['first']],
+                ['subscribe', 'leads.feed', 'sse_page_two', $run['second']],
+            ],
+            $run['posts'],
+        );
+    }
+
+    #[Test]
+    public function a_reconnect_re_arms_the_page_s_own_feeds_and_resumes_a_paused_one(): void
+    {
+        $run = $this->inNode(<<<'JS'
+            var own = sseSubscribe({ feed: 'leads.feed' }, {}, function () {});
+            var paused = sseSubscribe({ feed: 'orders.feed' }, {}, function () {});
+            SSE_SUBSCRIPTIONS[paused.subscriptionId].session = null;
+            posts = [];
+
+            resubscribeAll();
+
+            out({ own: own.subscriptionId, paused: paused.subscriptionId, posts: posts });
+            JS);
+
+        self::assertSame(
+            [
+                ['subscribe', 'leads.feed', 'sse_page_one', $run['own']],
+                ['subscribe', 'orders.feed', 'sse_page_one', $run['paused']],
+            ],
+            $run['posts'],
+        );
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -111,7 +161,7 @@ final class EventRuntimeRehomeMintsSubscriptionIdTest extends TestCase
 
         $source = (string) file_get_contents(self::JS);
         $functions = '';
-        foreach (['sseSubscribe', 'rehomeSubscriptions', 'pauseSubscriptions'] as $name) {
+        foreach (['sseSubscribe', 'resubscribeAll', 'rehomeSubscriptions', 'pauseSubscriptions'] as $name) {
             self::assertSame(1, preg_match('/^    function ' . $name . '\(.*?^    \}$/ms', $source, $match), $name . '() not found');
             $functions .= ($match[0] ?? '') . "\n";
         }

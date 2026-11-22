@@ -2964,7 +2964,15 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         }
     }
 
-    /** Re-POST every active subscribe (same ids) after the shared connection reconnects. */
+    /**
+     * Re-POST every active subscribe (same ids) after the shared connection reconnects.
+     *
+     * A feed still on another page's session is left alone: a navigation is
+     * under way and rehomeSubscriptions(), deferred behind the swap, moves it
+     * under a new id. Given this session here, it would keep its old id, the
+     * rehome would find nothing to move, and the server would refuse the id
+     * as the old session's. A paused feed (no session) resumes as before.
+     */
     function resubscribeAll() {
         var sessionId = readPageSseSessionId();
         if (sessionId === null) {
@@ -2973,6 +2981,9 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         for (var id in SSE_SUBSCRIPTIONS) {
             if (Object.prototype.hasOwnProperty.call(SSE_SUBSCRIPTIONS, id)) {
                 var s = SSE_SUBSCRIPTIONS[id];
+                if (s.session !== null && s.session !== sessionId) {
+                    continue;
+                }
                 s.session = sessionId;
                 postStreamControl('subscribe', s.feed, s.params, sessionId, id, s.patches === true);
             }
