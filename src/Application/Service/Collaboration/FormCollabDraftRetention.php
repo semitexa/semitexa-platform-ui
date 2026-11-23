@@ -7,6 +7,7 @@ namespace Semitexa\PlatformUi\Application\Service\Collaboration;
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\Config;
 use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Core\Attribute\WorkerState;
 use Semitexa\PlatformUi\Domain\Contract\FormPresenceStoreInterface;
 
 /**
@@ -70,6 +71,7 @@ final class FormCollabDraftRetention
     protected FormPresenceStoreInterface $presenceStore;
 
     /** @var (\Closure(): int)|null */
+    #[WorkerState('Test seam; production never calls with(), so the wall clock is read on each call.')]
     private ?\Closure $clock = null;
 
     /**

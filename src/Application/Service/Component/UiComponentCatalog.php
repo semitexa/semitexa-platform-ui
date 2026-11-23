@@ -7,6 +7,7 @@ namespace Semitexa\PlatformUi\Application\Service\Component;
 use ReflectionClass;
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Core\Attribute\WorkerState;
 use Semitexa\Core\Discovery\ClassDiscovery;
 use Semitexa\PlatformUi\Attribute\AsUiContract;
 use Semitexa\PlatformUi\Attribute\HandlesUiEvent;
@@ -45,17 +46,21 @@ final class UiComponentCatalog
      * every caller has always built it with `new`. Left as a settable slot with
      * a default so the catalog works whether or not anyone wires one.
      */
+    #[WorkerState('Stateless metadata factory, set once on a catalog its builder has just created (catalog CLI command, tests); reflects classes only.')]
     protected UiComponentMetadataFactory $factory;
 
     private const EVENT_NAME_PATTERN = '/\A[a-z][a-z0-9:_-]*\z/';
 
     /** @var array<string, UiComponentMetadata> */
+    #[WorkerState('Component metadata keyed by component name, filled from discovery at boot; derived from code only.')]
     private array $byName = [];
 
     /** @var array<string, UiExternalHandlerMetadata> Flat key `<componentName>.<partName>.<eventName>` → external binding. */
+    #[WorkerState('Handler bindings keyed by component.part.event, filled from #[HandlesUiEvent] discovery at boot; derived from code only.')]
     private array $externalBindings = [];
 
     /** @var array<string, list<UiExternalHandlerMetadata>> Grouped by component name, declaration order preserved. */
+    #[WorkerState('The same boot-time handler bindings grouped by component name; derived from code only.')]
     private array $externalBindingsByComponent = [];
 
     private bool $initialized = false;

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Semitexa\PlatformUi\Application\Service\Primitive;
 
 use Semitexa\Core\Attribute\AsService;
+use Semitexa\Core\Attribute\WorkerState;
 use Semitexa\PlatformUi\Application\Service\Catalog\AbstractUiCatalog;
 use Semitexa\PlatformUi\Attribute\AsUiPrimitive;
 use Semitexa\PlatformUi\Domain\Contract\UiCatalogEntryInterface;
@@ -32,6 +33,7 @@ final class UiPrimitiveCatalog extends AbstractUiCatalog
      * caller has always built it with new. Settable, with discovery falling
      * back to constructing one.
      */
+    #[WorkerState('Stateless metadata factory, set once on a catalog its builder has just created (catalog CLI command, tests); reflects classes only.')]
     protected UiPrimitiveMetadataFactory $factory;
 
     public function setFactory(UiPrimitiveMetadataFactory $factory): void

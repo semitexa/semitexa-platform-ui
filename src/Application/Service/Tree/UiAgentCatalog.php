@@ -6,6 +6,7 @@ namespace Semitexa\PlatformUi\Application\Service\Tree;
 
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Core\Attribute\WorkerState;
 use Semitexa\PlatformUi\Application\Service\Access\UiPermissions;
 use Semitexa\PlatformUi\Application\Service\Catalog\UiCatalogProjector;
 use Semitexa\PlatformUi\Domain\Model\Component\UiComponentMetadata;
@@ -25,6 +26,7 @@ final class UiAgentCatalog
     protected UiCatalogProjector $projector;
 
     /** @var array<string, UiCatalogItem>|null worker-lifetime: the catalog does not change after boot */
+    #[WorkerState('Agent-open catalog entries keyed by name, derived from code; the visitor filter runs on each call. useEntries() is a test seam.')]
     private ?array $open = null;
 
     /** @return array<string, UiCatalogItem> name => entry, every agent-open one */
