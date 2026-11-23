@@ -5,7 +5,7 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
 next release tag. This file is machine-read by `update:changelog` and the OS
 "What's new" surface — keep entries short and operator-facing.
 
-## Unreleased
+## 2026.11.23.1215 — 2026-11-23
 
 ### Fixed
 - FieldLock: a field lock whose answer is lost is no longer held forever. When
