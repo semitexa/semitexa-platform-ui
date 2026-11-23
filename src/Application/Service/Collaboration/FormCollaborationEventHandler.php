@@ -7,6 +7,7 @@ namespace Semitexa\PlatformUi\Application\Service\Collaboration;
 use Psr\Container\ContainerInterface;
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Core\Attribute\WorkerState;
 use Semitexa\Core\Log\StaticLoggerBridge;
 use Semitexa\PlatformUi\Application\Component\Builtin\CollaborativeFormComponent;
 use Semitexa\PlatformUi\Application\Service\Component\UiComponentRegistry;
@@ -103,8 +104,10 @@ final class FormCollaborationEventHandler implements UiEventHandlerInterface
     public const LABEL_MAX_LENGTH = 64;
 
     /** @var (\Closure(): ?object)|null where the signed-in user is read from; null = the auth context */
+    #[WorkerState('Test seam; production never calls withIdentity(), so the user is read from the auth context on each call.')]
     private ?\Closure $identitySource = null;
 
+    #[WorkerState('Test seam; production never calls withIdentity(), so the resolver is looked up in the container on each call.')]
     private ?FormCollaboratorLabelResolverInterface $labelResolver = null;
 
     /**

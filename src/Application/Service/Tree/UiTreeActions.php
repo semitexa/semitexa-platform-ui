@@ -7,6 +7,7 @@ namespace Semitexa\PlatformUi\Application\Service\Tree;
 use Psr\Container\ContainerInterface;
 use Semitexa\Core\Attribute\AsService;
 use Semitexa\Core\Attribute\InjectAsReadonly;
+use Semitexa\Core\Attribute\WorkerState;
 use Semitexa\Core\Container\RequestScopedContainer;
 use Semitexa\Core\Discovery\ClassDiscovery;
 use Semitexa\PlatformUi\Attribute\AsUiTreeAction;
@@ -28,9 +29,11 @@ final class UiTreeActions
     protected ContainerInterface $container;
 
     /** @var array<string, class-string<UiTreeActionKindInterface>>|null kind => class, worker-lifetime */
+    #[WorkerState('Action kind => class, found by discovery once per worker; useHandlers() is a test seam production never calls.')]
     private ?array $kinds = null;
 
     /** @var array<string, UiTreeActionKindInterface> test seam: kind => handler */
+    #[WorkerState('Test seam; production never calls useHandlers(), so each handler comes from the execution-scoped container.')]
     private array $handlers = [];
 
     /** @return list<string> the kinds a tree may name */
