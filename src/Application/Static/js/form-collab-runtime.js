@@ -280,6 +280,14 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         // arrive after the release and still name this participant as the
         // holder; it must not bring the lock back (see applyFieldLocks).
         this.fieldReleased = Object.create(null);
+        // FieldLock: the fields whose lock THIS client asked for and has no
+        // decision on, neither a grant nor a refusal, each with the count of
+        // its requests still on the way (`pending`; 0: every one failed). A
+        // snapshot naming this participant as the holder is their answer;
+        // one that does not settles the requests that failed (see
+        // applyFieldLocks). It holds back no request: every focus and change
+        // still asks on its own.
+        this.fieldAsked = Object.create(null);
         // FieldLock: the fields whose lock was asked for again because the
         // server answered an edit with `field_locked` (see onEditFieldLocked).
         this.fieldRelocked = Object.create(null);
@@ -851,19 +859,50 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
             }
             var lock = holders[name];
             var holderId = lock ? String(lock.holderId || '') : '';
-            if (holderId !== '' && holderId !== this.self) {
+            var asked = this.fieldAsked[name];
+            if (holderId !== '' && holderId === this.self) {
+                this.setInputLocked(name, input, false);
+                input.removeAttribute('data-ui-collab-field-lock');
+                // A lock the server says is ours, unless this client
+                // released it (then the frame is older than the release).
+                // Asked for by a request of this client that has no answer
+                // (lost, failed or late), the frame is that answer, and what
+                // the grant does is done. Otherwise it is taken as held, as
+                // by a page loaded while its participant holds one.
+                if (!this.fieldReleased[name]) {
+                    if (asked) {
+                        this.fieldLockGranted(name);
+                    } else {
+                        this.myFieldLocks[name] = true;
+                        this.ensureFieldHeartbeat();
+                    }
+                }
+                continue;
+            }
+            if (holderId !== '') {
                 this.setInputLocked(name, input, true);
                 input.setAttribute('data-ui-collab-field-lock', lock.holderLabel || 'someone');
                 delete this.myFieldLocks[name];
             } else {
                 this.setInputLocked(name, input, false);
                 input.removeAttribute('data-ui-collab-field-lock');
-                // A lock the server says is ours is taken as held (a page
-                // loaded while its participant holds one), unless this client
-                // released it: then the frame is older than the release.
-                if (holderId !== '' && holderId === this.self && !this.fieldReleased[name]) {
-                    this.myFieldLocks[name] = true;
-                    this.ensureFieldHeartbeat();
+            }
+            if (this.hasFocus(name)) {
+                continue; // what the person typed stays, as on a refused lock
+            }
+            // Someone else's, or nobody's after every request for it failed:
+            // a change waiting for the lock in a field nobody is in is not
+            // sent, and left in the input it would be in the app's form post
+            // (over the holder's text). A request still on the way is
+            // answered by the server; a failed one is taken as settled (not
+            // granted, or its grant is gone), so a later frame naming this
+            // participant is not read as its answer.
+            if (holderId !== '' || (asked && asked.pending === 0)) {
+                if (this.editQueued(name)) {
+                    this.refuseEdit(name);
+                }
+                if (asked && asked.pending === 0) {
+                    delete this.fieldAsked[name];
                 }
             }
         }
@@ -876,27 +915,20 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
         }
         var self = this;
         delete this.fieldReleased[name]; // asked for again: what the server says counts
-        // Every focus and every change without focus asks on its own: a
-        // request on the way is not remembered, and none has a deadline.
+        var asked = this.fieldAsked[name] || (this.fieldAsked[name] = { pending: 0 });
+        asked.pending++;
+        // Every focus and every change without focus asks on its own: no
+        // request waits for another, and none has a deadline.
         this.postEventAwait('lock.acquire', ctx, { field: name }).then(function (res) {
             if (!(res && (res.status === 'accepted' || res.kind === 'ack'))) {
                 delete self.fieldRelocked[name];
             }
             if (res && (res.status === 'accepted' || res.kind === 'ack')) {
-                self.myFieldLocks[name] = true;
-                self.ensureFieldHeartbeat();
-                // Field lock now held — flush any keystrokes typed during acquire.
-                self.flushPendingEdit(name);
-                // Nobody is in the field: the lock was taken for a change made
-                // without focus (see relayEdit), or focus left before this
-                // answer, or the form left the page before it. Released as
-                // blur releases it, after the edit settled.
-                if (self.closed || !self.hasFocus(name)) {
-                    self.releaseFieldLock(name);
-                }
+                self.fieldLockGranted(name);
             } else if (res && res.reason === 'lock_unavailable') {
                 // Not ours for certain, like a lock this client released: a
                 // frame from while it was held must not bring it back.
+                delete self.fieldAsked[name];
                 self.fieldReleased[name] = true;
                 var input = self.inputOf(self.fieldEl(name));
                 if (input) {
@@ -907,21 +939,45 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
                 } else {
                     self.refuseEdit(name);
                 }
-            } else {
-                // No answer (network): a change made without focus has no
-                // later focus to send it. A focused field keeps what it queued.
-                if (!self.hasFocus(name)) {
-                    delete self.pendingEdit[name];
-                }
+            } else if (self.fieldAsked[name] === asked) {
+                // No decision (the network, or an answer that is neither).
+                // The change stays queued: another request may still be
+                // granted and send it, and the server may have granted this
+                // one, which a snapshot naming this participant then says.
+                // The first one that does not settles it (see applyFieldLocks).
+                asked.pending--;
             }
         });
+    };
+
+    /**
+     * The lock of `name` is this participant's: the answer to a request, or
+     * a snapshot naming it while that answer had not come (see
+     * applyFieldLocks). The change waiting for it is sent. Nobody is in the
+     * field: the lock was taken for a change made without focus (see
+     * relayEdit), or focus left before this, or the form left the page.
+     * Then it is released as blur releases it, after the edit settled.
+     */
+    CollabForm.prototype.fieldLockGranted = function (name) {
+        delete this.fieldAsked[name];
+        this.myFieldLocks[name] = true;
+        this.ensureFieldHeartbeat();
+        // Field lock now held — flush any keystrokes typed during acquire.
+        this.flushPendingEdit(name);
+        if (this.closed || !this.hasFocus(name)) {
+            this.releaseFieldLock(name);
+        }
     };
 
     /**
      * A change of `name` is queued (pendingEdit), waiting for a lock. The
      * input holds that change and no snapshot may replace it, focused or not.
      * A lock request that never answers leaves it queued, and the input
-     * closed to snapshots, until the field asks again.
+     * closed to snapshots, until the field asks again or a snapshot names
+     * the field's holder: this participant, and the change is sent; someone
+     * else, and the change of a field nobody is in is refused. After the
+     * requests failed, the first snapshot that does not name this
+     * participant refuses it too (see applyFieldLocks).
      */
     CollabForm.prototype.editQueued = function (name) {
         return Object.prototype.hasOwnProperty.call(this.pendingEdit, name);
@@ -950,7 +1006,8 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
      * A change of a field another participant holds is not sent, now or
      * later, and is not shown: the input goes back to the draft's value when
      * the draft has one. Left in the input it would be in the app's form post
-     * (see LOCKED FIELDS) and replace what the holder typed.
+     * (see LOCKED FIELDS) and replace what the holder typed. A change whose
+     * lock requests all failed ends the same way (see applyFieldLocks).
      */
     CollabForm.prototype.refuseEdit = function (name) {
         delete this.pendingEdit[name];
@@ -1228,7 +1285,7 @@ import { openFeedChannel, mount, envelope, hug } from 'platform-ui/core';
      *    refuseEdit;
      *  - FieldLock, a free field: the change takes the field's lock itself,
      *    and the acquire ack sends it and releases the lock once the edit
-     *    settled (see acquireFieldLock);
+     *    settled (see fieldLockGranted);
      *  - FormLock, a free form: queued, as before. It goes out when this
      *    participant next takes the form's lock. A script does not take the
      *    whole form: that would make every co-editor's form read-only and
