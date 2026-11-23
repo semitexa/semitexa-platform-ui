@@ -4,6 +4,20 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
 `## <version> — <date>` (newest first); `## Unreleased
 
 ### Fixed
+- FieldLock: a field lock whose answer is lost is no longer held forever. When
+  `lock.acquire` failed, or its answer had not come, and the server had granted
+  it, the next snapshot naming this person as the holder was taken for a lock an
+  earlier page held: it was renewed every 10 s until the page closed, so nobody
+  else could have the field, and the change that asked for the lock was never
+  sent. Such a snapshot is now the answer: the change is sent, and the lock is
+  released once the edit settled when nobody is in the field. A failed request
+  no longer drops the change at once: another request may still send it, or a
+  snapshot say the failed one was granted. The first snapshot that does neither
+  drops it, as before. A snapshot naming someone else as the field's holder now
+  refuses a change waiting for the lock in a field nobody is in, whatever its
+  request: the input goes back to the draft's value, so the app's form post
+  carries the holder's text. A page that asked for no lock still takes a
+  snapshot's word that its person holds one.
 - A late request no longer puts an older value back into a collaborative form's
   draft. Field edits were ordered only by when they arrived, and two cases stayed
   open: the value a page sends as it is hidden races the edit still in flight,

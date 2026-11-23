@@ -1021,6 +1021,189 @@ final class FormCollabRuntimeTest extends TestCase
     }
 
     #[Test]
+    public function a_frame_naming_us_answers_a_field_lock_request_whose_own_answer_did_not_come(): void
+    {
+        // The server granted the lock, and its answer was lost (the request
+        // failed) or is still on the way. The next frame names this
+        // participant as the holder: taken for a lock an earlier page held,
+        // it was renewed every 10 s until the page closed, nobody else could
+        // have the field, and the change that asked for it was never sent.
+        $this->locks->acquire(self::SCOPE, 'title', 'bob', 'Bob');
+        $ours = $this->frame($this->feedOf('field-lock', ['title']));
+        $this->locks->release(self::SCOPE, 'title', 'bob');
+        self::assertSame('bob', $ours['meta']['locks'][0]['holderId'] ?? null, 'the frame names bob as the holder');
+        $free = $this->frame($this->feedOf('field-lock', ['title']));
+        $scenario = ['manifest' => self::manifest('field-lock', 'bob', ['title']), 'inputs' => ['title' => ''], 'hold' => ['lock.acquire']];
+        $acquire = ['event' => 'lock.acquire', 'payload' => ['field' => 'title']];
+        $edit = ['event' => 'field.edit', 'payload' => ['field' => 'title', 'value' => 'a']];
+        $release = ['event' => 'lock.release', 'payload' => ['field' => 'title']];
+
+        // A page script filled the field: the change is sent and the lock
+        // released after it, and no heartbeat renews it afterwards.
+        $failed = $this->editorSees($scenario + ['steps' => [
+            ['type' => 'title', 'value' => 'a'],
+            ['fail' => 'oldest'],
+            ['snapshot' => $ours],
+            ['tick' => true],
+            ['snapshot' => $free],
+            ['tick' => true],
+        ]]);
+        self::assertSame([$acquire, $edit, $release], self::withoutPings($failed['posts']));
+        $stalled = $this->editorSees($scenario + ['steps' => [['type' => 'title', 'value' => 'a'], ['snapshot' => $ours], ['tick' => true]]]);
+        self::assertSame([$acquire, $edit, $release], self::withoutPings($stalled['posts']));
+
+        // Focus asked and left before any answer: nothing to send, the lock goes.
+        $left = $this->editorSees($scenario + ['steps' => [['focus' => 'title'], ['blur' => 'title'], ['snapshot' => $ours], ['tick' => true]]]);
+        self::assertSame([$acquire, $release], self::withoutPings($left['posts']));
+
+        // The person is in the field: what they typed goes out, and the lock
+        // stays theirs until they leave it.
+        $typed = [['focus' => 'title'], ['type' => 'title', 'value' => 'a'], ['fail' => 'oldest'], ['snapshot' => $ours], ['tick' => true]];
+        $heartbeat = ['event' => 'lock.heartbeat', 'payload' => ['field' => 'title']];
+        $in = $this->editorSees($scenario + ['steps' => $typed]);
+        self::assertSame([$acquire, $edit, $heartbeat], self::withoutPings($in['posts']));
+        $out = $this->editorSees($scenario + ['steps' => [...$typed, ['blur' => 'title'], ['tick' => true]]]);
+        self::assertSame([$acquire, $edit, $heartbeat, $release], self::withoutPings($out['posts']), 'no heartbeat after the release');
+        // A frame showing the field free does not settle a failed request
+        // while the person is still in the field.
+        $stays = $this->editorSees($scenario + ['steps' => [
+            ['focus' => 'title'],
+            ['type' => 'title', 'value' => 'a'],
+            ['fail' => 'oldest'],
+            ['snapshot' => $free],
+            ['snapshot' => $ours],
+            ['tick' => true],
+        ]]);
+        self::assertSame([$acquire, $edit, $heartbeat], self::withoutPings($stays['posts']));
+
+        // A failure, then the grant of a second request: the change is sent
+        // once. The failure used to delete the change the grant was to send.
+        $twice = $this->editorSees($scenario + ['steps' => [
+            ['type' => 'title', 'value' => 'a'],
+            ['type' => 'title', 'value' => 'ab'],
+            ['fail' => 'oldest'],
+            ['answer' => 'oldest'],
+            ['tick' => true],
+        ]]);
+        self::assertSame(
+            [$acquire, $acquire, ['event' => 'field.edit', 'payload' => ['field' => 'title', 'value' => 'ab']], $release],
+            self::withoutPings($twice['posts']),
+        );
+
+        // The frame first, the grant after it: the change is sent once. The
+        // grant is released again, which ends nothing: the lock is no
+        // longer this participant's.
+        $late = $this->editorSees($scenario + ['steps' => [['type' => 'title', 'value' => 'a'], ['snapshot' => $ours], ['answer' => 'oldest'], ['tick' => true]]]);
+        self::assertSame([$acquire, $edit, $release, $release], self::withoutPings($late['posts']));
+    }
+
+    #[Test]
+    public function a_change_waiting_for_a_lock_a_frame_gives_to_someone_else_is_refused(): void
+    {
+        // A page script filled the field and the lock request failed, or
+        // stalls; Mallory took the field meanwhile and typed. Left in the
+        // input, the script's text would be in the app's form post over hers.
+        $this->locks->acquire(self::SCOPE, 'title', 'mallory', 'Mallory');
+        $this->draft->mergeFields(self::SCOPE, ['title' => 'hers'], 'mallory');
+        $hers = $this->frame($this->feedOf('field-lock', ['title']));
+        $scenario = ['manifest' => self::manifest('field-lock', 'bob', ['title']), 'inputs' => ['title' => ''], 'form' => true, 'hold' => ['lock.acquire']];
+
+        foreach (['failed' => [['fail' => 'oldest']], 'stalled' => []] as $how => $answer) {
+            $seen = $this->editorSees($scenario + ['steps' => [
+                ['type' => 'title', 'value' => 'a script wrote this'],
+                ...$answer,
+                ['snapshot' => $hers],
+                ['submit' => true],
+            ]]);
+            self::assertSame('hers', $seen['values']['title'], $how);
+            self::assertSame([['title', 'hers']], $seen['formData'], "{$how}: the post carries her text");
+            self::assertSame([], self::edits($seen['posts']), $how);
+        }
+
+        // Typed, and left the field before the answer: nobody is in it to
+        // keep the text for, as with a refused lock.
+        $left = $this->editorSees($scenario + ['steps' => [
+            ['focus' => 'title'],
+            ['type' => 'title', 'value' => 'mine'],
+            ['blur' => 'title'],
+            ['snapshot' => $hers],
+            ['submit' => true],
+        ]]);
+        self::assertSame('hers', $left['values']['title']);
+        self::assertSame([['title', 'hers']], $left['formData']);
+        self::assertSame([], self::edits($left['posts']));
+
+        // The person is in the field: what they typed stays in the input,
+        // unsent, as with a refused lock.
+        $in = $this->editorSees($scenario + ['steps' => [['focus' => 'title'], ['type' => 'title', 'value' => 'mine'], ['snapshot' => $hers]]]);
+        self::assertSame('mine', $in['values']['title']);
+        self::assertSame([], self::edits($in['posts']));
+    }
+
+    #[Test]
+    public function a_failed_lock_request_is_settled_by_the_next_frame_that_does_not_name_us(): void
+    {
+        // The request failed and the next frame shows the field free: it was
+        // not granted, or what it got is gone. The change it was for ends as
+        // a refused one, and a frame naming this participant later is a lock
+        // taken since (by the same person's other tab), not its answer.
+        $free = $this->frame($this->feedOf('field-lock', ['title']));
+        $this->draft->mergeFields(self::SCOPE, ['title' => 'theirs'], 'alice');
+        $theirs = $this->frame($this->feedOf('field-lock', ['title']));
+        $this->locks->acquire(self::SCOPE, 'title', 'bob', 'Bob');
+        $otherTab = $this->frame($this->feedOf('field-lock', ['title']));
+        self::assertSame('bob', $otherTab['meta']['locks'][0]['holderId'] ?? null);
+        $scenario = ['manifest' => self::manifest('field-lock', 'bob', ['title']), 'inputs' => ['title' => ''], 'form' => true, 'hold' => ['lock.acquire']];
+        $acquire = ['event' => 'lock.acquire', 'payload' => ['field' => 'title']];
+        $heartbeat = ['event' => 'lock.heartbeat', 'payload' => ['field' => 'title']];
+
+        // A page script's change: the input takes the draft's value again,
+        // and the app's form post carries that, not the unsent change.
+        $seen = $this->editorSees($scenario + ['steps' => [
+            ['type' => 'title', 'value' => 'a'],
+            ['fail' => 'oldest'],
+            ['snapshot' => $theirs],
+            ['tick' => true],
+            ['submit' => true],
+        ]]);
+        self::assertSame('theirs', $seen['values']['title']);
+        self::assertSame([['title', 'theirs']], $seen['formData']);
+        self::assertSame([$acquire], self::withoutPings($seen['posts']), 'nothing sent, and no heartbeat');
+
+        // The other tab takes the field afterwards: its lock is kept as any
+        // lock held elsewhere, not released, and the old change is not sent.
+        $later = $this->editorSees($scenario + ['steps' => [
+            ['type' => 'title', 'value' => 'a'],
+            ['fail' => 'oldest'],
+            ['snapshot' => $free],
+            ['snapshot' => $otherTab],
+            ['tick' => true],
+        ]]);
+        self::assertSame([$acquire, $heartbeat], self::withoutPings($later['posts']));
+        self::assertSame('theirs', $later['values']['title']);
+        $left = $this->editorSees($scenario + ['steps' => [
+            ['focus' => 'title'],
+            ['blur' => 'title'],
+            ['fail' => 'oldest'],
+            ['snapshot' => $free],
+            ['snapshot' => $otherTab],
+            ['tick' => true],
+        ]]);
+        self::assertSame([$acquire, $heartbeat], self::withoutPings($left['posts']));
+
+        // A request still on the way is not settled by such a frame: its
+        // grant sends the change.
+        $onTheWay = $this->editorSees($scenario + ['steps' => [
+            ['type' => 'title', 'value' => 'a'],
+            ['type' => 'title', 'value' => 'ab'],
+            ['fail' => 'oldest'],
+            ['snapshot' => $free],
+            ['answer' => 'oldest'],
+        ]]);
+        self::assertSame([['field' => 'title', 'value' => 'ab']], self::edits($onTheWay['posts']));
+    }
+
+    #[Test]
     public function an_edit_the_form_post_carries_is_not_sent_again_after_a_late_field_locked(): void
     {
         // The form is submitted with the edit in flight: the post carries the
