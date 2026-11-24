@@ -2834,6 +2834,18 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         return false;
     }
 
+    /** A drain-mode connection for this session is attached: the page's first one (with its deferred request id) included. */
+    function hasDrainSseConnection(sessionId) {
+        var addressed = 'session_id=' + encodeURIComponent(sessionId) + '&';
+        for (var i = 0; i < ATTACHED_SSE_CONNECTIONS.length; i++) {
+            var u = ATTACHED_SSE_CONNECTIONS[i].url || '';
+            if (u.indexOf('mode=' + SSE_TRANSPORT_MODE_DRAIN) !== -1 && u.indexOf(addressed) !== -1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Ensure a LIVE shared KISS connection is open (collab/grids need it live). */
     function ensureKissOpen(sessionId) {
         if (typeof EventSource !== 'function') {
@@ -3247,7 +3259,11 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             if (readPageSseSessionId() === null || readPageTransportMode() === SSE_TRANSPORT_MODE_LIVE) {
                 return;
             }
-            if (drainOnDemandOpened) {
+            // A drain already open for this page, its first deferred one included,
+            // delivers the answer, or its close reopens one: a second drain beside
+            // it would take the session over and cancel the deferred slots it is
+            // still rendering (its URL differs, so attachSse would not merge them).
+            if (drainOnDemandOpened || hasDrainSseConnection(readPageSseSessionId())) {
                 drainStreamedWhileOpen += streamed;
                 return;
             }

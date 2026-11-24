@@ -46,22 +46,66 @@ final class EventRuntimeKissUrlCarriesDeferredIdOnceTest extends TestCase
     }
 
     /**
+     * The drain for a streamed answer does not open beside the page's first,
+     * deferred drain. Its URL carries no deferred id, so attachSse no longer
+     * merges the two, and a second drain would take the session over and
+     * cancel the deferred slots the first is still rendering (review,
+     * semitexa-platform-ui#106). The answer is counted, and the first drain's
+     * close opens the one drain that carries it.
+     */
+    #[Test]
+    public function a_streamed_answer_during_the_first_deferred_drain_waits_for_its_close(): void
+    {
+        $run = $this->inNode(<<<'JS'
+            var first = '/__semitexa_kiss?session_id=sse_page&mode=drain&deferred_request_id=dr_1';
+            ATTACHED_SSE_CONNECTIONS.push({ url: first });
+            armDrainOnDemand();
+            fire('semitexa:ui-event:dispatched', { response: { streamedPatchCount: 1 } });
+            var duringFirst = attached.slice();
+            ATTACHED_SSE_CONNECTIONS.length = 0;
+            fire('semitexa:ui-sse:close', { url: first });
+            out({ duringFirst: duringFirst, afterClose: attached });
+            JS, ['buildKissUrl', 'hasDrainSseConnection', 'armDrainOnDemand']);
+
+        self::assertSame([], $run['duringFirst'], 'no second drain beside the first');
+        self::assertSame(['/__semitexa_kiss?session_id=sse_page&mode=drain'], $run['afterClose'], 'one drain, without the id, once the first closed');
+    }
+
+    /**
+     * @param list<string> $names
      * @return array<string, mixed>
      */
-    private function inNode(string $scenario): array
+    private function inNode(string $scenario, array $names = ['buildKissUrl']): array
     {
         $node = trim((string) shell_exec('command -v node 2>/dev/null'));
         // Not skipped without node: the image ships it, and a skip would pass a regression.
         self::assertNotSame('', $node, 'node runs buildKissUrl; the runtime image ships it.');
 
         $source = (string) file_get_contents(self::JS);
-        self::assertSame(1, preg_match('/^    function buildKissUrl\(.*?^    \}$/ms', $source, $match), 'buildKissUrl() not found');
+        $functions = '';
+        foreach ($names as $name) {
+            self::assertSame(1, preg_match('/^    function ' . $name . '\(.*?^    \}$/ms', $source, $match), $name . '() not found');
+            $functions .= ($match[0] ?? '') . "\n";
+        }
 
         $script = <<<'JS'
+            var SSE_TRANSPORT_MODE_DRAIN = 'drain';
+            var SSE_TRANSPORT_MODE_LIVE = 'live';
+            var ATTACHED_SSE_CONNECTIONS = [];
+            var drainOnDemandArmed = false;
+            var drainOnDemandOpened = false;
+            var drainStreamedWhileOpen = 0;
+            var attached = [];
+            var listeners = {};
+            var document = { addEventListener: function (type, fn) { (listeners[type] = listeners[type] || []).push(fn); } };
+            function fire(type, detail) { (listeners[type] || []).forEach(function (fn) { fn({ detail: detail }); }); }
+            function attachSse(options) { attached.push(options.url); }
+            function readPageSseSessionId() { return 'sse_page'; }
+            function readPageTransportMode() { return 'drain'; }
             function readDeferredManifest() { return { requestId: 'dr_1' }; }
             function out(value) { process.stdout.write(JSON.stringify(value)); }
 
-            JS . ($match[0] ?? '') . "\n" . $scenario;
+            JS . $functions . $scenario;
 
         $file = (string) tempnam(sys_get_temp_dir(), 'kissurl');
         file_put_contents($file, $script);
