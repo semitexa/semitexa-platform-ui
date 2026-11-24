@@ -3172,7 +3172,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         return parsed;
     }
 
-    function buildKissUrl(sessionId, mode) {
+    function buildKissUrl(sessionId, mode, withDeferred) {
         var url = '/__semitexa_kiss?session_id=' + encodeURIComponent(sessionId)
             + '&mode=' + encodeURIComponent(mode);
         // Unify the deferred-SSR stream into this connection: when the page
@@ -3180,9 +3180,12 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         // id so the server streams the deferred slots over the SAME connection
         // (regardless of mode) before it drains/holds per the transport mode.
         // The id is consumed server-side, so it only ever rides the initial
-        // open; pages with no deferred content (the drain-on-demand case) have
-        // no window.__SSR_DEFERRED and get a plain session+mode URL.
-        var deferred = readDeferredManifest();
+        // open (withDeferred): a later drain or live stream built with it carried
+        // a request that expires after 120 s, and a stream whose bind token no
+        // longer matches is refused before its queued answers are sent. Pages
+        // with no deferred content have no window.__SSR_DEFERRED and get a plain
+        // session+mode URL either way.
+        var deferred = withDeferred === true ? readDeferredManifest() : null;
         if (deferred && typeof deferred.requestId === 'string' && deferred.requestId !== '') {
             url += '&deferred_request_id=' + encodeURIComponent(deferred.requestId);
         }
@@ -3296,7 +3299,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
                     + '; Path=/; Max-Age=86400; SameSite=Lax';
             }
             attachSse({
-                url: buildKissUrl(sessionId, mode)
+                url: buildKissUrl(sessionId, mode, true)
             });
             return;
         }

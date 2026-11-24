@@ -5,6 +5,15 @@ Changes to `semitexa/platform-ui` that a consuming application can notice. Secti
 next release tag. This file is machine-read by `update:changelog` and the OS
 "What's new" surface — keep entries short and operator-facing.
 
+## Unreleased
+
+### Fixed
+- A page's later SSE streams no longer carry its deferred request id: the drain
+  reopened for each streamed answer, and the live stream a subscriber opens. The
+  id belongs to the page's first stream only and expires after 120 s, and a
+  stream whose bind token no longer matches is refused before its queued answers
+  are sent.
+
 ## 2026.11.23.1215 — 2026-11-23
 
 ### Fixed
