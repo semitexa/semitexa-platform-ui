@@ -1246,13 +1246,14 @@
         line-height: 1;
         white-space: nowrap;
         background: color-mix(in oklab, var(--_tone) 12%, var(--ui-surface-raised));
-        color: color-mix(in oklab, var(--_tone) 80%, var(--ui-text-primary));
+        color: color-mix(in oklab, var(--_tone) var(--_tone-ink, 80%), var(--ui-text-primary));
         border: 1px solid color-mix(in oklab, var(--_tone) 22%, transparent);
     }
     [ui="tag"][ui-tone="brand"]   { --_tone: var(--ui-accent-brand); }
     [ui="tag"][ui-tone="info"]    { --_tone: var(--ui-state-info); }
     [ui="tag"][ui-tone="success"] { --_tone: var(--ui-state-success); }
-    [ui="tag"][ui-tone="warning"] { --_tone: var(--ui-state-warning); }
+    /* Warning is the lightest tone: at 80% its text read 3.39:1 on the tinted tag in light mode. */
+    [ui="tag"][ui-tone="warning"] { --_tone: var(--ui-state-warning); --_tone-ink: 55%; }
     [ui="tag"][ui-tone="danger"]  { --_tone: var(--ui-state-danger); }
     [ui="tag"] > [ui-removable-trigger] {
         display: inline-grid;
