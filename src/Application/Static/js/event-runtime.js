@@ -2834,6 +2834,18 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         return false;
     }
 
+    /** A drain-mode connection for this session is attached: the page's first one (with its deferred request id) included. */
+    function hasDrainSseConnection(sessionId) {
+        var addressed = 'session_id=' + encodeURIComponent(sessionId) + '&';
+        for (var i = 0; i < ATTACHED_SSE_CONNECTIONS.length; i++) {
+            var u = ATTACHED_SSE_CONNECTIONS[i].url || '';
+            if (u.indexOf('mode=' + SSE_TRANSPORT_MODE_DRAIN) !== -1 && u.indexOf(addressed) !== -1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Ensure a LIVE shared KISS connection is open (collab/grids need it live). */
     function ensureKissOpen(sessionId) {
         if (typeof EventSource !== 'function') {
@@ -3172,7 +3184,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         return parsed;
     }
 
-    function buildKissUrl(sessionId, mode) {
+    function buildKissUrl(sessionId, mode, withDeferred) {
         var url = '/__semitexa_kiss?session_id=' + encodeURIComponent(sessionId)
             + '&mode=' + encodeURIComponent(mode);
         // Unify the deferred-SSR stream into this connection: when the page
@@ -3180,9 +3192,12 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
         // id so the server streams the deferred slots over the SAME connection
         // (regardless of mode) before it drains/holds per the transport mode.
         // The id is consumed server-side, so it only ever rides the initial
-        // open; pages with no deferred content (the drain-on-demand case) have
-        // no window.__SSR_DEFERRED and get a plain session+mode URL.
-        var deferred = readDeferredManifest();
+        // open (withDeferred): a later drain or live stream built with it carried
+        // a request that expires after 120 s, and a stream whose bind token no
+        // longer matches is refused before its queued answers are sent. Pages
+        // with no deferred content have no window.__SSR_DEFERRED and get a plain
+        // session+mode URL either way.
+        var deferred = withDeferred === true ? readDeferredManifest() : null;
         if (deferred && typeof deferred.requestId === 'string' && deferred.requestId !== '') {
             url += '&deferred_request_id=' + encodeURIComponent(deferred.requestId);
         }
@@ -3244,7 +3259,11 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             if (readPageSseSessionId() === null || readPageTransportMode() === SSE_TRANSPORT_MODE_LIVE) {
                 return;
             }
-            if (drainOnDemandOpened) {
+            // A drain already open for this page, its first deferred one included,
+            // delivers the answer, or its close reopens one: a second drain beside
+            // it would take the session over and cancel the deferred slots it is
+            // still rendering (its URL differs, so attachSse would not merge them).
+            if (drainOnDemandOpened || hasDrainSseConnection(readPageSseSessionId())) {
                 drainStreamedWhileOpen += streamed;
                 return;
             }
@@ -3296,7 +3315,7 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
                     + '; Path=/; Max-Age=86400; SameSite=Lax';
             }
             attachSse({
-                url: buildKissUrl(sessionId, mode)
+                url: buildKissUrl(sessionId, mode, true)
             });
             return;
         }

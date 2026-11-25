@@ -583,8 +583,10 @@ final class EventRuntimeAssetTest extends TestCase
         // cannot smuggle extra query params even if the safe-shape guard
         // were bypassed. The transport-mode meta is constrained to two
         // values client-side; encoding it is defence in depth.
+        // withDeferred: only the page's first open carries the deferred request id
+        // (EventRuntimeKissUrlCarriesDeferredIdOnceTest pins which call passes it).
         self::assertMatchesRegularExpression(
-            '/function\s+buildKissUrl\s*\(\s*sessionId\s*,\s*mode\s*\)\s*\{/',
+            '/function\s+buildKissUrl\s*\(\s*sessionId\s*,\s*mode\s*,\s*withDeferred\s*\)\s*\{/',
             $code,
             'A shared URL builder is required so live and drain callsites cannot drift.',
         );
@@ -600,9 +602,9 @@ final class EventRuntimeAssetTest extends TestCase
         // Live mode routes through attachSse with the shared builder —
         // the runtime never inlines a URL behind attachSse's back.
         self::assertMatchesRegularExpression(
-            '/attachSse\(\s*\{\s*url:\s*buildKissUrl\(\s*sessionId\s*,\s*mode\s*\)\s*\}\s*\)/',
+            '/attachSse\(\s*\{\s*url:\s*buildKissUrl\(\s*sessionId\s*,\s*mode\s*,\s*true\s*\)\s*\}\s*\)/',
             $code,
-            'Live mode must attach via attachSse({url: buildKissUrl(sessionId, mode)}) — the resolved mode (live, or the actual mode in the deferred case) is passed through, never a hard-coded literal.',
+            'Live mode must attach via attachSse({url: buildKissUrl(sessionId, mode, true)}) — the resolved mode (live, or the actual mode in the deferred case) is passed through, never a hard-coded literal.',
         );
     }
 
