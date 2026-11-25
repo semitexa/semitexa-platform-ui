@@ -13,6 +13,10 @@ next release tag. This file is machine-read by `update:changelog` and the OS
   id belongs to the page's first stream only and expires after 120 s, and a
   stream whose bind token no longer matches is refused before its queued answers
   are sent.
+- A page with deferred content in drain mode now receives a streamed UI answer
+  that comes after its first stream closed. Nothing opened another drain for
+  it, so the answer stayed queued on the server. An answer that comes while the
+  first stream is still open waits for its close, which opens one drain.
 
 ## 2026.11.23.1215 — 2026-11-23
 
