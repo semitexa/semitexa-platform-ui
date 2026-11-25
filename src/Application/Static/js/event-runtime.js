@@ -3317,6 +3317,13 @@ import { withCsrf, mount, envelope, hug } from 'platform-ui/core';
             attachSse({
                 url: buildKissUrl(sessionId, mode, true)
             });
+            if (mode === SSE_TRANSPORT_MODE_DRAIN) {
+                // A drain page's first stream closes once its deferred slots
+                // are sent. Without the listeners a streamed answer after that
+                // stayed queued: nothing opened another drain. An answer while
+                // the first drain is open is counted, and its close reopens one.
+                armDrainOnDemand();
+            }
             return;
         }
         // Drain mode with NO deferred content: do NOT open an EventSource on
